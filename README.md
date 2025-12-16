@@ -152,10 +152,12 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    uvicorn app.main:app --reload
    ```
 3. Endpoints disponibles (prefijo `/api` por defecto):
-   - `GET /api/health`
+   - `GET /api/health` (incluye versión)
    - `GET /api/roles`
-   - `GET /api/skus`, `POST /api/skus` (crear sin duplicar código)
-   - `GET /api/deposits`, `POST /api/deposits` (crear sin duplicar nombre)
+   - SKUs: `GET /api/skus`, `GET /api/skus/{id}`, `POST /api/skus`, `PUT /api/skus/{id}`, `DELETE /api/skus/{id}`
+   - Depósitos: `GET /api/deposits`, `POST /api/deposits`, `PUT /api/deposits/{id}`, `DELETE /api/deposits/{id}`
+   - Recetas: `GET /api/recipes`, `POST /api/recipes` (acepta componentes y cantidades)
+   - Stock: `GET /api/stock-levels` (saldo consolidado) y `POST /api/stock/movements` (ingresos, consumos, mermas, remitos)
 
 ### Frontend (React + Vite + MUI)
 1. Configura el endpoint del backend:
@@ -166,6 +168,30 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    npm run dev
    ```
 2. Próximos pasos UI: añadir routing, pantalla de login mock y vistas stub para pedidos, producción y kardex.
+
+## Cómo subir tus cambios (incluye `package.json` y archivos nuevos como `App.tsx`)
+
+1. Revisa qué modificaste y qué archivos nuevos tienes:
+   ```bash
+   git status
+   ```
+2. Añade todo lo que quieras subir (los archivos nuevos también se agregan con este paso):
+   ```bash
+   git add .
+   ```
+3. Crea el commit con un mensaje breve en español:
+   ```bash
+   git commit -m "Describe el cambio (por ejemplo: agrega routing y vistas stub)"
+   ```
+4. Sube la rama actual (`work` si sigues en esta) al remoto configurado:
+   ```bash
+   git push origin work
+   ```
+   Si ya configuraste el upstream (con `git push -u origin work` la primera vez), basta con:
+   ```bash
+   git push
+   ```
+5. Verifica en GitHub que se vea el commit y los archivos nuevos; si trabajas con Pull Requests, ábrelos desde la rama donde hiciste el push.
 
 ### Semillas mínimas incluidas
 - Roles: `admin`, `deposito`, `produccion`.

@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
-import { AppShell } from "./shell/AppShell";
+import { App } from "./App";
 
 const theme = createTheme({
   palette: {
@@ -21,7 +21,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppShell />
+      <App />
     </ThemeProvider>
   </React.StrictMode>
 );
