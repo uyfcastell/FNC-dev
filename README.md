@@ -167,6 +167,30 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    ```
 2. Próximos pasos UI: añadir routing, pantalla de login mock y vistas stub para pedidos, producción y kardex.
 
+## Cómo subir tus cambios (incluye `package.json` y archivos nuevos como `App.tsx`)
+
+1. Revisa qué modificaste y qué archivos nuevos tienes:
+   ```bash
+   git status
+   ```
+2. Añade todo lo que quieras subir (los archivos nuevos también se agregan con este paso):
+   ```bash
+   git add .
+   ```
+3. Crea el commit con un mensaje breve en español:
+   ```bash
+   git commit -m "Describe el cambio (por ejemplo: agrega routing y vistas stub)"
+   ```
+4. Sube la rama actual (`work` si sigues en esta) al remoto configurado:
+   ```bash
+   git push origin work
+   ```
+   Si ya configuraste el upstream (con `git push -u origin work` la primera vez), basta con:
+   ```bash
+   git push
+   ```
+5. Verifica en GitHub que se vea el commit y los archivos nuevos; si trabajas con Pull Requests, ábrelos desde la rama donde hiciste el push.
+
 ### Semillas mínimas incluidas
 - Roles: `admin`, `deposito`, `produccion`.
 - Depósitos: `Depósito Principal`, `Depósito MP`.
