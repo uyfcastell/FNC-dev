@@ -152,10 +152,12 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    uvicorn app.main:app --reload
    ```
 3. Endpoints disponibles (prefijo `/api` por defecto):
-   - `GET /api/health`
+   - `GET /api/health` (incluye versión)
    - `GET /api/roles`
-   - `GET /api/skus`, `POST /api/skus` (crear sin duplicar código)
-   - `GET /api/deposits`, `POST /api/deposits` (crear sin duplicar nombre)
+   - SKUs: `GET /api/skus`, `GET /api/skus/{id}`, `POST /api/skus`, `PUT /api/skus/{id}`, `DELETE /api/skus/{id}`
+   - Depósitos: `GET /api/deposits`, `POST /api/deposits`, `PUT /api/deposits/{id}`, `DELETE /api/deposits/{id}`
+   - Recetas: `GET /api/recipes`, `POST /api/recipes` (acepta componentes y cantidades)
+   - Stock: `GET /api/stock-levels` (saldo consolidado) y `POST /api/stock/movements` (ingresos, consumos, mermas, remitos)
 
 ### Frontend (React + Vite + MUI)
 1. Configura el endpoint del backend:

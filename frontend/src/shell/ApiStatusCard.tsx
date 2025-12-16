@@ -36,8 +36,7 @@ export function ApiStatusCard() {
     <Card>
       <CardHeader
         title="Estado del backend"
-        subheader="FUNCIONA - Consulta al endpoint /health con 
-VITE_API_BASE_URL"
+        subheader="Consulta al endpoint /health con VITE_API_BASE_URL"
         action={
           <Button startIcon={<RefreshIcon />} onClick={loadHealth} disabled={loading} variant="outlined">
             Actualizar
