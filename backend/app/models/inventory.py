@@ -46,4 +46,3 @@ class StockMovement(TimestampedModel, table=True):
 
     sku: "SKU" = Relationship()
     deposit: Deposit = Relationship()
-

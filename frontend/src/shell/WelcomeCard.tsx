@@ -1,5 +1,4 @@
-import { Card, CardContent, CardHeader, Chip, Divider, List, ListItem, ListItemText, Stack, Typography } 
-from "@mui/material";
+import { Card, CardContent, CardHeader, Chip, Divider, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
 
 const steps = [
   "Definir usuarios base y roles (Admin, Depósito, Producción, Remitos/Auditoría)",
@@ -19,8 +18,7 @@ export function WelcomeCard() {
       <Divider />
       <CardContent>
         <Typography variant="body1" sx={{ mb: 2 }}>
-          Esta primera versión incluye la estructura mínima para los modelos principales, migraciones 
-iniciales y un shell de
+          Esta primera versión incluye la estructura mínima para los modelos principales, migraciones iniciales y un shell de
           interfaz listo para iterar pantallas de producción, stock y remitos.
         </Typography>
         <Stack spacing={1}>
@@ -37,4 +35,3 @@ iniciales y un shell de
     </Card>
   );
 }
-

@@ -4,8 +4,9 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     app_name: str = "FNC Backend"
-    database_url: str = "postgresql+psycopg://fnc:20251212@localhost:5432/FNC"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/fnc"
     api_prefix: str = "/api"
+    load_seed: bool = False
 
     class Config:
         env_file = ".env"
@@ -15,4 +16,3 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
-

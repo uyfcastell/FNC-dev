@@ -26,4 +26,3 @@ class User(TimestampedModel, table=True):
     role_id: int | None = Field(default=None, foreign_key="roles.id")
 
     role: Role | None = Relationship(back_populates="users")
-

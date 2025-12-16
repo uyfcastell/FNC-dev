@@ -43,4 +43,3 @@ class RecipeItem(TimestampedModel, table=True):
 
     recipe: Recipe = Relationship(back_populates="items")
     component: SKU = Relationship()
-

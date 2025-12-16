@@ -42,4 +42,3 @@ class RemitoStatus(str, Enum):
 
 class BaseUUIDModel(SQLModel):
     id: Optional[int] = Field(default=None, primary_key=True)
-
