@@ -1,0 +1,7 @@
+[alembic]
+script_location = alembic
+prepend_sys_path = .
+sqlalchemy.url = postgresql+psycopg://postgres:postgres@localhost:5432/fnc
+
+[logging]
+log_level = INFO
