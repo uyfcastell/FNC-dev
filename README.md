@@ -152,10 +152,14 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    uvicorn app.main:app --reload
    ```
 3. Endpoints disponibles (prefijo `/api` por defecto):
-   - `GET /api/health`
+   - `GET /api/health` (incluye versión)
    - `GET /api/roles`
-   - `GET /api/skus`, `POST /api/skus` (crear sin duplicar código)
-   - `GET /api/deposits`, `POST /api/deposits` (crear sin duplicar nombre)
+   - Catálogos: `GET /api/units` (unidades de medida normalizadas)
+   - SKUs: `GET /api/skus`, `GET /api/skus/{id}`, `POST /api/skus`, `PUT /api/skus/{id}`, `DELETE /api/skus/{id}`
+   - Depósitos: `GET /api/deposits`, `POST /api/deposits`, `PUT /api/deposits/{id}`, `DELETE /api/deposits/{id}`
+   - Recetas: `GET /api/recipes`, `POST /api/recipes` (acepta componentes y cantidades)
+   - Stock: `GET /api/stock-levels` (saldo consolidado), `POST /api/stock/movements` (ingresos, consumos, mermas, remitos)
+   - Reportes: `GET /api/reports/stock-summary` (totales por tag, depósito y movimientos últimos 7 días)
 
 ### Frontend (React + Vite + MUI)
 1. Configura el endpoint del backend:
@@ -167,10 +171,60 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    ```
 2. Próximos pasos UI: añadir routing, pantalla de login mock y vistas stub para pedidos, producción y kardex.
 
+### Catálogo de unidades de medida (cambio breaking)
+- El atributo `unit` de SKUs ahora es un `enum` con catálogo controlado (`unit`, `kg`, `g`, `l`, `ml`, `pack`, `box`, `m`, `cm`).
+- El frontend consume las unidades desde `GET /api/units`; no hay campos de texto libre para unidades.
+- Si tienes datos previos, deberás migrar las unidades existentes al nuevo catálogo antes de levantar la app.
+
+## Cómo subir tus cambios (incluye `package.json` y archivos nuevos como `App.tsx`)
+
+1. Revisa qué modificaste y qué archivos nuevos tienes:
+   ```bash
+   git status
+   ```
+2. Añade todo lo que quieras subir (los archivos nuevos también se agregan con este paso):
+   ```bash
+   git add .
+   ```
+3. Crea el commit con un mensaje breve en español:
+   ```bash
+   git commit -m "Describe el cambio (por ejemplo: agrega routing y vistas stub)"
+   ```
+4. Sube la rama actual (`work` si sigues en esta) al remoto configurado:
+   ```bash
+   git push origin work
+   ```
+   Si ya configuraste el upstream (con `git push -u origin work` la primera vez), basta con:
+   ```bash
+   git push
+   ```
+5. Verifica en GitHub que se vea el commit y los archivos nuevos; si trabajas con Pull Requests, ábrelos desde la rama donde hiciste el push.
+
 ### Semillas mínimas incluidas
 - Roles: `admin`, `deposito`, `produccion`.
 - Depósitos: `Depósito Principal`, `Depósito MP`.
 - SKUs ejemplo: `CUC-PT-24`, `CUC-GRANEL`, `MP-HARINA`.
+
+## Pruebas recomendadas para validación interna
+1. **Catálogo y unidades**
+   - Crear un SKU con cada unidad del catálogo y validar que no se acepten valores fuera de la lista.
+   - Editar un SKU existente cambiando la unidad y verificar la persistencia.
+2. **Flujos de stock**
+   - Registrar ingreso de MP en un depósito y verificar el saldo en `GET /api/stock-levels`.
+   - Registrar producción de PT/SEMI y confirmar el incremento de stock.
+   - Registrar merma/ajuste y validar que no se permita dejar saldo negativo.
+3. **Recetas y producción**
+   - Crear una receta con múltiples componentes y confirmar que se rechace si falta algún SKU.
+   - Registrar producción desde la vista de Producción y revisar que aparezca en el reporte de movimientos.
+4. **Modo móvil (tablet/smartphone)**
+   - Abrir la app en una tablet/viewport < 1024px y confirmar que sólo se muestran producción, merma y pedidos/remitos.
+   - Registrar producción y merma desde el modo móvil y validar el saldo actualizado en escritorio.
+5. **Reportes**
+   - Consultar `GET /api/reports/stock-summary` y revisar totales por tag y depósito.
+   - Verificar que los movimientos de los últimos 7 días se reflejen en la tarjeta de movimientos.
+6. **Smoke de UI**
+   - Navegar en escritorio por Inicio, Producción, Stock, Pedidos y Reportes.
+   - Validar que los formularios muestran mensajes de error ante campos obligatorios vacíos o API caída.
 
 ## Cómo publicar en tu nuevo repositorio de GitHub
 
@@ -266,4 +320,3 @@ Si tienes otra ruta local, ubica la carpeta que contiene `backend/`, `frontend/`
 1. Ajustar/validar el ERD y completar seeds iniciales (roles, depósitos, SKUs ejemplo y usuarios).
 2. Definir endpoints iniciales (producción, movimientos de stock, pedidos/remitos) y contratos de API.
 3. Construir pantallas por rol: captura en tablet (producción/stock) y escritorio (pedidos/remitos/reportes).
-
