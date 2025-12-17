@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
@@ -13,7 +13,7 @@ from ..models import (
     StockLevel,
     StockMovement,
 )
-from ..models.common import MovementType
+from ..models.common import MovementType, UnitOfMeasure
 from ..schemas import (
     DepositCreate,
     DepositRead,
@@ -25,6 +25,10 @@ from ..schemas import (
     SKUUpdate,
     StockLevelRead,
     StockMovementCreate,
+    StockReportRead,
+    StockSummaryRow,
+    MovementSummary,
+    UnitRead,
 )
 
 router = APIRouter()
@@ -38,6 +42,24 @@ def health() -> dict[str, str]:
 @router.get("/roles", tags=["admin"])
 def list_roles(session: Session = Depends(get_session)) -> list[Role]:
     return session.exec(select(Role)).all()
+
+
+@router.get("/units", tags=["catalogs"], response_model=list[UnitRead])
+def list_units() -> list[UnitRead]:
+    """Catálogo controlado de unidades de medida."""
+
+    unit_labels = {
+        UnitOfMeasure.UNIT: "Unidad",
+        UnitOfMeasure.KG: "Kilogramo",
+        UnitOfMeasure.G: "Gramo",
+        UnitOfMeasure.L: "Litro",
+        UnitOfMeasure.ML: "Mililitro",
+        UnitOfMeasure.PACK: "Pack",
+        UnitOfMeasure.BOX: "Caja",
+        UnitOfMeasure.M: "Metro",
+        UnitOfMeasure.CM: "Centímetro",
+    }
+    return [{"code": code, "label": unit_labels.get(code, code)} for code in UnitOfMeasure]
 
 
 @router.get("/skus", tags=["sku"], response_model=list[SKURead])
@@ -274,3 +296,28 @@ def register_stock_movement(payload: StockMovementCreate, session: Session = Dep
         quantity=stock_level.quantity,
     )
 
+
+@router.get("/reports/stock-summary", tags=["reports"], response_model=StockReportRead)
+def stock_summary(session: Session = Depends(get_session)) -> StockReportRead:
+    stock_levels = session.exec(select(StockLevel)).all()
+    totals_by_tag: dict[str, float] = {}
+    totals_by_deposit: dict[str, float] = {}
+
+    for level in stock_levels:
+        session.refresh(level, attribute_names=["sku", "deposit"])
+        totals_by_tag[level.sku.tag] = totals_by_tag.get(level.sku.tag, 0) + level.quantity
+        totals_by_deposit[level.deposit.name] = totals_by_deposit.get(level.deposit.name, 0) + level.quantity
+
+    movements_cutoff = date.today() - timedelta(days=7)
+    movements = session.exec(select(StockMovement).where(StockMovement.movement_date >= movements_cutoff)).all()
+    movement_totals: dict[MovementType, float] = {}
+    for mov in movements:
+        movement_totals[mov.movement_type] = movement_totals.get(mov.movement_type, 0) + mov.quantity
+
+    return StockReportRead(
+        totals_by_tag=[StockSummaryRow(group="tag", label=tag, quantity=qty) for tag, qty in totals_by_tag.items()],
+        totals_by_deposit=[
+          StockSummaryRow(group="deposit", label=deposit, quantity=qty) for deposit, qty in totals_by_deposit.items()
+        ],
+        movement_totals=[MovementSummary(movement_type=m_type, quantity=qty) for m_type, qty in movement_totals.items()],
+    )

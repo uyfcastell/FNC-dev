@@ -2,14 +2,30 @@ from datetime import date
 
 from sqlmodel import SQLModel
 
-from .models.common import MovementType, SKUTag
+from .models.common import MovementType, SKUTag, UnitOfMeasure
 
 
 class SKUCreate(SQLModel):
     code: str
     name: str
     tag: SKUTag
-    unit: str = "unit"
+    unit: UnitOfMeasure = UnitOfMeasure.UNIT
+    notes: str | None = None
+
+
+class SKUUpdate(SQLModel):
+    name: str | None = None
+    tag: SKUTag | None = None
+    unit: UnitOfMeasure | None = None
+    notes: str | None = None
+
+
+class SKURead(SQLModel):
+    id: int
+    code: str
+    name: str
+    tag: SKUTag
+    unit: UnitOfMeasure
     notes: str | None = None
 
 
@@ -83,3 +99,25 @@ class StockLevelRead(SQLModel):
     sku_code: str
     sku_name: str
     quantity: float
+
+
+class UnitRead(SQLModel):
+    code: UnitOfMeasure
+    label: str
+
+
+class StockSummaryRow(SQLModel):
+    group: str
+    label: str
+    quantity: float
+
+
+class MovementSummary(SQLModel):
+    movement_type: MovementType
+    quantity: float
+
+
+class StockReportRead(SQLModel):
+    totals_by_tag: list[StockSummaryRow]
+    totals_by_deposit: list[StockSummaryRow]
+    movement_totals: list[MovementSummary]

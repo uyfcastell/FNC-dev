@@ -2,7 +2,7 @@ from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship
 
-from .common import SKUTag, TimestampedModel
+from .common import SKUTag, TimestampedModel, UnitOfMeasure
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import StockLevel
@@ -15,7 +15,7 @@ class SKU(TimestampedModel, table=True):
     code: str = Field(index=True, unique=True, max_length=64)
     name: str = Field(max_length=255)
     tag: SKUTag = Field(description="Tipo de SKU: PT/SEMI/MP/CON")
-    unit: str = Field(default="unit")
+    unit: UnitOfMeasure = Field(default=UnitOfMeasure.UNIT, description="Unidad de medida controlada")
     notes: str | None = Field(default=None, max_length=255)
 
     stock_levels: list["StockLevel"] = Relationship(back_populates="sku")

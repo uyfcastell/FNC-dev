@@ -35,16 +35,26 @@ import {
   SKUTag,
   SKU,
   StockLevel,
+  fetchUnits,
+  UnitOption,
+  UnitOfMeasure,
 } from "../lib/api";
 
 export function StockPage() {
   const [stock, setStock] = useState<StockLevel[] | null>(null);
   const [skus, setSkus] = useState<SKU[] | null>(null);
   const [deposits, setDeposits] = useState<Deposit[] | null>(null);
+  const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [skuForm, setSkuForm] = useState({
+  const [skuForm, setSkuForm] = useState<{
+    code: string;
+    name: string;
+    tag: SKUTag;
+    unit: UnitOfMeasure;
+    notes: string;
+  }>({
     code: "",
     name: "",
     tag: "MP" as SKUTag,
@@ -78,12 +88,24 @@ export function StockPage() {
     void reloadData();
   }, []);
 
+  useEffect(() => {
+    if (units.length && !skuForm.unit) {
+      setSkuForm((prev) => ({ ...prev, unit: units[0].code }));
+    }
+  }, [units, skuForm.unit]);
+
   const reloadData = async () => {
     try {
-      const [stockLevels, skuList, depositList] = await Promise.all([fetchStockLevels(), fetchSkus(), fetchDeposits()]);
+      const [stockLevels, skuList, depositList, unitList] = await Promise.all([
+        fetchStockLevels(),
+        fetchSkus(),
+        fetchDeposits(),
+        fetchUnits(),
+      ]);
       setStock(stockLevels);
       setSkus(skuList);
       setDeposits(depositList);
+      setUnits(unitList);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -200,8 +222,16 @@ export function StockPage() {
                 <TextField
                   label="Unidad de medida"
                   value={skuForm.unit}
-                  onChange={(e) => setSkuForm((prev) => ({ ...prev, unit: e.target.value }))}
-                />
+                  select
+                  helperText="Elegí una unidad del catálogo"
+                  onChange={(e) => setSkuForm((prev) => ({ ...prev, unit: e.target.value as UnitOfMeasure }))}
+                >
+                  {units.map((unit) => (
+                    <MenuItem key={unit.code} value={unit.code}>
+                      {unit.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <TextField
                   label="Notas"
                   value={skuForm.notes}

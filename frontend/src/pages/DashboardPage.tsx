@@ -30,6 +30,13 @@ export function DashboardPage() {
             to="/pedidos"
           />
         </Grid>
+        <Grid item xs={12} md={6} lg={4}>
+          <QuickLinkCard
+            title="Reportes"
+            description="Totales por depósito y tipo de SKU, movimientos últimos 7 días"
+            to="/reportes"
+          />
+        </Grid>
       </Grid>
     </Stack>
   );

@@ -17,6 +17,18 @@ class SKUTag(str, Enum):
     CON = "CON"  # Consumible / Material para locales
 
 
+class UnitOfMeasure(str, Enum):
+    UNIT = "unit"  # Unidad
+    KG = "kg"
+    G = "g"
+    L = "l"
+    ML = "ml"
+    PACK = "pack"
+    BOX = "box"
+    M = "m"
+    CM = "cm"
+
+
 class MovementType(str, Enum):
     PRODUCTION = "production"
     CONSUMPTION = "consumption"

@@ -1,13 +1,14 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api";
 
 export type SKUTag = "PT" | "SEMI" | "MP" | "CON";
+export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
 
 export type SKU = {
   id: number;
   code: string;
   name: string;
   tag: SKUTag;
-  unit: string;
+  unit: UnitOfMeasure;
   notes?: string | null;
 };
 
@@ -41,6 +42,28 @@ export type Recipe = {
 
 export type MovementType = "production" | "consumption" | "adjustment" | "transfer" | "remito" | "merma";
 
+export type UnitOption = {
+  code: UnitOfMeasure;
+  label: string;
+};
+
+export type StockSummaryRow = {
+  group: string;
+  label: string;
+  quantity: number;
+};
+
+export type MovementSummary = {
+  movement_type: MovementType;
+  quantity: number;
+};
+
+export type StockReport = {
+  totals_by_tag: StockSummaryRow[];
+  totals_by_deposit: StockSummaryRow[];
+  movement_totals: MovementSummary[];
+};
+
 export async function fetchHealth(): Promise<{ status: string; version?: string }> {
   const response = await fetch(`${API_BASE_URL}/health`);
   if (!response.ok) {
@@ -69,6 +92,14 @@ export async function fetchStockLevels(): Promise<StockLevel[]> {
   const response = await fetch(`${API_BASE_URL}/stock-levels`);
   if (!response.ok) {
     throw new Error("No se pudo obtener el stock actual");
+  }
+  return response.json();
+}
+
+export async function fetchUnits(): Promise<UnitOption[]> {
+  const response = await fetch(`${API_BASE_URL}/units`);
+  if (!response.ok) {
+    throw new Error("No se pudo obtener las unidades");
   }
   return response.json();
 }
@@ -137,6 +168,14 @@ export async function createRecipe(payload: Omit<Recipe, "id">): Promise<Recipe>
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || "No se pudo crear la receta");
+  }
+  return response.json();
+}
+
+export async function fetchStockReport(): Promise<StockReport> {
+  const response = await fetch(`${API_BASE_URL}/reports/stock-summary`);
+  if (!response.ok) {
+    throw new Error("No se pudo obtener el reporte de stock");
   }
   return response.json();
 }

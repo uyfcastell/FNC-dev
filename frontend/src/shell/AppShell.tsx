@@ -5,20 +5,27 @@ import LoginIcon from "@mui/icons-material/Login";
 import ManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import MenuIcon from "@mui/icons-material/Menu";
 import { AppBar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from "@mui/material";
-import { PropsWithChildren, useState } from "react";
+import { PropsWithChildren, ReactNode, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
 const drawerWidth = 240;
 
-const navItems = [
+export type NavItem = {
+  label: string;
+  to: string;
+  icon: ReactNode;
+};
+
+const defaultNavItems: NavItem[] = [
   { label: "Inicio", icon: <DashboardIcon />, to: "/" },
   { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion" },
   { label: "Stock", icon: <InventoryIcon />, to: "/stock" },
   { label: "Pedidos y remitos", icon: <ListAltIcon />, to: "/pedidos" },
+  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes" },
   { label: "Login", icon: <LoginIcon />, to: "/login" },
 ];
 
-export function AppShell({ children }: PropsWithChildren) {
+export function AppShell({ children, navItems = defaultNavItems }: PropsWithChildren<{ navItems?: NavItem[] }>) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
 

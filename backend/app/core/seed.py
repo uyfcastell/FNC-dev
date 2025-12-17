@@ -1,7 +1,7 @@
 from sqlmodel import Session, select
 
 from ..models import Deposit, Recipe, RecipeItem, Role, SKU
-from ..models.common import SKUTag
+from ..models.common import SKUTag, UnitOfMeasure
 
 DEFAULT_ROLES = [
     {"name": "admin", "description": "Administrador"},
@@ -15,9 +15,20 @@ DEFAULT_DEPOSITS = [
 ]
 
 DEFAULT_SKUS = [
-    {"code": "CUC-PT-24", "name": "Cucuruchos x24", "tag": SKUTag.PT, "unit": "caja"},
-    {"code": "CUC-GRANEL", "name": "Cucurucho granel", "tag": SKUTag.SEMI, "unit": "unidad"},
-    {"code": "MP-HARINA", "name": "Harina 0000", "tag": SKUTag.MP, "unit": "kg"},
+    {"code": "CUC-PT-24", "name": "Cucuruchos x24", "tag": SKUTag.PT, "unit": UnitOfMeasure.BOX},
+    {"code": "CUC-GRANEL", "name": "Cucurucho granel", "tag": SKUTag.SEMI, "unit": UnitOfMeasure.UNIT},
+    {"code": "MP-HARINA", "name": "Harina 0000", "tag": SKUTag.MP, "unit": UnitOfMeasure.KG},
+]
+
+DEFAULT_RECIPES = [
+    {
+        "product_code": "CUC-PT-24",
+        "name": "Receta cucuruchos x24",
+        "items": [
+            {"component_code": "CUC-GRANEL", "quantity": 24},
+            {"component_code": "MP-HARINA", "quantity": 0.5},
+        ],
+    }
 ]
 
 DEFAULT_RECIPES = [
@@ -91,4 +102,3 @@ if __name__ == "__main__":  # Manual seeding helper
 
     with Session(engine) as session:
         seed_initial_data(session)
-

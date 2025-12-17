@@ -1,4 +1,4 @@
-from .common import MovementType, OrderStatus, RemitoStatus, SKUTag
+from .common import MovementType, OrderStatus, RemitoStatus, SKUTag, UnitOfMeasure
 from .inventory import Deposit, StockLevel, StockMovement
 from .order import Order, OrderItem, Remito, RemitoItem
 from .sku import Recipe, RecipeItem, SKU
@@ -9,6 +9,7 @@ __all__ = [
     "OrderStatus",
     "RemitoStatus",
     "SKUTag",
+    "UnitOfMeasure",
     "Deposit",
     "StockLevel",
     "StockMovement",
