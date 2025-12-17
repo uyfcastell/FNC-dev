@@ -13,6 +13,8 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { MobileShell } from "./shell/MobileShell";
 import { MobileHomePage } from "./pages/MobileHomePage";
 import { MobileOrdersPage } from "./pages/MobileOrdersPage";
+import { AdminPage } from "./pages/AdminPage";
+import { OrderEntryPage } from "./pages/OrderEntryPage";
 
 export function App() {
   const [mode, setMode] = useState<"mobile" | "desktop">(getDeviceProfile().mode);
@@ -50,6 +52,8 @@ export function App() {
           <Route path="/produccion" element={<ProductionPage />} />
           <Route path="/stock" element={<StockPage />} />
           <Route path="/pedidos" element={<OrdersPage />} />
+          <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
+          <Route path="/administracion" element={<AdminPage />} />
           <Route path="/reportes" element={<ReportsPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="*" element={<NotFoundPage />} />

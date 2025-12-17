@@ -23,7 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import { AddCircleOutline, DeleteForever } from "@mui/icons-material";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   createRecipe,
@@ -36,6 +36,8 @@ import {
   SKUTag,
   SKU,
 } from "../lib/api";
+
+const PRODUCTION_TAGS: SKUTag[] = ["PT", "SEMI"];
 
 export function ProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
@@ -64,6 +66,10 @@ export function ProductionPage() {
     reference: "",
   });
 
+  const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
+  const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
+  const productionSkus = useMemo(() => sortedSkus.filter((sku) => PRODUCTION_TAGS.includes(sku.tag)), [sortedSkus]);
+
   useEffect(() => {
     void loadData();
   }, []);
@@ -82,7 +88,26 @@ export function ProductionPage() {
 
   const getSkuLabel = (id: number) => {
     const sku = skus.find((s) => s.id === id);
-    return sku ? `${sku.code} · ${sku.name}` : `SKU ${id}`;
+    return sku ? `${sku.name} (${sku.code})` : `SKU ${id}`;
+  };
+
+  const unitLabels: Record<string, string> = {
+    unit: "Unidad",
+    kg: "Kilogramo",
+    g: "Gramo",
+    l: "Litro",
+    ml: "Mililitro",
+    pack: "Pack",
+    box: "Caja",
+    m: "Metro",
+    cm: "Centímetro",
+  };
+
+  const getComponentUnit = (componentId: string) => {
+    if (!componentId) return "";
+    const sku = skus.find((s) => s.id === Number(componentId));
+    if (!sku) return "";
+    return unitLabels[sku.unit] ?? sku.unit;
   };
 
   const handleRecipeSubmit = async (event: FormEvent) => {
@@ -155,8 +180,6 @@ export function ProductionPage() {
     setRecipeForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
   };
 
-  const productionTags: SKUTag[] = ["PT", "SEMI"];
-
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -184,13 +207,11 @@ export function ProductionPage() {
                   onChange={(e) => setProductionForm((prev) => ({ ...prev, product_sku_id: e.target.value }))}
                   helperText="Selecciona el SKU producido"
                 >
-                  {skus
-                    .filter((sku) => productionTags.includes(sku.tag))
-                    .map((sku) => (
-                      <MenuItem key={sku.id} value={sku.id}>
-                        {sku.code} · {sku.name}
-                      </MenuItem>
-                    ))}
+                  {productionSkus.map((sku) => (
+                    <MenuItem key={sku.id} value={sku.id}>
+                      {sku.name} ({sku.code})
+                    </MenuItem>
+                  ))}
                 </TextField>
                 <TextField
                   select
@@ -199,7 +220,7 @@ export function ProductionPage() {
                   value={productionForm.deposit_id}
                   onChange={(e) => setProductionForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
                 >
-                  {deposits.map((deposit) => (
+                  {sortedDeposits.map((deposit) => (
                     <MenuItem key={deposit.id} value={deposit.id}>
                       {deposit.name}
                     </MenuItem>
@@ -238,9 +259,9 @@ export function ProductionPage() {
                   value={recipeForm.product_id}
                   onChange={(e) => setRecipeForm((prev) => ({ ...prev, product_id: e.target.value }))}
                 >
-                  {skus.map((sku) => (
+                  {productionSkus.map((sku) => (
                     <MenuItem key={sku.id} value={sku.id}>
-                      {sku.code} · {sku.name}
+                      {sku.name} ({sku.code})
                     </MenuItem>
                   ))}
                 </TextField>
@@ -262,12 +283,13 @@ export function ProductionPage() {
                         value={item.component_id}
                         onChange={(e) => handleItemChange(index, "component_id", e.target.value)}
                       >
-                        {skus.map((sku) => (
+                        {sortedSkus.map((sku) => (
                           <MenuItem key={sku.id} value={sku.id}>
-                            {sku.code} · {sku.name}
+                            {sku.name} ({sku.code})
                           </MenuItem>
                         ))}
                       </TextField>
+                      <TextField label="Unidad" value={getComponentUnit(item.component_id)} sx={{ width: 140 }} InputProps={{ readOnly: true }} />
                       <TextField
                         required
                         label="Cantidad"
@@ -318,7 +340,12 @@ export function ProductionPage() {
                     <TableCell>
                       <Stack direction="row" spacing={1} flexWrap="wrap">
                         {recipe.items.map((item, idx) => (
-                          <Chip key={`${recipe.id}-${idx}`} label={`${getSkuLabel(item.component_id)} · ${item.quantity}`} />
+                          <Chip
+                            key={`${recipe.id}-${idx}`}
+                            label={`${getSkuLabel(item.component_id)} · ${item.quantity} ${
+                              item.component_unit ? unitLabels[item.component_unit] ?? item.component_unit : getComponentUnit(String(item.component_id))
+                            }`}
+                          />
                         ))}
                       </Stack>
                     </TableCell>

@@ -31,17 +31,6 @@ DEFAULT_RECIPES = [
     }
 ]
 
-DEFAULT_RECIPES = [
-    {
-        "product_code": "CUC-PT-24",
-        "name": "Receta cucuruchos x24",
-        "items": [
-            {"component_code": "CUC-GRANEL", "quantity": 24},
-            {"component_code": "MP-HARINA", "quantity": 0.5},
-        ],
-    }
-]
-
 
 def _get_existing_map(session: Session, model, field: str):
     records = session.exec(select(model)).all()

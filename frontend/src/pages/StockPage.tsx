@@ -21,7 +21,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   createDeposit,
@@ -83,6 +83,9 @@ export function StockPage() {
     reference: "",
     lot_code: "",
   });
+
+  const sortedSkus = useMemo(() => (skus ? [...skus].sort((a, b) => a.name.localeCompare(b.name)) : []), [skus]);
+  const sortedDeposits = useMemo(() => (deposits ? [...deposits].sort((a, b) => a.name.localeCompare(b.name)) : []), [deposits]);
 
   useEffect(() => {
     void reloadData();
@@ -293,9 +296,9 @@ export function StockPage() {
                   onChange={(e) => setMovementForm((prev) => ({ ...prev, sku_id: e.target.value }))}
                   helperText={!skus?.length ? "Carga SKUs primero" : undefined}
                 >
-                  {skus?.map((sku) => (
+                  {sortedSkus.map((sku) => (
                     <MenuItem key={sku.id} value={sku.id}>
-                      {sku.code} · {sku.name}
+                      {sku.name} ({sku.code})
                     </MenuItem>
                   ))}
                 </TextField>
@@ -307,7 +310,7 @@ export function StockPage() {
                   onChange={(e) => setMovementForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
                   helperText={!deposits?.length ? "Crea un depósito primero" : undefined}
                 >
-                  {deposits?.map((deposit) => (
+                  {sortedDeposits.map((deposit) => (
                     <MenuItem key={deposit.id} value={deposit.id}>
                       {deposit.name}
                     </MenuItem>

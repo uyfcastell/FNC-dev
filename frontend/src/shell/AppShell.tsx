@@ -3,6 +3,8 @@ import InventoryIcon from "@mui/icons-material/Inventory2";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import LoginIcon from "@mui/icons-material/Login";
 import ManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MenuIcon from "@mui/icons-material/Menu";
 import { AppBar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from "@mui/material";
 import { PropsWithChildren, ReactNode, useState } from "react";
@@ -14,6 +16,7 @@ export type NavItem = {
   label: string;
   to: string;
   icon: ReactNode;
+  state?: Record<string, unknown>;
 };
 
 const defaultNavItems: NavItem[] = [
@@ -21,6 +24,8 @@ const defaultNavItems: NavItem[] = [
   { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion" },
   { label: "Stock", icon: <InventoryIcon />, to: "/stock" },
   { label: "Pedidos y remitos", icon: <ListAltIcon />, to: "/pedidos" },
+  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },
+  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion" },
   { label: "Reportes", icon: <ListAltIcon />, to: "/reportes" },
   { label: "Login", icon: <LoginIcon />, to: "/login" },
 ];
@@ -43,6 +48,7 @@ export function AppShell({ children, navItems = defaultNavItems }: PropsWithChil
             key={item.to}
             component={RouterLink}
             to={item.to}
+            state={item.state}
             selected={location.pathname === item.to}
             onClick={() => setMobileOpen(false)}
           >

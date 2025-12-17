@@ -13,6 +13,7 @@ class Order(TimestampedModel, table=True):
     destination: str = Field(max_length=255)
     status: OrderStatus = Field(default=OrderStatus.DRAFT)
     requested_for: date | None = None
+    notes: str | None = Field(default=None, max_length=255)
 
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
@@ -25,6 +26,7 @@ class OrderItem(TimestampedModel, table=True):
     order_id: int = Field(foreign_key="orders.id")
     sku_id: int = Field(foreign_key="skus.id")
     quantity: float = Field(gt=0)
+    current_stock: float | None = Field(default=None)
 
     order: Order = Relationship(back_populates="items")
 

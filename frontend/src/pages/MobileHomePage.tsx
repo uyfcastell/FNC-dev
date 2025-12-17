@@ -65,7 +65,9 @@ export function MobileHomePage() {
     }
   };
 
-  const productionSkus = useMemo(() => skus.filter((sku) => ALLOWED_TAGS.includes(sku.tag)), [skus]);
+  const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
+  const productionSkus = useMemo(() => sortedSkus.filter((sku) => ALLOWED_TAGS.includes(sku.tag)), [sortedSkus]);
+  const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
 
   const handleMovement = async (
     event: FormEvent,
@@ -127,7 +129,7 @@ export function MobileHomePage() {
             >
               {productionSkus.map((sku) => (
                 <MenuItem key={sku.id} value={sku.id} sx={{ fontSize: 16 }}>
-                  {sku.code} · {sku.name}
+                  {sku.name} ({sku.code})
                 </MenuItem>
               ))}
             </TextField>
@@ -139,7 +141,7 @@ export function MobileHomePage() {
               onChange={(e) => setProductionForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
               InputLabelProps={{ sx: { fontSize: 16 } }}
             >
-              {deposits.map((deposit) => (
+              {sortedDeposits.map((deposit) => (
                 <MenuItem key={deposit.id} value={deposit.id} sx={{ fontSize: 16 }}>
                   {deposit.name}
                 </MenuItem>
@@ -189,7 +191,7 @@ export function MobileHomePage() {
             >
               {productionSkus.map((sku) => (
                 <MenuItem key={sku.id} value={sku.id} sx={{ fontSize: 16 }}>
-                  {sku.code} · {sku.name}
+                  {sku.name} ({sku.code})
                 </MenuItem>
               ))}
             </TextField>
@@ -201,7 +203,7 @@ export function MobileHomePage() {
               onChange={(e) => setMermaForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
               InputLabelProps={{ sx: { fontSize: 16 } }}
             >
-              {deposits.map((deposit) => (
+              {sortedDeposits.map((deposit) => (
                 <MenuItem key={deposit.id} value={deposit.id} sx={{ fontSize: 16 }}>
                   {deposit.name}
                 </MenuItem>
