@@ -29,6 +29,22 @@ class SKURead(SQLModel):
     notes: str | None = None
 
 
+class SKUUpdate(SQLModel):
+    name: str | None = None
+    tag: SKUTag | None = None
+    unit: str | None = None
+    notes: str | None = None
+
+
+class SKURead(SQLModel):
+    id: int
+    code: str
+    name: str
+    tag: SKUTag
+    unit: str
+    notes: str | None = None
+
+
 class DepositCreate(SQLModel):
     name: str
     location: str | None = None

@@ -24,6 +24,29 @@ resume el relevamiento y propone próximos pasos para alinear alcance y arquitec
 - **Frontend:** React + Vite
 - **UI Framework:** Material UI
 
+## Setup técnico y convenciones
+
+### Versiones requeridas
+- **Python:** 3.11 (requerido para el backend)
+- **Node.js:** 18+ (recomendado para el frontend)
+
+> El proyecto incluye un archivo `.python-version` en la raíz del repositorio
+> para fijar explícitamente la versión de Python utilizada en desarrollo.
+
+### Convención de API
+- El backend expone **todos los endpoints bajo el prefijo `/api`**.
+- Ejemplo:
+  - Health check: `GET http://localhost:8000/api/health`
+
+El frontend **debe** consumir la API utilizando este prefijo.
+
+### Configuración del frontend (desarrollo)
+El frontend obtiene la URL base del backend desde una variable de entorno:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000/api
+
+
 ### Observaciones iniciales
 - La pila propuesta es adecuada para una aplicación full web y responsive, con buen soporte para tablet y escritorio.
 - SQLModel facilita tipado y modelos Pydantic; se sugiere definir convenciones tempranas para versiones de schema y migraciones (p.ej., Alembic).
