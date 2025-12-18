@@ -12,6 +12,12 @@ from ..models import (
     Role,
     Order,
     OrderItem,
+    Remito,
+    MermaCause,
+    MermaEvent,
+    MermaStage,
+    MermaType,
+    ProductionLine,
     SKU,
     StockLevel,
     StockMovement,
@@ -41,6 +47,17 @@ from ..schemas import (
     OrderRead,
     OrderUpdate,
     OrderStatusUpdate,
+    MermaCauseCreate,
+    MermaCauseRead,
+    MermaCauseUpdate,
+    MermaEventCreate,
+    MermaEventRead,
+    MermaTypeCreate,
+    MermaTypeRead,
+    MermaTypeUpdate,
+    ProductionLineCreate,
+    ProductionLineRead,
+    ProductionLineUpdate,
 )
 
 router = APIRouter()
@@ -217,6 +234,118 @@ def list_units() -> list[UnitRead]:
     return [{"code": code, "label": unit_labels.get(code, code)} for code in UnitOfMeasure]
 
 
+@router.get("/mermas/types", tags=["mermas"], response_model=list[MermaTypeRead])
+def list_merma_types(
+    stage: MermaStage | None = None,
+    include_inactive: bool = False,
+    session: Session = Depends(get_session),
+) -> list[MermaTypeRead]:
+    statement = select(MermaType)
+    if stage:
+        statement = statement.where(MermaType.stage == stage)
+    if not include_inactive:
+        statement = statement.where(MermaType.is_active.is_(True))
+    types = session.exec(statement.order_by(MermaType.stage, MermaType.label)).all()
+    return [MermaTypeRead.model_validate(type_) for type_ in types]
+
+
+@router.post("/mermas/types", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaTypeRead)
+def create_merma_type(payload: MermaTypeCreate, session: Session = Depends(get_session)) -> MermaTypeRead:
+    duplicate = session.exec(
+        select(MermaType).where(MermaType.stage == payload.stage, MermaType.code == payload.code)
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo con ese código en la etapa")
+    record = MermaType(**payload.model_dump())
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return MermaTypeRead.model_validate(record)
+
+
+@router.put("/mermas/types/{type_id}", tags=["mermas"], response_model=MermaTypeRead)
+def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session = Depends(get_session)) -> MermaTypeRead:
+    record = session.get(MermaType, type_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de merma no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(record, field, value)
+    record.updated_at = datetime.utcnow()
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return MermaTypeRead.model_validate(record)
+
+
+@router.delete("/mermas/types/{type_id}", tags=["mermas"], status_code=status.HTTP_204_NO_CONTENT)
+def delete_merma_type(type_id: int, session: Session = Depends(get_session)) -> None:
+    record = session.get(MermaType, type_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de merma no encontrado")
+    in_use = session.exec(select(MermaEvent).where(MermaEvent.type_id == type_id)).first()
+    if in_use:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar: está en uso")
+    session.delete(record)
+    session.commit()
+
+
+@router.get("/mermas/causes", tags=["mermas"], response_model=list[MermaCauseRead])
+def list_merma_causes(
+    stage: MermaStage | None = None,
+    include_inactive: bool = False,
+    session: Session = Depends(get_session),
+) -> list[MermaCauseRead]:
+    statement = select(MermaCause)
+    if stage:
+        statement = statement.where(MermaCause.stage == stage)
+    if not include_inactive:
+        statement = statement.where(MermaCause.is_active.is_(True))
+    causes = session.exec(statement.order_by(MermaCause.stage, MermaCause.label)).all()
+    return [MermaCauseRead.model_validate(cause) for cause in causes]
+
+
+@router.post("/mermas/causes", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaCauseRead)
+def create_merma_cause(payload: MermaCauseCreate, session: Session = Depends(get_session)) -> MermaCauseRead:
+    duplicate = session.exec(
+        select(MermaCause).where(MermaCause.stage == payload.stage, MermaCause.code == payload.code)
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una causa con ese código en la etapa")
+    record = MermaCause(**payload.model_dump())
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return MermaCauseRead.model_validate(record)
+
+
+@router.put("/mermas/causes/{cause_id}", tags=["mermas"], response_model=MermaCauseRead)
+def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Session = Depends(get_session)) -> MermaCauseRead:
+    record = session.get(MermaCause, cause_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Causa de merma no encontrada")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(record, field, value)
+    record.updated_at = datetime.utcnow()
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return MermaCauseRead.model_validate(record)
+
+
+@router.delete("/mermas/causes/{cause_id}", tags=["mermas"], status_code=status.HTTP_204_NO_CONTENT)
+def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -> None:
+    record = session.get(MermaCause, cause_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Causa de merma no encontrada")
+    in_use = session.exec(select(MermaEvent).where(MermaEvent.cause_id == cause_id)).first()
+    if in_use:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar: está en uso")
+    session.delete(record)
+    session.commit()
+
+
 @router.get("/skus", tags=["sku"], response_model=list[SKURead])
 def list_skus(
     tags: list[SKUTag] | None = Query(None),
@@ -336,6 +465,44 @@ def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
     session.delete(deposit)
     session.commit()
+
+
+@router.get("/production-lines", tags=["mermas"], response_model=list[ProductionLineRead])
+def list_production_lines(session: Session = Depends(get_session)) -> list[ProductionLineRead]:
+    lines = session.exec(select(ProductionLine).order_by(ProductionLine.name)).all()
+    return [ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active) for line in lines]
+
+
+@router.post("/production-lines", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=ProductionLineRead)
+def create_production_line(payload: ProductionLineCreate, session: Session = Depends(get_session)) -> ProductionLineRead:
+    existing = session.exec(select(ProductionLine).where(ProductionLine.name == payload.name)).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una línea con ese nombre")
+    line = ProductionLine(name=payload.name, is_active=payload.is_active)
+    session.add(line)
+    session.commit()
+    session.refresh(line)
+    return ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active)
+
+
+@router.put("/production-lines/{line_id}", tags=["mermas"], response_model=ProductionLineRead)
+def update_production_line(line_id: int, payload: ProductionLineUpdate, session: Session = Depends(get_session)) -> ProductionLineRead:
+    line = session.get(ProductionLine, line_id)
+    if not line:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Línea no encontrada")
+    if payload.name and payload.name != line.name:
+        duplicate = session.exec(select(ProductionLine).where(ProductionLine.name == payload.name)).first()
+        if duplicate:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una línea con ese nombre")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(line, field, value)
+    line.updated_at = datetime.utcnow()
+    session.add(line)
+    session.commit()
+    session.refresh(line)
+    return ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active)
+
 
 
 def _map_recipe(recipe: Recipe, session: Session) -> RecipeRead:
@@ -596,6 +763,93 @@ def _ensure_stock_level(session: Session, deposit_id: int, sku_id: int) -> Stock
     return stock_level
 
 
+def _apply_stock_movement(
+    session: Session,
+    payload: StockMovementCreate,
+    allow_negative_balance: bool = False,
+) -> tuple[StockLevel, StockMovement]:
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
+
+    sku = session.get(SKU, payload.sku_id)
+    deposit = session.get(Deposit, payload.deposit_id)
+    if not sku or not deposit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU o depósito no encontrado")
+
+    delta = payload.quantity
+    if payload.movement_type in {MovementType.CONSUMPTION, MovementType.MERMA, MovementType.REMITO}:
+        delta = -payload.quantity
+
+    stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
+    new_quantity = stock_level.quantity + delta
+    if new_quantity < 0 and not allow_negative_balance:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Saldo insuficiente")
+
+    stock_level.quantity = new_quantity
+    movement = StockMovement(
+        sku_id=payload.sku_id,
+        deposit_id=payload.deposit_id,
+        movement_type=payload.movement_type,
+        quantity=delta,
+        reference=payload.reference,
+        lot_code=payload.lot_code,
+        movement_date=payload.movement_date or date.today(),
+    )
+    session.add(stock_level)
+    session.add(movement)
+    session.flush()
+    session.refresh(stock_level, attribute_names=["sku", "deposit"])
+    return stock_level, movement
+
+
+def _map_merma_event(event: MermaEvent, session: Session) -> MermaEventRead:
+    session.refresh(
+        event,
+        attribute_names=[
+            "sku",
+            "deposit",
+            "production_line",
+            "type",
+            "cause",
+            "remito",
+            "order",
+            "stock_movement",
+            "reported_by_user",
+        ],
+    )
+    return MermaEventRead(
+        id=event.id,
+        stage=event.stage,
+        type_id=event.type_id,
+        type_code=event.type_code,
+        type_label=event.type_label,
+        cause_id=event.cause_id,
+        cause_code=event.cause_code,
+        cause_label=event.cause_label,
+        sku_id=event.sku_id,
+        sku_code=event.sku.code if event.sku else str(event.sku_id),
+        sku_name=event.sku.name if event.sku else f"SKU {event.sku_id}",
+        quantity=event.quantity,
+        unit=event.unit,
+        lot_code=event.lot_code,
+        deposit_id=event.deposit_id,
+        deposit_name=event.deposit.name if event.deposit else None,
+        remito_id=event.remito_id,
+        order_id=event.order_id,
+        production_line_id=event.production_line_id,
+        production_line_name=event.production_line.name if event.production_line else None,
+        reported_by_user_id=event.reported_by_user_id,
+        reported_by_role=event.reported_by_role,
+        notes=event.notes,
+        detected_at=event.detected_at,
+        created_at=event.created_at,
+        updated_at=event.updated_at,
+        affects_stock=event.affects_stock,
+        action=event.action,
+        stock_movement_id=event.stock_movement_id,
+    )
+
+
 @router.get("/stock-levels", tags=["stock"], response_model=list[StockLevelRead])
 def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLevelRead]:
     stock_levels = session.exec(select(StockLevel)).all()
@@ -622,35 +876,7 @@ def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLeve
     response_model=StockLevelRead,
 )
 def register_stock_movement(payload: StockMovementCreate, session: Session = Depends(get_session)) -> StockLevelRead:
-    if payload.quantity <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
-
-    sku = session.get(SKU, payload.sku_id)
-    deposit = session.get(Deposit, payload.deposit_id)
-    if not sku or not deposit:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU o depósito no encontrado")
-
-    delta = payload.quantity
-    if payload.movement_type in {MovementType.CONSUMPTION, MovementType.MERMA, MovementType.REMITO}:
-        delta = -payload.quantity
-
-    stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
-    new_quantity = stock_level.quantity + delta
-    if new_quantity < 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Saldo insuficiente")
-
-    stock_level.quantity = new_quantity
-    movement = StockMovement(
-        sku_id=payload.sku_id,
-        deposit_id=payload.deposit_id,
-        movement_type=payload.movement_type,
-        quantity=delta,
-        reference=payload.reference,
-        lot_code=payload.lot_code,
-        movement_date=payload.movement_date or date.today(),
-    )
-    session.add(stock_level)
-    session.add(movement)
+    stock_level, _ = _apply_stock_movement(session, payload)
     session.commit()
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
 
@@ -662,6 +888,165 @@ def register_stock_movement(payload: StockMovementCreate, session: Session = Dep
         sku_name=stock_level.sku.name,
         quantity=stock_level.quantity,
     )
+
+
+@router.post("/mermas", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaEventRead)
+def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get_session)) -> MermaEventRead:
+    merma_type = session.get(MermaType, payload.type_id)
+    cause = session.get(MermaCause, payload.cause_id)
+    sku = session.get(SKU, payload.sku_id)
+
+    if not merma_type or merma_type.stage != payload.stage:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de merma inválido para la etapa")
+    if not cause or cause.stage != payload.stage:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Causa inválida para la etapa")
+    if not sku:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
+    if not merma_type.is_active or not cause.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo o la causa están inactivos")
+    if payload.quantity <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
+
+    production_line = None
+    deposit = None
+    remito = None
+    order = None
+
+    detected_at = payload.detected_at or datetime.utcnow()
+    unit = payload.unit or sku.unit
+
+    if payload.stage == MermaStage.PRODUCTION:
+        if not payload.production_line_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción es obligatoria")
+        production_line = session.get(ProductionLine, payload.production_line_id)
+        if not production_line or not production_line.is_active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Línea de producción inválida")
+        if not payload.deposit_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El depósito es obligatorio")
+        deposit = session.get(Deposit, payload.deposit_id)
+    elif payload.stage in {MermaStage.EMPAQUE, MermaStage.STOCK}:
+        if not payload.deposit_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El depósito es obligatorio")
+        deposit = session.get(Deposit, payload.deposit_id)
+    elif payload.stage == MermaStage.TRANSITO_POST_REMITO:
+        if not payload.remito_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito es obligatorio")
+        remito = session.get(Remito, payload.remito_id)
+        if not remito:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Remito no encontrado")
+        order = session.get(Order, remito.order_id) if remito.order_id else None
+        if not order or not order.destination_deposit_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito no tiene destino asociado")
+        deposit = session.get(Deposit, order.destination_deposit_id)
+        payload.order_id = order.id if order else payload.order_id
+        payload.deposit_id = deposit.id if deposit else payload.deposit_id
+    elif payload.stage == MermaStage.ADMINISTRATIVA:
+        if not payload.notes or not payload.notes.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Notas obligatorias en ajustes administrativos")
+        if payload.affects_stock and not payload.deposit_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selecciona el depósito a ajustar")
+        if payload.deposit_id:
+            deposit = session.get(Deposit, payload.deposit_id)
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Etapa no soportada")
+
+    if payload.deposit_id and not deposit and payload.stage != MermaStage.TRANSITO_POST_REMITO:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
+    if payload.affects_stock and not deposit:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede ajustar stock sin depósito")
+    if payload.reported_by_user_id:
+        user = session.get(User, payload.reported_by_user_id)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario informante no encontrado")
+
+    stock_movement_id = None
+    if payload.affects_stock and deposit:
+        movement_payload = StockMovementCreate(
+            sku_id=payload.sku_id,
+            deposit_id=deposit.id,
+            movement_type=MovementType.MERMA,
+            quantity=payload.quantity,
+            reference=f"MERMA-{merma_type.code}",
+            lot_code=payload.lot_code,
+            movement_date=detected_at.date(),
+        )
+        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        stock_movement_id = movement.id
+
+    event = MermaEvent(
+        stage=payload.stage,
+        type_id=merma_type.id,
+        type_code=merma_type.code,
+        type_label=merma_type.label,
+        cause_id=cause.id,
+        cause_code=cause.code,
+        cause_label=cause.label,
+        sku_id=payload.sku_id,
+        quantity=payload.quantity,
+        unit=unit,
+        lot_code=payload.lot_code,
+        deposit_id=payload.deposit_id,
+        remito_id=payload.remito_id,
+        order_id=payload.order_id,
+        production_line_id=payload.production_line_id,
+        reported_by_user_id=payload.reported_by_user_id,
+        reported_by_role=payload.reported_by_role,
+        notes=payload.notes,
+        detected_at=detected_at,
+        affects_stock=payload.affects_stock,
+        action=payload.action,
+        stock_movement_id=stock_movement_id,
+    )
+
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return _map_merma_event(event, session)
+
+
+@router.get("/mermas", tags=["mermas"], response_model=list[MermaEventRead])
+def list_merma_events(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    stage: MermaStage | None = None,
+    deposit_id: int | None = None,
+    production_line_id: int | None = None,
+    sku_id: int | None = None,
+    type_id: int | None = None,
+    cause_id: int | None = None,
+    affects_stock: bool | None = None,
+    session: Session = Depends(get_session),
+) -> list[MermaEventRead]:
+    statement = select(MermaEvent)
+    if date_from:
+        statement = statement.where(MermaEvent.detected_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        statement = statement.where(MermaEvent.detected_at <= datetime.combine(date_to, datetime.max.time()))
+    if stage:
+        statement = statement.where(MermaEvent.stage == stage)
+    if deposit_id:
+        statement = statement.where(MermaEvent.deposit_id == deposit_id)
+    if production_line_id:
+        statement = statement.where(MermaEvent.production_line_id == production_line_id)
+    if sku_id:
+        statement = statement.where(MermaEvent.sku_id == sku_id)
+    if type_id:
+        statement = statement.where(MermaEvent.type_id == type_id)
+    if cause_id:
+        statement = statement.where(MermaEvent.cause_id == cause_id)
+    if affects_stock is not None:
+        statement = statement.where(MermaEvent.affects_stock.is_(affects_stock))
+
+    events = session.exec(statement.order_by(MermaEvent.detected_at.desc(), MermaEvent.id.desc())).all()
+    return [_map_merma_event(event, session) for event in events]
+
+
+@router.get("/mermas/{merma_id}", tags=["mermas"], response_model=MermaEventRead)
+def get_merma_event(merma_id: int, session: Session = Depends(get_session)) -> MermaEventRead:
+    event = session.get(MermaEvent, merma_id)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Merma no encontrada")
+    return _map_merma_event(event, session)
 
 
 @router.get("/reports/stock-summary", tags=["reports"], response_model=StockReportRead)

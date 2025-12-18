@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from sqlmodel import SQLModel
 
-from .models.common import MovementType, OrderStatus, SKUTag, SKUFamily, UnitOfMeasure
+from .models.common import MermaAction, MermaStage, MovementType, OrderStatus, SKUTag, SKUFamily, UnitOfMeasure
 
 
 class SKUBase(SQLModel):
@@ -189,3 +189,113 @@ class OrderRead(SQLModel):
     notes: str | None = None
     created_at: datetime
     items: list[OrderItemRead]
+
+
+class ProductionLineBase(SQLModel):
+    name: str
+    is_active: bool = True
+
+
+class ProductionLineCreate(ProductionLineBase):
+    pass
+
+
+class ProductionLineUpdate(SQLModel):
+    name: str | None = None
+    is_active: bool | None = None
+
+
+class ProductionLineRead(ProductionLineBase):
+    id: int
+
+
+class MermaTypeBase(SQLModel):
+    stage: MermaStage
+    code: str
+    label: str
+    is_active: bool = True
+
+
+class MermaTypeCreate(MermaTypeBase):
+    pass
+
+
+class MermaTypeUpdate(SQLModel):
+    label: str | None = None
+    is_active: bool | None = None
+
+
+class MermaTypeRead(MermaTypeBase):
+    id: int
+
+
+class MermaCauseBase(SQLModel):
+    stage: MermaStage
+    code: str
+    label: str
+    is_active: bool = True
+
+
+class MermaCauseCreate(MermaCauseBase):
+    pass
+
+
+class MermaCauseUpdate(SQLModel):
+    label: str | None = None
+    is_active: bool | None = None
+
+
+class MermaCauseRead(MermaCauseBase):
+    id: int
+
+
+class MermaEventCreate(SQLModel):
+    stage: MermaStage
+    type_id: int
+    cause_id: int
+    sku_id: int
+    quantity: float
+    unit: UnitOfMeasure | None = None
+    lot_code: str | None = None
+    deposit_id: int | None = None
+    remito_id: int | None = None
+    order_id: int | None = None
+    production_line_id: int | None = None
+    reported_by_user_id: int | None = None
+    reported_by_role: str | None = None
+    notes: str | None = None
+    detected_at: datetime | None = None
+    affects_stock: bool = True
+    action: MermaAction = MermaAction.NONE
+
+
+class MermaEventRead(SQLModel):
+    id: int
+    stage: MermaStage
+    type_id: int
+    type_code: str
+    type_label: str
+    cause_id: int
+    cause_code: str
+    cause_label: str
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    quantity: float
+    unit: UnitOfMeasure
+    lot_code: str | None = None
+    deposit_id: int | None = None
+    deposit_name: str | None = None
+    remito_id: int | None = None
+    order_id: int | None = None
+    production_line_id: int | None = None
+    production_line_name: str | None = None
+    reported_by_user_id: int | None = None
+    reported_by_role: str | None = None
+    notes: str | None = None
+    detected_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    affects_stock: bool
+    action: MermaAction
+    stock_movement_id: int | None = None

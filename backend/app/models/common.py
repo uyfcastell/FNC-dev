@@ -44,6 +44,21 @@ class MovementType(str, Enum):
     MERMA = "merma"
 
 
+class MermaStage(str, Enum):
+    PRODUCTION = "production"
+    EMPAQUE = "empaque"
+    STOCK = "stock"
+    TRANSITO_POST_REMITO = "transito_post_remito"
+    ADMINISTRATIVA = "administrativa"
+
+
+class MermaAction(str, Enum):
+    DISCARDED = "discarded"
+    REPROCESSED = "reprocessed"
+    ADMIN_ADJUSTMENT = "admin_adjustment"
+    NONE = "none"
+
+
 class OrderStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
