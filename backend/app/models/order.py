@@ -21,7 +21,7 @@ class Order(TimestampedModel, table=True):
 
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
-    destination_deposit: "Deposit" | None = Relationship()
+    destination_deposit: Optional["Deposit"] = Relationship()
 
 
 class OrderItem(TimestampedModel, table=True):

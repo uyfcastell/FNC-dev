@@ -29,8 +29,6 @@ import { createRecipe, createStockMovement, Deposit, fetchDeposits, fetchRecipes
 
 const PRODUCTION_TAGS: SKUTag[] = ["PT", "SEMI"];
 
-const PRODUCTION_TAGS: SKUTag[] = ["PT", "SEMI"];
-
 export function ProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
