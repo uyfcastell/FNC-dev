@@ -6,6 +6,7 @@ from .common import SKUFamily, SKUTag, TimestampedModel, UnitOfMeasure
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import StockLevel
+    from .merma import MermaEvent
 
 
 class SKU(TimestampedModel, table=True):
@@ -22,6 +23,7 @@ class SKU(TimestampedModel, table=True):
 
     stock_levels: list["StockLevel"] = Relationship(back_populates="sku")
     recipes: list["Recipe"] = Relationship(back_populates="product")
+    merma_events: list["MermaEvent"] = Relationship(back_populates="sku")
 
 
 class Recipe(TimestampedModel, table=True):

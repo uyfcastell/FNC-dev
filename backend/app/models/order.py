@@ -7,6 +7,7 @@ from .common import OrderStatus, RemitoStatus, TimestampedModel
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import Deposit
+    from .merma import MermaEvent
 
 
 class Order(TimestampedModel, table=True):
@@ -22,6 +23,7 @@ class Order(TimestampedModel, table=True):
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
     destination_deposit: Optional["Deposit"] = Relationship()
+    merma_events: list["MermaEvent"] = Relationship(back_populates="order")
 
 
 class OrderItem(TimestampedModel, table=True):
@@ -47,6 +49,7 @@ class Remito(TimestampedModel, table=True):
 
     order: Order = Relationship(back_populates="remitos")
     items: list["RemitoItem"] = Relationship(back_populates="remito")
+    merma_events: list["MermaEvent"] = Relationship(back_populates="remito")
 
 
 class RemitoItem(TimestampedModel, table=True):
@@ -59,3 +62,4 @@ class RemitoItem(TimestampedModel, table=True):
     lot_code: str | None = Field(default=None, max_length=64)
 
     remito: Remito = Relationship(back_populates="items")
+    merma_events: list["MermaEvent"] = Relationship(back_populates="remito")

@@ -1,8 +1,11 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
 from .common import TimestampedModel
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .merma import MermaEvent
 
 
 class Role(TimestampedModel, table=True):
@@ -26,3 +29,4 @@ class User(TimestampedModel, table=True):
     role_id: int | None = Field(default=None, foreign_key="roles.id")
 
     role: Role | None = Relationship(back_populates="users")
+    reported_mermas: list["MermaEvent"] = Relationship(back_populates="reported_by_user")

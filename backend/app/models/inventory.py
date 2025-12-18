@@ -7,6 +7,7 @@ from .common import MovementType, TimestampedModel
 
 if TYPE_CHECKING:  # pragma: no cover - avoid circular import at runtime
     from .sku import SKU
+    from .merma import MermaEvent
 
 
 class Deposit(TimestampedModel, table=True):
@@ -19,6 +20,7 @@ class Deposit(TimestampedModel, table=True):
     is_store: bool = Field(default=False, description="Marca si el depósito corresponde a un local")
 
     stock_levels: list["StockLevel"] = Relationship(back_populates="deposit")
+    merma_events: list["MermaEvent"] = Relationship(back_populates="deposit")
 
 
 class StockLevel(TimestampedModel, table=True):
@@ -47,3 +49,4 @@ class StockMovement(TimestampedModel, table=True):
 
     sku: "SKU" = Relationship()
     deposit: Deposit = Relationship()
+    merma_event: "MermaEvent" | None = Relationship(sa_relationship_kwargs={"uselist": False})

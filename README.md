@@ -24,6 +24,45 @@ resume el relevamiento y propone próximos pasos para alinear alcance y arquitec
 - **Frontend:** React + Vite
 - **UI Framework:** Material UI
 
+## Iteración 4 – Módulo de Mermas
+- **Modelo y migraciones:**
+  - Nuevas tablas `production_lines`, `merma_types`, `merma_causes`, `merma_events` y migración `20240720_0002_merma_module` (incluye `destination_deposit_id` y `notes` en pedidos). 【F:backend/alembic/versions/20240720_0002_merma_module.py†L1-L88】
+  - Catálogos administrables por etapa con códigos estables (`code`) y etiquetas editables (`label`); no se permite eliminar si están en uso. 【F:backend/app/api/routes.py†L137-L215】【F:backend/app/api/routes.py†L317-L383】
+  - Líneas de producción parametrizadas (`production_lines`) y obligatorias para mermas en etapa producción. 【F:backend/app/models/merma.py†L10-L34】【F:backend/app/api/routes.py†L98-L135】
+
+- **Entidades nuevas (backend):**
+  - `MermaEvent` con trazabilidad completa: etapa (`stage`), tipo y causa (código/etiqueta), SKU, cantidad/unidad, lote opcional, depósito, remito (para tránsito), pedido, línea de producción, responsable, notas, `detected_at`, acción (`discarded`, `reprocessed`, `admin_adjustment`, `none`), `affects_stock` y vínculo a movimiento de stock si corresponde. 【F:backend/app/models/merma.py†L36-L92】【F:backend/app/api/routes.py†L385-L472】
+  - Se reutiliza `movement_type=MERMA` y se delega el ajuste de stock a `_apply_stock_movement` con permiso de saldo negativo para no bloquear registro de mermas. 【F:backend/app/api/routes.py†L63-L95】【F:backend/app/api/routes.py†L419-L448】
+
+- **Reglas por etapa:**
+  - Producción: requiere línea de producción, depósito y SKU; admite lote. 【F:backend/app/api/routes.py†L401-L413】
+  - Empaque/Stock: depósito obligatorio. 【F:backend/app/api/routes.py†L413-L416】
+  - Tránsito post-remito: remito obligatorio; el ajuste se aplica al depósito destino del pedido asociado. 【F:backend/app/api/routes.py†L416-L422】
+  - Administrativa: notas obligatorias; depósito obligatorio sólo si afecta stock. 【F:backend/app/api/routes.py†L422-L426】
+
+- **Catálogos semilla:** tipos y causas precargados por etapa según relevamiento (roturas, defectos, vencimiento, ajustes administrativos, etc.), más tres líneas de producción activas. 【F:backend/app/core/seed.py†L8-L82】【F:backend/app/core/seed.py†L103-L133】
+
+- **API nueva:**
+  - `GET/POST/PUT/DELETE /api/mermas/types` y `/api/mermas/causes` (filtro por etapa, desactivación). 【F:backend/app/api/routes.py†L137-L215】
+  - `GET/POST /api/mermas` y `GET /api/mermas/{id}` con filtros por fecha, etapa, depósito, línea, SKU, tipo, causa y `affects_stock`. 【F:backend/app/api/routes.py†L385-L472】
+  - `GET/POST/PUT /api/production-lines` para administrar líneas. 【F:backend/app/api/routes.py†L98-L135】
+
+- **Frontend (React):**
+  - Nueva pantalla `/mermas` con tres pestañas: Registro (campos dinámicos según etapa), Listado/Detalle con filtros completos y vínculo al movimiento de stock, y Catálogos (ABM de tipos, causas y líneas). 【F:frontend/src/pages/MermasPage.tsx†L1-L522】
+  - Navegación actualizada para exponer el módulo desde el menú principal. 【F:frontend/src/shell/AppShell.tsx†L8-L18】【F:frontend/src/App.tsx†L6-L24】
+  - Cliente API extendido con tipos, causas, eventos y líneas de producción. 【F:frontend/src/lib/api.ts†L5-L223】【F:frontend/src/lib/api.ts†L370-L531】
+
+- **Decisiones documentadas:**
+  - El ajuste de mermas en tránsito se aplica al depósito destino del pedido, preservando el remito. 【F:backend/app/api/routes.py†L416-L422】
+  - Unidades: la merma captura `unit` (por defecto la del SKU) y permite packs/cajas según catálogo controlado. 【F:backend/app/models/merma.py†L52-L60】【F:frontend/src/pages/MermasPage.tsx†L215-L241】
+  - Lógica de stock no duplicada: se reutiliza el motor de movimientos MERMA; `affects_stock=false` registra el evento sin tocar inventario. 【F:backend/app/api/routes.py†L63-L95】【F:backend/app/api/routes.py†L419-L448】
+  - Para evitar bloqueos operativos, los movimientos MERMA permiten saldo negativo al registrarse desde el módulo de mermas. 【F:backend/app/api/routes.py†L63-L95】【F:backend/app/api/routes.py†L419-L448】
+
+- **Cómo usar:**
+  - Ejecutar migraciones (`alembic upgrade head`) o permitir `init_db` crear las tablas; el seed carga catálogos iniciales y líneas. 【F:backend/app/db.py†L7-L15】【F:backend/app/core/seed.py†L103-L133】
+  - Crear/editar catálogos desde la pestaña “Catálogos” o vía API; desactivar en lugar de borrar si están en uso.
+  - Registrar mermas desde la pestaña “Registro” seleccionando etapa y campos obligatorios; si `Afecta stock` está activado se genera movimiento MERMA y se muestra el ID en el listado/detalle.
+
 ## Setup técnico y convenciones
 
 ### Versiones requeridas
@@ -45,6 +84,7 @@ El frontend obtiene la URL base del backend desde una variable de entorno:
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000/api
+```
 
 
 ### Observaciones iniciales
