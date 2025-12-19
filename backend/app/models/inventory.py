@@ -49,4 +49,4 @@ class StockMovement(TimestampedModel, table=True):
 
     sku: "SKU" = Relationship()
     deposit: Deposit = Relationship()
-    merma_event: "MermaEvent" | None = Relationship(sa_relationship_kwargs={"uselist": False})
+    merma_event: Optional["MermaEvent"] = Relationship(sa_relationship_kwargs={"uselist": False})

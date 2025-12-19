@@ -27,11 +27,19 @@ def upgrade() -> None:
         "transito_post_remito",
         "administrativa",
         name="mermastage",
+        create_type=False,
     )
-    merma_stage.create(bind, checkfirst=True)
+#    merma_stage.create(bind, checkfirst=True)
 
-    merma_action = sa.Enum("discarded", "reprocessed", "admin_adjustment", "none", name="mermaaction")
-    merma_action.create(bind, checkfirst=True)
+    merma_action = sa.Enum(
+        "discarded",
+        "reprocessed",
+        "admin_adjustment",
+        "none",
+        name="mermaaction",
+        create_type=False,
+    )
+#    merma_action.create(bind, checkfirst=True)
 
     existing_order_columns = {col["name"] for col in inspector.get_columns("orders")}
     if "destination_deposit_id" not in existing_order_columns:

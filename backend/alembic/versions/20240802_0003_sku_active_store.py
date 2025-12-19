@@ -17,8 +17,9 @@ depends_on = None
 
 sku_family_enum = sa.Enum("consumible", "papeleria", "limpieza", name="skufamily")
 
-
 def upgrade() -> None:
+    sku_family_enum.create(op.get_bind(), checkfirst=True)
+
     op.add_column("skus", sa.Column("family", sku_family_enum, nullable=True))
     op.add_column("skus", sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")))
     op.add_column("deposits", sa.Column("is_store", sa.Boolean(), nullable=False, server_default=sa.text("false")))

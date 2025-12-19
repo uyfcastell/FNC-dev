@@ -8,7 +8,7 @@ from .common import MermaAction, MermaStage, TimestampedModel, UnitOfMeasure
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import Deposit, StockMovement
-    from .order import Order, Remito
+    from .order import Order, Remito, RemitoItem
     from .sku import SKU
     from .user import User
 
@@ -70,6 +70,7 @@ class MermaEvent(TimestampedModel, table=True):
     lot_code: str | None = Field(default=None, max_length=64)
     deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
     remito_id: int | None = Field(default=None, foreign_key="remitos.id")
+    remito_item_id: int | None = Field(default=None, foreign_key="remito_items.id")
     order_id: int | None = Field(default=None, foreign_key="orders.id")
     production_line_id: int | None = Field(default=None, foreign_key="production_lines.id")
 
@@ -86,9 +87,10 @@ class MermaEvent(TimestampedModel, table=True):
     type: MermaType = Relationship(back_populates="merma_events")
     cause: MermaCause = Relationship(back_populates="merma_events")
     sku: "SKU" = Relationship(back_populates="merma_events")
-    deposit: "Deposit" | None = Relationship(back_populates="merma_events")
-    remito: "Remito" | None = Relationship(back_populates="merma_events")
-    order: "Order" | None = Relationship(back_populates="merma_events")
-    production_line: ProductionLine | None = Relationship(back_populates="merma_events")
-    stock_movement: "StockMovement" | None = Relationship(back_populates="merma_event")
-    reported_by_user: "User" | None = Relationship(back_populates="reported_mermas")
+    deposit: Optional["Deposit"] = Relationship(back_populates="merma_events")
+    remito: Optional["Remito"] = Relationship(back_populates="merma_events")
+    remito_item: Optional["RemitoItem"] = Relationship(back_populates="merma_events")
+    order: Optional["Order"] = Relationship(back_populates="merma_events")
+    production_line: Optional["ProductionLine"] = Relationship(back_populates="merma_events")
+    stock_movement: Optional["StockMovement"] = Relationship(back_populates="merma_event")
+    reported_by_user: Optional["User"] = Relationship(back_populates="reported_mermas")

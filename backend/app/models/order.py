@@ -62,4 +62,4 @@ class RemitoItem(TimestampedModel, table=True):
     lot_code: str | None = Field(default=None, max_length=64)
 
     remito: Remito = Relationship(back_populates="items")
-    merma_events: list["MermaEvent"] = Relationship(back_populates="remito")
+    merma_events: list["MermaEvent"] = Relationship(back_populates="remito_item")

@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     app_name: str = "FNC Backend"
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/fnc"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/FNC"
     api_prefix: str = "/api"
     load_seed: bool = False
 
