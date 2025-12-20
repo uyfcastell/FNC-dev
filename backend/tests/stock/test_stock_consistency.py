@@ -1,3 +1,6 @@
+from datetime import date
+
+
 def _get_any_sku(client):
     res = client.get("/api/skus")
     assert res.status_code == 200
@@ -14,6 +17,23 @@ def _get_balance(client, sku_id):
     return match[0]["quantity"] if match else 0
 
 
+def test_negative_stock_is_not_allowed(client):
+    # tomamos cualquier SKU válido
+    sku = _get_any_sku(client)
+
+    movement = {
+        "sku_id": sku["id"],
+        "deposit_id": 1,
+        "quantity": 99999,
+        "movement_type": "consumption"
+    }
+
+    res = client.post("/api/stock/movements", json=movement)
+
+    assert res.status_code == 400
+    assert "saldo" in res.json()["detail"].lower()
+
+
 def test_stock_adjustment_affects_balance(client):
     sku = _get_any_sku(client)
 
@@ -23,7 +43,8 @@ def test_stock_adjustment_affects_balance(client):
         "sku_id": sku["id"],
         "deposit_id": 1,
         "quantity": 2,
-        "movement_type": "adjustment"
+        "movement_type": "adjustment",
+        "movement_date": str(date.today())
     }
 
     res = client.post("/api/stock/movements", json=movement)
@@ -31,5 +52,6 @@ def test_stock_adjustment_affects_balance(client):
 
     after = _get_balance(client, sku["id"])
 
-    assert after >= before   # dependiendo de política exacta
+    # No validamos exacto porque depende del estado previo del sistema.
+    assert after >= before
 

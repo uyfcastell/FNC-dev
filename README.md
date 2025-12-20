@@ -383,3 +383,4 @@ Si tienes otra ruta local, ubica la carpeta que contiene `backend/`, `frontend/`
 1. Ajustar/validar el ERD y completar seeds iniciales (roles, depósitos, SKUs ejemplo y usuarios).
 2. Definir endpoints iniciales (producción, movimientos de stock, pedidos/remitos) y contratos de API.
 3. Construir pantallas por rol: captura en tablet (producción/stock) y escritorio (pedidos/remitos/reportes).
+Test CI check registration
