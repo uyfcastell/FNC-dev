@@ -1,17 +1,42 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-export type SKUTag = "PT" | "SEMI" | "MP" | "CON";
 export type SKUFamily = "consumible" | "papeleria" | "limpieza";
 export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
 
 export type MermaStage = "production" | "empaque" | "stock" | "transito_post_remito" | "administrativa";
 export type MermaAction = "discarded" | "reprocessed" | "admin_adjustment" | "none";
 
+export type SKUType = {
+  id: number;
+  code: string;
+  label: string;
+  is_active: boolean;
+};
+
+export type StockMovementType = {
+  id: number;
+  code: string;
+  label: string;
+  is_active: boolean;
+};
+
 export type SKU = {
   id: number;
   code: string;
   name: string;
-  tag: SKUTag;
+  sku_type_id: number;
+  sku_type_code: string;
+  sku_type_label: string;
+  unit: UnitOfMeasure;
+  notes?: string | null;
+  family?: SKUFamily | null;
+  is_active: boolean;
+};
+
+export type SkuPayload = {
+  code: string;
+  name: string;
+  sku_type_id: number;
   unit: UnitOfMeasure;
   notes?: string | null;
   family?: SKUFamily | null;
@@ -33,6 +58,16 @@ export type StockLevel = {
   sku_code: string;
   sku_name: string;
   quantity: number;
+};
+
+export type StockMovementPayload = {
+  sku_id: number;
+  deposit_id: number;
+  movement_type_id: number;
+  quantity: number;
+  reference?: string;
+  lot_code?: string;
+  movement_date?: string;
 };
 
 export type Role = {
@@ -87,8 +122,6 @@ export type User = {
   is_active: boolean;
 };
 
-export type MovementType = "production" | "consumption" | "adjustment" | "transfer" | "remito" | "merma";
-
 export type UnitOption = {
   code: UnitOfMeasure;
   label: string;
@@ -101,7 +134,8 @@ export type StockSummaryRow = {
 };
 
 export type MovementSummary = {
-  movement_type: MovementType;
+  movement_type_code: string;
+  movement_type_label: string;
   quantity: number;
 };
 
@@ -181,8 +215,57 @@ export async function fetchRoles(): Promise<Role[]> {
   return response.json();
 }
 
-export async function fetchSkus(params?: { tags?: SKUTag[]; families?: SKUFamily[]; include_inactive?: boolean; search?: string }): Promise<SKU[]> {
+export async function fetchSkuTypes(params?: { include_inactive?: boolean }): Promise<SKUType[]> {
   const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  const response = await fetch(`${API_BASE_URL}/sku-types${query.toString() ? `?${query.toString()}` : ""}`);
+  if (!response.ok) {
+    throw new Error("No se pudo obtener los tipos de SKU");
+  }
+  return response.json();
+}
+
+export async function createSkuType(payload: Omit<SKUType, "id">): Promise<SKUType> {
+  const response = await fetch(`${API_BASE_URL}/sku-types`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || "No se pudo crear el tipo de SKU");
+  }
+  return response.json();
+}
+
+export async function updateSkuType(id: number, payload: Partial<Omit<SKUType, "id" | "code">>): Promise<SKUType> {
+  const response = await fetch(`${API_BASE_URL}/sku-types/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || "No se pudo actualizar el tipo de SKU");
+  }
+  return response.json();
+}
+
+export async function deleteSkuType(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/sku-types/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || "No se pudo eliminar el tipo de SKU");
+  }
+}
+
+export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: string[]; families?: SKUFamily[]; include_inactive?: boolean; search?: string }): Promise<SKU[]> {
+  const query = new URLSearchParams();
+  if (params?.sku_type_ids?.length) {
+    params.sku_type_ids.forEach((typeId) => query.append("sku_type_ids", typeId.toString()));
+  }
   if (params?.tags?.length) {
     params.tags.forEach((tag) => query.append("tags", tag));
   }
@@ -227,7 +310,7 @@ export async function fetchUnits(): Promise<UnitOption[]> {
   return response.json();
 }
 
-export async function createSku(payload: Omit<SKU, "id">): Promise<SKU> {
+export async function createSku(payload: SkuPayload): Promise<SKU> {
   const response = await fetch(`${API_BASE_URL}/skus`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -240,7 +323,7 @@ export async function createSku(payload: Omit<SKU, "id">): Promise<SKU> {
   return response.json();
 }
 
-export async function updateSku(id: number, payload: Partial<Omit<SKU, "id">>): Promise<SKU> {
+export async function updateSku(id: number, payload: Partial<SkuPayload>): Promise<SKU> {
   const response = await fetch(`${API_BASE_URL}/skus/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -295,15 +378,56 @@ export async function deleteDeposit(id: number): Promise<void> {
   }
 }
 
-export async function createStockMovement(payload: {
-  sku_id: number;
-  deposit_id: number;
-  movement_type: MovementType;
-  quantity: number;
-  reference?: string;
-  lot_code?: string;
-  movement_date?: string;
-}): Promise<StockLevel> {
+export async function fetchStockMovementTypes(params?: { include_inactive?: boolean }): Promise<StockMovementType[]> {
+  const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  const response = await fetch(`${API_BASE_URL}/stock/movement-types${query.toString() ? `?${query.toString()}` : ""}`);
+  if (!response.ok) {
+    throw new Error("No se pudieron obtener los tipos de movimiento de stock");
+  }
+  return response.json();
+}
+
+export async function createStockMovementType(payload: Omit<StockMovementType, "id">): Promise<StockMovementType> {
+  const response = await fetch(`${API_BASE_URL}/stock/movement-types`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || "No se pudo crear el tipo de movimiento");
+  }
+  return response.json();
+}
+
+export async function updateStockMovementType(
+  id: number,
+  payload: Partial<Omit<StockMovementType, "id" | "code">>,
+): Promise<StockMovementType> {
+  const response = await fetch(`${API_BASE_URL}/stock/movement-types/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || "No se pudo actualizar el tipo de movimiento");
+  }
+  return response.json();
+}
+
+export async function deleteStockMovementType(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/stock/movement-types/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || "No se pudo eliminar el tipo de movimiento");
+  }
+}
+
+export async function createStockMovement(payload: StockMovementPayload): Promise<StockLevel> {
   const response = await fetch(`${API_BASE_URL}/stock/movements`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

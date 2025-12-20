@@ -221,7 +221,7 @@ export function MermasPage() {
   const filteredSkus = useMemo(
     () => skus.filter((sku) => {
       if (!sku.is_active) return false;
-      if (eventForm.stage === "production" || eventForm.stage === "empaque") return ["PT", "SEMI", "MP"].includes(sku.tag);
+      if (eventForm.stage === "production" || eventForm.stage === "empaque") return ["PT", "SEMI", "MP"].includes(sku.sku_type_code);
       return true;
     }),
     [skus, eventForm.stage]

@@ -8,6 +8,13 @@ def _get_any_sku(client):
     return data[0]
 
 
+def _get_movement_type_id(client, code):
+    res = client.get("/api/stock/movement-types")
+    assert res.status_code == 200
+    data = res.json()
+    return next(item["id"] for item in data if item["code"] == code)
+
+
 def _get_balance(client, sku_id):
     res = client.get("/api/stock-levels")
     assert res.status_code == 200
@@ -20,12 +27,13 @@ def _get_balance(client, sku_id):
 def test_negative_stock_is_not_allowed(client):
     # tomamos cualquier SKU válido
     sku = _get_any_sku(client)
+    movement_type_id = _get_movement_type_id(client, "CONSUMPTION")
 
     movement = {
         "sku_id": sku["id"],
         "deposit_id": 1,
         "quantity": 99999,
-        "movement_type": "consumption"
+        "movement_type_id": movement_type_id
     }
 
     res = client.post("/api/stock/movements", json=movement)
@@ -36,6 +44,7 @@ def test_negative_stock_is_not_allowed(client):
 
 def test_stock_adjustment_affects_balance(client):
     sku = _get_any_sku(client)
+    movement_type_id = _get_movement_type_id(client, "ADJUSTMENT")
 
     before = _get_balance(client, sku["id"])
 
@@ -43,7 +52,7 @@ def test_stock_adjustment_affects_balance(client):
         "sku_id": sku["id"],
         "deposit_id": 1,
         "quantity": 2,
-        "movement_type": "adjustment",
+        "movement_type_id": movement_type_id,
         "movement_date": str(date.today())
     }
 
@@ -54,4 +63,3 @@ def test_stock_adjustment_affects_balance(client):
 
     # No validamos exacto porque depende del estado previo del sistema.
     assert after >= before
-

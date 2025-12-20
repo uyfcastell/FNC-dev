@@ -19,21 +19,29 @@ from ..models import (
     MermaType,
     ProductionLine,
     SKU,
+    SKUType,
     StockLevel,
     StockMovement,
+    StockMovementType,
     User,
 )
-from ..models.common import MovementType, OrderStatus, SKUTag, SKUFamily, UnitOfMeasure
+from ..models.common import OrderStatus, SKUFamily, UnitOfMeasure
 from ..schemas import (
     DepositCreate,
     DepositRead,
     DepositUpdate,
+    SKUTypeCreate,
+    SKUTypeRead,
+    SKUTypeUpdate,
     RecipeCreate,
     RecipeRead,
     RecipeUpdate,
     SKUCreate,
     SKURead,
     SKUUpdate,
+    StockMovementTypeCreate,
+    StockMovementTypeRead,
+    StockMovementTypeUpdate,
     StockLevelRead,
     StockMovementCreate,
     StockReportRead,
@@ -62,6 +70,11 @@ from ..schemas import (
 
 router = APIRouter()
 
+SKU_PRODUCTION_TYPES = {"PT", "SEMI"}
+SKU_CONSUMABLE_CODE = "CON"
+OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
+INCOMING_MOVEMENTS = {"PRODUCTION", "PURCHASE", "ADJUSTMENT", "TRANSFER"}
+
 
 def _hash_password(raw_password: str) -> str:
     return hashlib.sha256(raw_password.encode()).hexdigest()
@@ -80,6 +93,47 @@ def _map_user(user: User, session: Session) -> UserRead:
         role_name=role_name,
         is_active=user.is_active,
     )
+
+
+def _get_sku_type_or_404(session: Session, sku_type_id: int) -> SKUType:
+    sku_type = session.get(SKUType, sku_type_id)
+    if not sku_type:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de SKU no encontrado")
+    return sku_type
+
+
+def _map_sku(sku: SKU, session: Session) -> SKURead:
+    session.refresh(sku, attribute_names=["sku_type"])
+    type_code = sku.sku_type.code if sku.sku_type else ""
+    type_label = sku.sku_type.label if sku.sku_type else ""
+    return SKURead(
+        id=sku.id,
+        code=sku.code,
+        name=sku.name,
+        sku_type_id=sku.sku_type_id,
+        sku_type_code=type_code,
+        sku_type_label=type_label,
+        unit=sku.unit,
+        notes=sku.notes,
+        family=sku.family,
+        is_active=sku.is_active,
+    )
+
+
+def _get_movement_type_or_404(session: Session, movement_type_id: int) -> StockMovementType:
+    movement_type = session.get(StockMovementType, movement_type_id)
+    if not movement_type:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de movimiento no encontrado")
+    return movement_type
+
+
+def _get_movement_type_by_code(session: Session, code: str) -> StockMovementType:
+    movement_type = session.exec(
+        select(StockMovementType).where(StockMovementType.code == code.strip().upper())
+    ).first()
+    if not movement_type:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de movimiento no configurado")
+    return movement_type
 
 
 def _ensure_store_destination(session: Session, destination_id: int) -> Deposit:
@@ -102,8 +156,15 @@ def _validate_order_items(session: Session, items: list[dict]) -> None:
         sku = sku_map.get(item["sku_id"])
         if not sku:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKU no encontrado")
-        if sku.tag in {SKUTag.MP, SKUTag.SEMI}:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se permiten MP o SEMI en pedidos")
+        session.refresh(sku, attribute_names=["sku_type"])
+        type_code = sku.sku_type.code if sku.sku_type else ""
+        if not (sku.sku_type and sku.sku_type.is_active):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún tipo de SKU está inactivo")
+        if type_code in {"MP", "SEMI"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se permiten MP o SEMI en pedidos",
+            )
         if not sku.is_active:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún SKU está inactivo")
 
@@ -234,6 +295,58 @@ def list_units() -> list[UnitRead]:
     return [{"code": code, "label": unit_labels.get(code, code)} for code in UnitOfMeasure]
 
 
+@router.get("/sku-types", tags=["catalogs"], response_model=list[SKUTypeRead])
+def list_sku_types(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[SKUTypeRead]:
+    statement = select(SKUType)
+    if not include_inactive:
+        statement = statement.where(SKUType.is_active.is_(True))
+    types = session.exec(statement.order_by(SKUType.code)).all()
+    return [SKUTypeRead.model_validate(item) for item in types]
+
+
+@router.post("/sku-types", tags=["catalogs"], status_code=status.HTTP_201_CREATED, response_model=SKUTypeRead)
+def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_session)) -> SKUTypeRead:
+    code = payload.code.strip().upper()
+    duplicate = session.exec(select(SKUType).where(SKUType.code == code)).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo de SKU con ese código")
+    record = SKUType(code=code, label=payload.label, is_active=payload.is_active)
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return SKUTypeRead.model_validate(record)
+
+
+@router.put("/sku-types/{sku_type_id}", tags=["catalogs"], response_model=SKUTypeRead)
+def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session = Depends(get_session)) -> SKUTypeRead:
+    sku_type = session.get(SKUType, sku_type_id)
+    if not sku_type:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de SKU no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(sku_type, field, value)
+    sku_type.updated_at = datetime.utcnow()
+    session.add(sku_type)
+    session.commit()
+    session.refresh(sku_type)
+    return SKUTypeRead.model_validate(sku_type)
+
+
+@router.delete("/sku-types/{sku_type_id}", tags=["catalogs"], status_code=status.HTTP_204_NO_CONTENT)
+def delete_sku_type(sku_type_id: int, session: Session = Depends(get_session)) -> None:
+    sku_type = session.get(SKUType, sku_type_id)
+    if not sku_type:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de SKU no encontrado")
+    in_use = session.exec(select(SKU.id).where(SKU.sku_type_id == sku_type_id)).first()
+    if in_use:
+        sku_type.is_active = False
+        sku_type.updated_at = datetime.utcnow()
+        session.add(sku_type)
+    else:
+        session.delete(sku_type)
+    session.commit()
+
+
 @router.get("/mermas/types", tags=["mermas"], response_model=list[MermaTypeRead])
 def list_merma_types(
     stage: MermaStage | None = None,
@@ -348,69 +461,92 @@ def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -
 
 @router.get("/skus", tags=["sku"], response_model=list[SKURead])
 def list_skus(
-    tags: list[SKUTag] | None = Query(None),
+    sku_type_ids: list[int] | None = Query(None),
+    tags: list[str] | None = Query(None, description="Alias para sku_type_code"),
     families: list[SKUFamily] | None = Query(None),
     include_inactive: bool = False,
     search: str | None = None,
     session: Session = Depends(get_session),
-) -> list[SKU]:
+) -> list[SKURead]:
     """Listado simple para bootstrap de catálogo."""
-    statement = select(SKU)
+    statement = select(SKU).join(SKUType)
+    if sku_type_ids:
+        statement = statement.where(SKU.sku_type_id.in_(sku_type_ids))
     if tags:
-        statement = statement.where(SKU.tag.in_(tags))
+        normalized_tags = [tag.upper() for tag in tags]
+        statement = statement.where(SKUType.code.in_(normalized_tags))
     if families:
         statement = statement.where(SKU.family.in_(families))
     if not include_inactive:
-        statement = statement.where(SKU.is_active.is_(True))
+        statement = statement.where(SKU.is_active.is_(True), SKUType.is_active.is_(True))
     if search:
         like = f"%{search.lower()}%"
         statement = statement.where((SKU.name.ilike(like)) | (SKU.code.ilike(like)))
     statement = statement.order_by(SKU.name, SKU.code)
-    return session.exec(statement).all()
+    skus = session.exec(statement).all()
+    return [_map_sku(item, session) for item in skus]
 
 
 @router.get("/skus/{sku_id}", tags=["sku"], response_model=SKURead)
-def get_sku(sku_id: int, session: Session = Depends(get_session)) -> SKU:
+def get_sku(sku_id: int, session: Session = Depends(get_session)) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
-    return sku
+    return _map_sku(sku, session)
 
 
 @router.post("/skus", tags=["sku"], status_code=status.HTTP_201_CREATED, response_model=SKURead)
-def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> SKU:
+def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> SKURead:
     existing = session.exec(select(SKU).where(SKU.code == payload.code)).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El código ya existe",
         )
-    data = payload.model_dump()
-    if data.get("tag") != SKUTag.CON:
-        data["family"] = None
 
-    sku = SKU(**data)
+    sku_type = _get_sku_type_or_404(session, payload.sku_type_id)
+    if not sku_type.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo de SKU está inactivo")
+
+    family = payload.family if sku_type.code == SKU_CONSUMABLE_CODE else None
+
+    sku = SKU(
+        code=payload.code,
+        name=payload.name,
+        sku_type_id=payload.sku_type_id,
+        unit=payload.unit,
+        notes=payload.notes,
+        family=family,
+        is_active=payload.is_active,
+    )
     session.add(sku)
     session.commit()
     session.refresh(sku)
-    return sku
+    return _map_sku(sku, session)
 
 
 @router.put("/skus/{sku_id}", tags=["sku"], response_model=SKURead)
-def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_session)) -> SKU:
+def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_session)) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
 
     update_data = payload.model_dump(exclude_unset=True)
-    if "tag" in update_data and update_data["tag"] != SKUTag.CON:
+    sku_type_id = update_data.get("sku_type_id", sku.sku_type_id)
+    sku_type = _get_sku_type_or_404(session, sku_type_id)
+    if not sku_type.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo de SKU está inactivo")
+
+    if sku_type.code != SKU_CONSUMABLE_CODE:
         update_data["family"] = None
+
     for field, value in update_data.items():
         setattr(sku, field, value)
+    sku.updated_at = datetime.utcnow()
     session.add(sku)
     session.commit()
     session.refresh(sku)
-    return sku
+    return _map_sku(sku, session)
 
 
 @router.delete("/skus/{sku_id}", tags=["sku"], status_code=status.HTTP_204_NO_CONTENT)
@@ -543,7 +679,9 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
 
-    if product.tag not in {SKUTag.PT, SKUTag.SEMI}:
+    session.refresh(product, attribute_names=["sku_type"])
+    product_type = product.sku_type.code if product.sku_type else ""
+    if product_type not in SKU_PRODUCTION_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Solo se pueden crear recetas para productos PT o SEMI",
@@ -585,7 +723,9 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depe
     product = session.get(SKU, payload.product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
-    if product.tag not in {SKUTag.PT, SKUTag.SEMI}:
+    session.refresh(product, attribute_names=["sku_type"])
+    product_type = product.sku_type.code if product.sku_type else ""
+    if product_type not in SKU_PRODUCTION_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se permiten PT o SEMI")
 
     if not payload.items:
@@ -750,6 +890,80 @@ def delete_order(order_id: int, session: Session = Depends(get_session)) -> None
     session.commit()
 
 
+@router.get("/stock/movement-types", tags=["stock"], response_model=list[StockMovementTypeRead])
+def list_stock_movement_types(
+    include_inactive: bool = False, session: Session = Depends(get_session)
+) -> list[StockMovementTypeRead]:
+    statement = select(StockMovementType)
+    if not include_inactive:
+        statement = statement.where(StockMovementType.is_active.is_(True))
+    types = session.exec(statement.order_by(StockMovementType.code)).all()
+    return [StockMovementTypeRead.model_validate(item) for item in types]
+
+
+@router.post(
+    "/stock/movement-types",
+    tags=["stock"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=StockMovementTypeRead,
+)
+def create_stock_movement_type(
+    payload: StockMovementTypeCreate,
+    session: Session = Depends(get_session),
+) -> StockMovementTypeRead:
+    code = payload.code.strip().upper()
+    duplicate = session.exec(select(StockMovementType).where(StockMovementType.code == code)).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo de movimiento con ese código")
+    record = StockMovementType(code=code, label=payload.label, is_active=payload.is_active)
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return StockMovementTypeRead.model_validate(record)
+
+
+@router.put(
+    "/stock/movement-types/{movement_type_id}",
+    tags=["stock"],
+    response_model=StockMovementTypeRead,
+)
+def update_stock_movement_type(
+    movement_type_id: int,
+    payload: StockMovementTypeUpdate,
+    session: Session = Depends(get_session),
+) -> StockMovementTypeRead:
+    record = session.get(StockMovementType, movement_type_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de movimiento no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(record, field, value)
+    record.updated_at = datetime.utcnow()
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return StockMovementTypeRead.model_validate(record)
+
+
+@router.delete(
+    "/stock/movement-types/{movement_type_id}",
+    tags=["stock"],
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_stock_movement_type(movement_type_id: int, session: Session = Depends(get_session)) -> None:
+    record = session.get(StockMovementType, movement_type_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de movimiento no encontrado")
+    in_use = session.exec(select(StockMovement.id).where(StockMovement.movement_type_id == movement_type_id)).first()
+    if in_use:
+        record.is_active = False
+        record.updated_at = datetime.utcnow()
+        session.add(record)
+    else:
+        session.delete(record)
+    session.commit()
+
+
 def _ensure_stock_level(session: Session, deposit_id: int, sku_id: int) -> StockLevel:
     stock_level = session.exec(
         select(StockLevel).where(StockLevel.deposit_id == deposit_id, StockLevel.sku_id == sku_id)
@@ -771,14 +985,24 @@ def _apply_stock_movement(
     if payload.quantity <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
 
+    movement_type = _get_movement_type_or_404(session, payload.movement_type_id)
+    if not movement_type.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo de movimiento está inactivo")
+
     sku = session.get(SKU, payload.sku_id)
     deposit = session.get(Deposit, payload.deposit_id)
     if not sku or not deposit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU o depósito no encontrado")
+    session.refresh(sku, attribute_names=["sku_type"])
+    if not (sku.sku_type and sku.sku_type.is_active):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo del SKU está inactivo")
 
     delta = payload.quantity
-    if payload.movement_type in {MovementType.CONSUMPTION, MovementType.MERMA, MovementType.REMITO}:
+    movement_code = movement_type.code.upper()
+    if movement_code in OUTGOING_MOVEMENTS:
         delta = -payload.quantity
+    elif movement_code not in INCOMING_MOVEMENTS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de movimiento no soportado")
 
     stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
     new_quantity = stock_level.quantity + delta
@@ -789,7 +1013,7 @@ def _apply_stock_movement(
     movement = StockMovement(
         sku_id=payload.sku_id,
         deposit_id=payload.deposit_id,
-        movement_type=payload.movement_type,
+        movement_type_id=movement_type.id,
         quantity=delta,
         reference=payload.reference,
         lot_code=payload.lot_code,
@@ -961,10 +1185,11 @@ def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get
 
     stock_movement_id = None
     if payload.affects_stock and deposit:
+        merma_movement_type = _get_movement_type_by_code(session, "MERMA")
         movement_payload = StockMovementCreate(
             sku_id=payload.sku_id,
             deposit_id=deposit.id,
-            movement_type=MovementType.MERMA,
+            movement_type_id=merma_movement_type.id,
             quantity=payload.quantity,
             reference=f"MERMA-{merma_type.code}",
             lot_code=payload.lot_code,
@@ -1057,19 +1282,29 @@ def stock_summary(session: Session = Depends(get_session)) -> StockReportRead:
 
     for level in stock_levels:
         session.refresh(level, attribute_names=["sku", "deposit"])
-        totals_by_tag[level.sku.tag] = totals_by_tag.get(level.sku.tag, 0) + level.quantity
+        session.refresh(level.sku, attribute_names=["sku_type"])
+        type_code = level.sku.sku_type.code if level.sku and level.sku.sku_type else "SIN_TIPO"
+        totals_by_tag[type_code] = totals_by_tag.get(type_code, 0) + level.quantity
         totals_by_deposit[level.deposit.name] = totals_by_deposit.get(level.deposit.name, 0) + level.quantity
 
     movements_cutoff = date.today() - timedelta(days=7)
     movements = session.exec(select(StockMovement).where(StockMovement.movement_date >= movements_cutoff)).all()
-    movement_totals: dict[MovementType, float] = {}
+    movement_totals: dict[str, dict[str, float | str]] = {}
     for mov in movements:
-        movement_totals[mov.movement_type] = movement_totals.get(mov.movement_type, 0) + mov.quantity
+        session.refresh(mov, attribute_names=["movement_type"])
+        code = mov.movement_type.code if mov.movement_type else "UNKNOWN"
+        label = mov.movement_type.label if mov.movement_type else code
+        if code not in movement_totals:
+            movement_totals[code] = {"quantity": 0.0, "label": label}
+        movement_totals[code]["quantity"] = float(movement_totals[code]["quantity"]) + mov.quantity
 
     return StockReportRead(
         totals_by_tag=[StockSummaryRow(group="tag", label=tag, quantity=qty) for tag, qty in totals_by_tag.items()],
         totals_by_deposit=[
           StockSummaryRow(group="deposit", label=deposit, quantity=qty) for deposit, qty in totals_by_deposit.items()
         ],
-        movement_totals=[MovementSummary(movement_type=m_type, quantity=qty) for m_type, qty in movement_totals.items()],
+        movement_totals=[
+            MovementSummary(movement_type_code=code, movement_type_label=data["label"], quantity=data["quantity"])
+            for code, data in movement_totals.items()
+        ],
     )

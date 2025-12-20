@@ -25,14 +25,26 @@ import {
 import { AddCircleOutline, DeleteForever } from "@mui/icons-material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-import { createRecipe, createStockMovement, Deposit, fetchDeposits, fetchRecipes, fetchSkus, Recipe, SKUTag, SKU } from "../lib/api";
+import {
+  createRecipe,
+  createStockMovement,
+  Deposit,
+  fetchDeposits,
+  fetchRecipes,
+  fetchSkus,
+  fetchStockMovementTypes,
+  Recipe,
+  SKU,
+  StockMovementType,
+} from "../lib/api";
 
-const PRODUCTION_TAGS: SKUTag[] = ["PT", "SEMI"];
+const PRODUCTION_TYPE_CODES: string[] = ["PT", "SEMI"];
 
 export function ProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,7 +70,10 @@ export function ProductionPage() {
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
-  const productionSkus = useMemo(() => sortedSkus.filter((sku) => PRODUCTION_TAGS.includes(sku.tag)), [sortedSkus]);
+  const productionSkus = useMemo(
+    () => sortedSkus.filter((sku) => PRODUCTION_TYPE_CODES.includes(sku.sku_type_code)),
+    [sortedSkus]
+  );
 
   useEffect(() => {
     void loadData();
@@ -66,14 +81,16 @@ export function ProductionPage() {
 
   const loadData = async () => {
     try {
-      const [skuList, depositList, recipeList] = await Promise.all([
-        fetchSkus({ tags: PRODUCTION_TAGS }),
+      const [skuList, depositList, recipeList, movementTypeList] = await Promise.all([
+        fetchSkus({ tags: PRODUCTION_TYPE_CODES }),
         fetchDeposits(),
         fetchRecipes(),
+        fetchStockMovementTypes({ include_inactive: true }),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
       setRecipes(recipeList);
+      setMovementTypes(movementTypeList);
     } catch (err) {
       console.error(err);
       setError("No pudimos cargar catálogo y recetas. ¿Está levantado el backend?");
@@ -141,12 +158,17 @@ export function ProductionPage() {
       setError("Selecciona SKU, depósito y cantidad para registrar la producción");
       return;
     }
+    const productionMovementType = movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active);
+    if (!productionMovementType) {
+      setError("Configura el tipo de movimiento PRODUCTION en catálogos");
+      return;
+    }
     try {
       await createStockMovement({
         sku_id: Number(productionForm.product_sku_id),
         deposit_id: Number(productionForm.deposit_id),
         quantity: Number(productionForm.quantity),
-        movement_type: "production",
+        movement_type_id: productionMovementType.id,
         reference: productionForm.reference || "Orden de producción",
       });
       setSuccess("Producción registrada en stock");

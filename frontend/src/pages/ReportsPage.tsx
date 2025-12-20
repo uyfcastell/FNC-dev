@@ -104,7 +104,15 @@ export function ReportsPage() {
               <Stack spacing={1}>
                 {movementTotals.map((row) => {
                   const pct = totalMovements > 0 ? Math.round((Math.abs(row.quantity) / totalMovements) * 100) : 0;
-                  return <SummaryBar key={row.movement_type} label={row.movement_type} quantity={row.quantity} total={totalMovements || 1} absolute />;
+                  return (
+                    <SummaryBar
+                      key={row.movement_type_code}
+                      label={row.movement_type_label || row.movement_type_code}
+                      quantity={row.quantity}
+                      total={totalMovements || 1}
+                      absolute
+                    />
+                  );
                 })}
               </Stack>
             </CardContent>

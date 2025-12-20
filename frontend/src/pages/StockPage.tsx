@@ -29,11 +29,13 @@ import {
   createStockMovement,
   Deposit,
   fetchDeposits,
+  fetchSkuTypes,
+  fetchStockMovementTypes,
   fetchStockLevels,
   fetchSkus,
-  MovementType,
-  SKUTag,
   SKU,
+  SKUType,
+  StockMovementType,
   StockLevel,
   fetchUnits,
   UnitOption,
@@ -44,6 +46,8 @@ export function StockPage() {
   const [stock, setStock] = useState<StockLevel[] | null>(null);
   const [skus, setSkus] = useState<SKU[] | null>(null);
   const [deposits, setDeposits] = useState<Deposit[] | null>(null);
+  const [skuTypes, setSkuTypes] = useState<SKUType[]>([]);
+  const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -51,14 +55,14 @@ export function StockPage() {
   const [skuForm, setSkuForm] = useState<{
     code: string;
     name: string;
-    tag: SKUTag;
+    sku_type_id: number | "";
     unit: UnitOfMeasure;
     notes: string;
     is_active: boolean;
   }>({
     code: "",
     name: "",
-    tag: "MP" as SKUTag,
+    sku_type_id: "",
     unit: "kg",
     notes: "",
     is_active: true,
@@ -74,14 +78,14 @@ export function StockPage() {
   const [movementForm, setMovementForm] = useState<{
     sku_id: string;
     deposit_id: string;
-    movement_type: MovementType;
+    movement_type_id: string;
     quantity: string;
     reference: string;
     lot_code: string;
   }>({
     sku_id: "",
     deposit_id: "",
-    movement_type: "production",
+    movement_type_id: "",
     quantity: "",
     reference: "",
     lot_code: "",
@@ -100,18 +104,42 @@ export function StockPage() {
     }
   }, [units, skuForm.unit]);
 
+  useEffect(() => {
+    if (!skuForm.sku_type_id && skuTypes.length) {
+      const defaultType = skuTypes.find((type) => type.code === "MP" && type.is_active) ?? skuTypes.find((type) => type.is_active);
+      if (defaultType) {
+        setSkuForm((prev) => ({ ...prev, sku_type_id: defaultType.id }));
+      }
+    }
+  }, [skuTypes, skuForm.sku_type_id]);
+
+  useEffect(() => {
+    if (!movementForm.movement_type_id && movementTypes.length) {
+      const defaultType =
+        movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active) ??
+        movementTypes.find((type) => type.is_active);
+      if (defaultType) {
+        setMovementForm((prev) => ({ ...prev, movement_type_id: String(defaultType.id) }));
+      }
+    }
+  }, [movementTypes, movementForm.movement_type_id]);
+
   const reloadData = async () => {
     try {
-      const [stockLevels, skuList, depositList, unitList] = await Promise.all([
+      const [stockLevels, skuList, depositList, unitList, skuTypeList, movementTypeList] = await Promise.all([
         fetchStockLevels(),
         fetchSkus(),
         fetchDeposits(),
         fetchUnits(),
+        fetchSkuTypes({ include_inactive: true }),
+        fetchStockMovementTypes({ include_inactive: true }),
       ]);
       setStock(stockLevels);
       setSkus(skuList);
       setDeposits(depositList);
       setUnits(unitList);
+      setSkuTypes(skuTypeList);
+      setMovementTypes(movementTypeList);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -125,9 +153,21 @@ export function StockPage() {
   const handleCreateSku = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      await createSku({ ...skuForm, notes: skuForm.notes || null, is_active: true });
+      if (!skuForm.sku_type_id) {
+        setError("Selecciona un tipo de SKU");
+        return;
+      }
+      const defaultType = skuTypes.find((type) => type.code === "MP" && type.is_active) ?? skuTypes.find((type) => type.is_active);
+      await createSku({ ...skuForm, sku_type_id: Number(skuForm.sku_type_id), notes: skuForm.notes || null, is_active: true });
       setSuccess("SKU creado correctamente");
-      setSkuForm({ code: "", name: "", tag: "MP", unit: "kg", notes: "", is_active: true });
+      setSkuForm({
+        code: "",
+        name: "",
+        sku_type_id: defaultType?.id ?? "",
+        unit: "kg",
+        notes: "",
+        is_active: true,
+      });
       await reloadData();
     } catch (err) {
       console.error(err);
@@ -155,8 +195,8 @@ export function StockPage() {
 
   const handleCreateMovement = async (event: FormEvent) => {
     event.preventDefault();
-    if (!movementForm.sku_id || !movementForm.deposit_id || !movementForm.quantity) {
-      setError("Selecciona SKU, depósito y cantidad");
+    if (!movementForm.sku_id || !movementForm.deposit_id || !movementForm.quantity || !movementForm.movement_type_id) {
+      setError("Selecciona SKU, depósito, tipo de movimiento y cantidad");
       return;
     }
     try {
@@ -164,6 +204,7 @@ export function StockPage() {
         ...movementForm,
         sku_id: Number(movementForm.sku_id),
         deposit_id: Number(movementForm.deposit_id),
+        movement_type_id: Number(movementForm.movement_type_id),
         quantity: Number(movementForm.quantity),
         reference: movementForm.reference || undefined,
         lot_code: movementForm.lot_code || undefined,
@@ -172,7 +213,7 @@ export function StockPage() {
       setMovementForm({
         sku_id: "",
         deposit_id: "",
-        movement_type: movementForm.movement_type,
+        movement_type_id: movementForm.movement_type_id,
         quantity: "",
         reference: "",
         lot_code: "",
@@ -218,13 +259,18 @@ export function StockPage() {
                 <TextField
                   select
                   label="Tipo"
-                  value={skuForm.tag}
-                  onChange={(e) => setSkuForm((prev) => ({ ...prev, tag: e.target.value as SKUTag }))}
+                  value={skuForm.sku_type_id}
+                  onChange={(e) => setSkuForm((prev) => ({ ...prev, sku_type_id: Number(e.target.value) }))}
+                  helperText="Catálogo administrable"
+                  required
                 >
-                  <MenuItem value="MP">Materia Prima</MenuItem>
-                  <MenuItem value="SEMI">Semielaborado</MenuItem>
-                  <MenuItem value="PT">Producto Terminado</MenuItem>
-                  <MenuItem value="CON">Consumible</MenuItem>
+                  {skuTypes
+                    .filter((type) => type.is_active)
+                    .map((type) => (
+                      <MenuItem key={type.id} value={type.id}>
+                        {type.code} — {type.label}
+                      </MenuItem>
+                    ))}
                 </TextField>
                 <TextField
                   label="Unidad de medida"
@@ -327,15 +373,18 @@ export function StockPage() {
                 <TextField
                   select
                   label="Tipo de movimiento"
-                  value={movementForm.movement_type}
-                  onChange={(e) => setMovementForm((prev) => ({ ...prev, movement_type: e.target.value as MovementType }))}
+                  value={movementForm.movement_type_id}
+                  onChange={(e) => setMovementForm((prev) => ({ ...prev, movement_type_id: e.target.value }))}
+                  helperText={!movementTypes.length ? "Configura los tipos de movimiento primero" : undefined}
+                  required
                 >
-                  <MenuItem value="production">Producción</MenuItem>
-                  <MenuItem value="consumption">Consumo</MenuItem>
-                  <MenuItem value="adjustment">Ajuste</MenuItem>
-                  <MenuItem value="transfer">Transferencia</MenuItem>
-                  <MenuItem value="remito">Remito</MenuItem>
-                  <MenuItem value="merma">Merma</MenuItem>
+                  {movementTypes
+                    .filter((type) => type.is_active)
+                    .map((type) => (
+                      <MenuItem key={type.id} value={type.id}>
+                        {type.code} — {type.label}
+                      </MenuItem>
+                    ))}
                 </TextField>
                 <TextField
                   required

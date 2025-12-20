@@ -46,15 +46,24 @@ import {
   fetchDeposits,
   fetchRecipes,
   fetchRoles,
+  fetchSkuTypes,
+  fetchStockMovementTypes,
   fetchSkus,
   fetchUnits,
   fetchUsers,
   Recipe,
-  SKUTag,
   SKUFamily,
   SKU,
+  SKUType,
+  StockMovementType,
   UnitOfMeasure,
   UnitOption,
+  createSkuType,
+  updateSkuType,
+  deleteSkuType,
+  createStockMovementType,
+  updateStockMovementType,
+  deleteStockMovementType,
   updateDeposit,
   updateRecipe,
   updateSku,
@@ -63,15 +72,17 @@ import {
   User,
 } from "../lib/api";
 
-const PRODUCTION_TAGS: SKUTag[] = ["PT", "SEMI"];
+const PRODUCTION_TYPE_CODES = ["PT", "SEMI"];
 
 type RecipeFormItem = { component_id: string; quantity: string };
 
-type TabKey = "productos" | "recetas" | "depositos" | "usuarios";
+type TabKey = "productos" | "recetas" | "depositos" | "usuarios" | "catalogos";
 
 export function AdminPage() {
   const [tab, setTab] = useState<TabKey>("productos");
   const [skus, setSkus] = useState<SKU[]>([]);
+  const [skuTypes, setSkuTypes] = useState<SKUType[]>([]);
+  const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -85,11 +96,11 @@ export function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
 
-  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; tag: SKUTag; unit: UnitOfMeasure; notes: string; family: SKUFamily | ""; is_active: boolean }>(
+  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; sku_type_id: number | ""; unit: UnitOfMeasure; notes: string; family: SKUFamily | ""; is_active: boolean }>(
     {
       code: "",
       name: "",
-      tag: "MP",
+      sku_type_id: "",
       unit: "unit",
       notes: "",
       family: "",
@@ -120,6 +131,16 @@ export function AdminPage() {
       is_active: true,
     }
   );
+  const [skuTypeForm, setSkuTypeForm] = useState<{ id?: number; code: string; label: string; is_active: boolean }>({
+    code: "",
+    label: "",
+    is_active: true,
+  });
+  const [movementTypeForm, setMovementTypeForm] = useState<{ id?: number; code: string; label: string; is_active: boolean }>({
+    code: "",
+    label: "",
+    is_active: true,
+  });
 
   useEffect(() => {
     void loadData();
@@ -128,6 +149,9 @@ export function AdminPage() {
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
   const skuMap = useMemo(() => new Map(skus.map((sku) => [sku.id, sku])), [skus]);
+  const skuTypeMap = useMemo(() => new Map(skuTypes.map((type) => [type.id, type])), [skuTypes]);
+  const sortedSkuTypes = useMemo(() => [...skuTypes].sort((a, b) => a.code.localeCompare(b.code)), [skuTypes]);
+  const sortedMovementTypes = useMemo(() => [...movementTypes].sort((a, b) => a.code.localeCompare(b.code)), [movementTypes]);
 
   const matchesSearch = (text: string, search: string) => text.toLowerCase().includes(search.trim().toLowerCase());
 
@@ -139,7 +163,7 @@ export function AdminPage() {
     [sortedSkus, showInactiveSkus, skuSearch]
   );
   const recipeComponents = useMemo(
-    () => sortedSkus.filter((sku) => PRODUCTION_TAGS.includes(sku.tag) && (showInactiveSkus || sku.is_active)),
+    () => sortedSkus.filter((sku) => PRODUCTION_TYPE_CODES.includes(sku.sku_type_code) && (showInactiveSkus || sku.is_active)),
     [sortedSkus, showInactiveSkus]
   );
   const filteredRecipes = useMemo(
@@ -165,16 +189,19 @@ export function AdminPage() {
       ),
     [users, userSearch]
   );
+  const selectedSkuType = skuForm.sku_type_id ? skuTypeMap.get(Number(skuForm.sku_type_id)) : undefined;
 
   const loadData = async () => {
     try {
-      const [skuList, depositList, recipeList, roleList, userList, unitList] = await Promise.all([
+      const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList] = await Promise.all([
         fetchSkus({ include_inactive: true }),
         fetchDeposits(),
         fetchRecipes(),
         fetchRoles(),
         fetchUsers(),
         fetchUnits(),
+        fetchSkuTypes({ include_inactive: true }),
+        fetchStockMovementTypes({ include_inactive: true }),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
@@ -182,6 +209,13 @@ export function AdminPage() {
       setRoles(roleList);
       setUsers(userList);
       setUnits(unitList);
+      setSkuTypes(skuTypeList);
+      setMovementTypes(movementTypeList);
+
+      const defaultSkuType = skuTypeList.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.find((t) => t.is_active);
+      if (defaultSkuType && !skuForm.sku_type_id) {
+        setSkuForm((prev) => ({ ...prev, sku_type_id: defaultSkuType.id }));
+      }
       setError(null);
     } catch (err) {
       console.error(err);
@@ -197,21 +231,40 @@ export function AdminPage() {
   const handleSkuSubmit = async (event: FormEvent) => {
     event.preventDefault();
     try {
+      if (!skuForm.sku_type_id) {
+        setError("Selecciona un tipo de SKU");
+        return;
+      }
+      const selectedType = skuTypes.find((type) => type.id === skuForm.sku_type_id);
+      if (!selectedType) {
+        setError("Tipo de SKU inválido");
+        return;
+      }
       const { id, ...rest } = skuForm;
       const payload = {
         ...rest,
+        sku_type_id: selectedType.id,
         notes: skuForm.notes || null,
-        family: skuForm.tag === "CON" ? (skuForm.family || null) : null,
+        family: selectedType.code === "CON" ? (skuForm.family || null) : null,
         is_active: skuForm.is_active,
       };
       if (skuForm.id) {
         await updateSku(skuForm.id, payload);
         setSuccess("Producto actualizado");
       } else {
-        await createSku(payload as Omit<SKU, "id">);
+        await createSku(payload);
         setSuccess("Producto creado");
       }
-      setSkuForm({ code: "", name: "", tag: "MP", unit: "unit", notes: "", family: "", is_active: true });
+      const defaultSkuType = skuTypes.find((t) => t.code === "MP" && t.is_active) ?? skuTypes.find((t) => t.is_active);
+      setSkuForm({
+        code: "",
+        name: "",
+        sku_type_id: defaultSkuType?.id ?? "",
+        unit: "unit",
+        notes: "",
+        family: "",
+        is_active: true,
+      });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -314,7 +367,16 @@ export function AdminPage() {
   };
 
   const startEditSku = (sku: SKU) =>
-    setSkuForm({ ...sku, notes: sku.notes ?? "", id: sku.id, family: sku.family ?? "", is_active: sku.is_active });
+    setSkuForm({
+      id: sku.id,
+      code: sku.code,
+      name: sku.name,
+      sku_type_id: sku.sku_type_id,
+      unit: sku.unit,
+      notes: sku.notes ?? "",
+      family: sku.family ?? "",
+      is_active: sku.is_active,
+    });
   const startEditDeposit = (deposit: Deposit) =>
     setDepositForm({
       id: deposit.id,
@@ -359,6 +421,85 @@ export function AdminPage() {
     }
   };
 
+  const handleSkuTypeSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      if (!skuTypeForm.code || !skuTypeForm.label) {
+        setError("Completa código y etiqueta");
+        return;
+      }
+      if (skuTypeForm.id) {
+        await updateSkuType(skuTypeForm.id, { label: skuTypeForm.label, is_active: skuTypeForm.is_active });
+        setSuccess("Tipo de SKU actualizado");
+      } else {
+        await createSkuType({
+          code: skuTypeForm.code.toUpperCase(),
+          label: skuTypeForm.label,
+          is_active: skuTypeForm.is_active,
+        });
+        setSuccess("Tipo de SKU creado");
+      }
+      setSkuTypeForm({ id: undefined, code: "", label: "", is_active: true });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos guardar el tipo de SKU. ¿Código duplicado?");
+    }
+  };
+
+  const handleMovementTypeSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      if (!movementTypeForm.code || !movementTypeForm.label) {
+        setError("Completa código y etiqueta");
+        return;
+      }
+      if (movementTypeForm.id) {
+        await updateStockMovementType(movementTypeForm.id, {
+          label: movementTypeForm.label,
+          is_active: movementTypeForm.is_active,
+        });
+        setSuccess("Tipo de movimiento actualizado");
+      } else {
+        await createStockMovementType({
+          code: movementTypeForm.code.toUpperCase(),
+          label: movementTypeForm.label,
+          is_active: movementTypeForm.is_active,
+        });
+        setSuccess("Tipo de movimiento creado");
+      }
+      setMovementTypeForm({ id: undefined, code: "", label: "", is_active: true });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos guardar el tipo de movimiento. ¿Código duplicado?");
+    }
+  };
+
+  const handleSkuTypeDelete = async (id: number) => {
+    if (!window.confirm("¿Eliminar/desactivar el tipo de SKU?")) return;
+    try {
+      await deleteSkuType(id);
+      setSuccess("Tipo de SKU actualizado");
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos eliminar el tipo de SKU");
+    }
+  };
+
+  const handleMovementTypeDelete = async (id: number) => {
+    if (!window.confirm("¿Eliminar/desactivar el tipo de movimiento?")) return;
+    try {
+      await deleteStockMovementType(id);
+      setSuccess("Tipo de movimiento actualizado");
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos eliminar el tipo de movimiento");
+    }
+  };
+
   const renderProductos = () => (
     <Grid container spacing={2} alignItems="stretch">
       <Grid item xs={12} md={4}>
@@ -369,13 +510,22 @@ export function AdminPage() {
             <Stack component="form" spacing={2} onSubmit={handleSkuSubmit}>
               <TextField label="Código" required value={skuForm.code} onChange={(e) => setSkuForm((prev) => ({ ...prev, code: e.target.value }))} />
               <TextField label="Nombre" required value={skuForm.name} onChange={(e) => setSkuForm((prev) => ({ ...prev, name: e.target.value }))} />
-              <TextField select label="Tipo" value={skuForm.tag} onChange={(e) => setSkuForm((prev) => ({ ...prev, tag: e.target.value as SKUTag }))}>
-                <MenuItem value="MP">Materia prima</MenuItem>
-                <MenuItem value="SEMI">Semielaborado</MenuItem>
-                <MenuItem value="PT">Producto terminado</MenuItem>
-                <MenuItem value="CON">Consumible / material</MenuItem>
+              <TextField
+                select
+                label="Tipo"
+                required
+                value={skuForm.sku_type_id}
+                onChange={(e) => setSkuForm((prev) => ({ ...prev, sku_type_id: Number(e.target.value) }))}
+                helperText="Tipos administrables"
+              >
+                {skuTypes.map((type) => (
+                  <MenuItem key={type.id} value={type.id} disabled={!type.is_active}>
+                    {type.code} — {type.label}
+                    {!type.is_active ? " (inactivo)" : ""}
+                  </MenuItem>
+                ))}
               </TextField>
-              {skuForm.tag === "CON" && (
+              {selectedSkuType?.code === "CON" && (
                 <TextField
                   select
                   label="Familia (consumibles)"
@@ -416,7 +566,21 @@ export function AdminPage() {
                   {skuForm.id ? "Actualizar" : "Crear"}
                 </Button>
                 {skuForm.id && (
-                  <Button onClick={() => setSkuForm({ id: undefined, code: "", name: "", tag: "MP", unit: "unit", notes: "", family: "", is_active: true })}>
+                  <Button
+                    onClick={() => {
+                      const defaultSkuType = skuTypes.find((t) => t.code === "MP" && t.is_active) ?? skuTypes.find((t) => t.is_active);
+                      setSkuForm({
+                        id: undefined,
+                        code: "",
+                        name: "",
+                        sku_type_id: defaultSkuType?.id ?? "",
+                        unit: "unit",
+                        notes: "",
+                        family: "",
+                        is_active: true,
+                      });
+                    }}
+                  >
                     Cancelar
                   </Button>
                 )}
@@ -464,8 +628,8 @@ export function AdminPage() {
                   <TableRow key={sku.id} hover>
                     <TableCell>{sku.code}</TableCell>
                     <TableCell>{sku.name}</TableCell>
-                    <TableCell>{sku.tag}</TableCell>
-                    <TableCell>{sku.tag === "CON" ? sku.family || "—" : "—"}</TableCell>
+                    <TableCell>{`${sku.sku_type_code} — ${sku.sku_type_label}`}</TableCell>
+                    <TableCell>{sku.sku_type_code === "CON" ? sku.family || "—" : "—"}</TableCell>
                     <TableCell>{unitLabel(sku.unit)}</TableCell>
                     <TableCell>{sku.is_active ? "Activo" : "Inactivo"}</TableCell>
                     <TableCell align="right">
@@ -476,6 +640,157 @@ export function AdminPage() {
                       </Tooltip>
                       <Tooltip title="Eliminar">
                         <IconButton size="small" color="error" onClick={() => handleDelete("sku", sku.id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </Grid>
+    </Grid>
+  );
+
+  const renderCatalogos = () => (
+    <Grid container spacing={2}>
+      <Grid item xs={12} md={6}>
+        <Card>
+          <CardHeader title="Tipos de SKU" subheader="Catálogo administrable" avatar={<LibraryAddIcon color="primary" />} />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleSkuTypeSubmit}>
+              <TextField
+                label="Código"
+                value={skuTypeForm.code}
+                onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                inputProps={{ style: { textTransform: "uppercase" } }}
+                required
+                disabled={!!skuTypeForm.id}
+              />
+              <TextField
+                label="Nombre visible"
+                value={skuTypeForm.label}
+                onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, label: e.target.value }))}
+                required
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={skuTypeForm.is_active}
+                    onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
+              />
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" variant="contained">
+                  {skuTypeForm.id ? "Actualizar" : "Crear"}
+                </Button>
+                {skuTypeForm.id && (
+                  <Button onClick={() => setSkuTypeForm({ id: undefined, code: "", label: "", is_active: true })}>Cancelar</Button>
+                )}
+              </Stack>
+            </Stack>
+            <Divider sx={{ my: 2 }} />
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Código</TableCell>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedSkuTypes.map((type) => (
+                  <TableRow key={type.id} hover>
+                    <TableCell>{type.code}</TableCell>
+                    <TableCell>{type.label}</TableCell>
+                    <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Editar">
+                        <IconButton size="small" onClick={() => setSkuTypeForm({ ...type })}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Eliminar / desactivar">
+                        <IconButton size="small" color="error" onClick={() => handleSkuTypeDelete(type.id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid item xs={12} md={6}>
+        <Card>
+          <CardHeader title="Tipos de movimiento de stock" subheader="Impacto en kardex" avatar={<LibraryAddIcon color="primary" />} />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleMovementTypeSubmit}>
+              <TextField
+                label="Código"
+                value={movementTypeForm.code}
+                onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                inputProps={{ style: { textTransform: "uppercase" } }}
+                required
+                disabled={!!movementTypeForm.id}
+              />
+              <TextField
+                label="Nombre visible"
+                value={movementTypeForm.label}
+                onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, label: e.target.value }))}
+                required
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={movementTypeForm.is_active}
+                    onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
+              />
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" variant="contained">
+                  {movementTypeForm.id ? "Actualizar" : "Crear"}
+                </Button>
+                {movementTypeForm.id && (
+                  <Button onClick={() => setMovementTypeForm({ id: undefined, code: "", label: "", is_active: true })}>Cancelar</Button>
+                )}
+              </Stack>
+            </Stack>
+            <Divider sx={{ my: 2 }} />
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Código</TableCell>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedMovementTypes.map((type) => (
+                  <TableRow key={type.id} hover>
+                    <TableCell>{type.code}</TableCell>
+                    <TableCell>{type.label}</TableCell>
+                    <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Editar">
+                        <IconButton size="small" onClick={() => setMovementTypeForm({ ...type })}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Eliminar / desactivar">
+                        <IconButton size="small" color="error" onClick={() => handleMovementTypeDelete(type.id)}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -854,6 +1169,7 @@ export function AdminPage() {
           <Tab label="Recetas" value="recetas" icon={<RestaurantMenuIcon />} iconPosition="start" />
           <Tab label="Depósitos" value="depositos" icon={<StoreIcon />} iconPosition="start" />
           <Tab label="Usuarios" value="usuarios" icon={<AdminPanelSettingsIcon />} iconPosition="start" />
+          <Tab label="Catálogos" value="catalogos" icon={<LibraryAddIcon />} iconPosition="start" />
         </Tabs>
         <Divider />
         <CardContent>
@@ -861,9 +1177,12 @@ export function AdminPage() {
           {tab === "recetas" && renderRecetas()}
           {tab === "depositos" && renderDepositos()}
           {tab === "usuarios" && renderUsuarios()}
+          {tab === "catalogos" && renderCatalogos()}
         </CardContent>
       </Card>
-      <Box sx={{ color: "text.secondary", fontSize: 12 }}>Pantalla única para altas, bajas y modificaciones de productos, recetas, depósitos y usuarios.</Box>
+      <Box sx={{ color: "text.secondary", fontSize: 12 }}>
+        Pantalla única para altas, bajas y modificaciones de productos, recetas, depósitos, usuarios y catálogos base.
+      </Box>
     </Stack>
   );
 }

@@ -2,13 +2,32 @@ from datetime import date, datetime
 
 from sqlmodel import SQLModel
 
-from .models.common import MermaAction, MermaStage, MovementType, OrderStatus, SKUTag, SKUFamily, UnitOfMeasure
+from .models.common import MermaAction, MermaStage, OrderStatus, SKUFamily, UnitOfMeasure
+
+
+class SKUTypeBase(SQLModel):
+    code: str
+    label: str
+    is_active: bool = True
+
+
+class SKUTypeCreate(SKUTypeBase):
+    pass
+
+
+class SKUTypeUpdate(SQLModel):
+    label: str | None = None
+    is_active: bool | None = None
+
+
+class SKUTypeRead(SKUTypeBase):
+    id: int
 
 
 class SKUBase(SQLModel):
     code: str
     name: str
-    tag: SKUTag
+    sku_type_id: int
     unit: UnitOfMeasure = UnitOfMeasure.UNIT
     notes: str | None = None
     family: SKUFamily | None = None
@@ -21,7 +40,7 @@ class SKUCreate(SKUBase):
 
 class SKUUpdate(SQLModel):
     name: str | None = None
-    tag: SKUTag | None = None
+    sku_type_id: int | None = None
     unit: UnitOfMeasure | None = None
     notes: str | None = None
     family: SKUFamily | None = None
@@ -30,6 +49,8 @@ class SKUUpdate(SQLModel):
 
 class SKURead(SKUBase):
     id: int
+    sku_type_code: str
+    sku_type_label: str
 
 
 class DepositCreate(SQLModel):
@@ -85,7 +106,7 @@ class RecipeRead(SQLModel):
 class StockMovementCreate(SQLModel):
     sku_id: int
     deposit_id: int
-    movement_type: MovementType
+    movement_type_id: int
     quantity: float
     reference: str | None = None
     lot_code: str | None = None
@@ -106,6 +127,25 @@ class UnitRead(SQLModel):
     label: str
 
 
+class StockMovementTypeBase(SQLModel):
+    code: str
+    label: str
+    is_active: bool = True
+
+
+class StockMovementTypeCreate(StockMovementTypeBase):
+    pass
+
+
+class StockMovementTypeUpdate(SQLModel):
+    label: str | None = None
+    is_active: bool | None = None
+
+
+class StockMovementTypeRead(StockMovementTypeBase):
+    id: int
+
+
 class StockSummaryRow(SQLModel):
     group: str
     label: str
@@ -113,7 +153,8 @@ class StockSummaryRow(SQLModel):
 
 
 class MovementSummary(SQLModel):
-    movement_type: MovementType
+    movement_type_code: str
+    movement_type_label: str
     quantity: float
 
 

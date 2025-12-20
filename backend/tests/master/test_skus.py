@@ -1,22 +1,39 @@
 import uuid
 
 
+def _get_sku_type_id(client, code: str) -> int:
+    res = client.get("/api/sku-types")
+    assert res.status_code == 200
+    data = res.json()
+    return next(item["id"] for item in data if item["code"] == code)
+
+
 def test_list_skus(client):
     res = client.get("/api/skus")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
 
 
+def test_list_sku_types(client):
+    res = client.get("/api/sku-types")
+    assert res.status_code == 200
+    data = res.json()
+    codes = {item["code"] for item in data}
+    assert "MP" in codes
+    assert "PT" in codes
+
+
 def test_create_valid_sku(client):
     # Código único para evitar duplicados
     code = f"TEST-{uuid.uuid4().hex[:6]}"
+    sku_type_id = _get_sku_type_id(client, "PT")
 
     payload = {
         "code": code,
         "name": "SKU Test",
-        "tag": "PT",
+        "sku_type_id": sku_type_id,
         "unit": "unit",
-        "active": True
+        "is_active": True,
     }
 
     res = client.post("/api/skus", json=payload)
@@ -25,4 +42,3 @@ def test_create_valid_sku(client):
 
     data = res.json()
     assert data["code"] == code
-

@@ -88,22 +88,22 @@ export function OrderEntryPage() {
     {
       key: "pt",
       title: "Productos terminados",
-      filter: (sku) => sku.tag === "PT" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "PT" && sku.is_active,
     },
     {
       key: "consumibles",
       title: "Consumibles (depósito)",
-      filter: (sku) => sku.tag === "CON" && sku.family === "consumible" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "consumible" && sku.is_active,
     },
     {
       key: "papeleria",
       title: "Papelería",
-      filter: (sku) => sku.tag === "CON" && sku.family === "papeleria" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "papeleria" && sku.is_active,
     },
     {
       key: "limpieza",
       title: "Limpieza",
-      filter: (sku) => sku.tag === "CON" && sku.family === "limpieza" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "limpieza" && sku.is_active,
     },
   ];
 

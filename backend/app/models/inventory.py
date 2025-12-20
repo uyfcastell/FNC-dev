@@ -2,12 +2,26 @@ from datetime import date
 from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship
+from sqlalchemy import UniqueConstraint
 
-from .common import MovementType, TimestampedModel
+from .common import TimestampedModel
 
 if TYPE_CHECKING:  # pragma: no cover - avoid circular import at runtime
     from .sku import SKU
     from .merma import MermaEvent
+    from .sku import SKUType
+
+
+class StockMovementType(TimestampedModel, table=True):
+    __tablename__ = "stock_movement_types"
+    __table_args__ = (UniqueConstraint("code", name="uq_stock_movement_types_code"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(max_length=50, index=True)
+    label: str = Field(max_length=255)
+    is_active: bool = Field(default=True)
+
+    movements: list["StockMovement"] = Relationship(back_populates="movement_type")
 
 
 class Deposit(TimestampedModel, table=True):
@@ -41,7 +55,7 @@ class StockMovement(TimestampedModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     sku_id: int = Field(foreign_key="skus.id")
     deposit_id: int = Field(foreign_key="deposits.id")
-    movement_type: MovementType
+    movement_type_id: int = Field(foreign_key="stock_movement_types.id")
     quantity: float
     reference: str | None = Field(default=None, max_length=100)
     lot_code: str | None = Field(default=None, max_length=64)
@@ -50,3 +64,4 @@ class StockMovement(TimestampedModel, table=True):
     sku: "SKU" = Relationship()
     deposit: Deposit = Relationship()
     merma_event: Optional["MermaEvent"] = Relationship(sa_relationship_kwargs={"uselist": False})
+    movement_type: StockMovementType = Relationship(back_populates="movements")

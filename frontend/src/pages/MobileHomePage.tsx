@@ -22,16 +22,17 @@ import {
   Deposit,
   fetchDeposits,
   fetchSkus,
-  MovementType,
-  SKUTag,
+  fetchStockMovementTypes,
   SKU,
+  StockMovementType,
 } from "../lib/api";
 
-const ALLOWED_TAGS: SKUTag[] = ["MP", "SEMI", "PT"];
+const ALLOWED_TYPE_CODES: string[] = ["MP", "SEMI", "PT"];
 
 export function MobileHomePage() {
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -55,9 +56,14 @@ export function MobileHomePage() {
 
   const loadCatalog = async () => {
     try {
-      const [skuList, depositList] = await Promise.all([fetchSkus(), fetchDeposits()]);
+      const [skuList, depositList, movementTypeList] = await Promise.all([
+        fetchSkus(),
+        fetchDeposits(),
+        fetchStockMovementTypes({ include_inactive: true }),
+      ]);
       setSkus(skuList);
       setDeposits(depositList);
+      setMovementTypes(movementTypeList);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -66,12 +72,15 @@ export function MobileHomePage() {
   };
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
-  const productionSkus = useMemo(() => sortedSkus.filter((sku) => ALLOWED_TAGS.includes(sku.tag)), [sortedSkus]);
+  const productionSkus = useMemo(
+    () => sortedSkus.filter((sku) => ALLOWED_TYPE_CODES.includes(sku.sku_type_code)),
+    [sortedSkus]
+  );
   const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
 
   const handleMovement = async (
     event: FormEvent,
-    movement_type: MovementType,
+    movementTypeCode: string,
     formState: typeof productionForm | typeof mermaForm,
     reset: () => void
   ) => {
@@ -80,12 +89,17 @@ export function MobileHomePage() {
       setError("Completa SKU, depósito y cantidad");
       return;
     }
+    const movementType = movementTypes.find((type) => type.code === movementTypeCode && type.is_active);
+    if (!movementType) {
+      setError("Configura los tipos de movimiento antes de registrar");
+      return;
+    }
     try {
       await createStockMovement({
         sku_id: Number(formState.sku_id),
         deposit_id: Number(formState.deposit_id),
         quantity: Number(formState.quantity),
-        movement_type,
+        movement_type_id: movementType.id,
         reference: formState.reference || undefined,
       });
       setSuccess("Registrado correctamente");
@@ -113,12 +127,12 @@ export function MobileHomePage() {
       <Card sx={{ borderRadius: 3 }}>
         <CardHeader
           titleTypographyProps={{ sx: { fontSize: 20, fontWeight: 700 } }}
-          title="Registrar producción"
-          subheader="Solo PT / SEMI / MP"
-          avatar={<ProductionIcon color="primary" />}
-        />
-        <CardContent>
-          <Stack component="form" spacing={2} onSubmit={(e) => handleMovement(e, "production", productionForm, () => setProductionForm({ sku_id: "", deposit_id: "", quantity: "", reference: "" }))}>
+        title="Registrar producción"
+        subheader="Solo PT / SEMI / MP"
+        avatar={<ProductionIcon color="primary" />}
+      />
+      <CardContent>
+        <Stack component="form" spacing={2} onSubmit={(e) => handleMovement(e, "PRODUCTION", productionForm, () => setProductionForm({ sku_id: "", deposit_id: "", quantity: "", reference: "" }))}>
             <TextField
               select
               required
@@ -178,7 +192,7 @@ export function MobileHomePage() {
             component="form"
             spacing={2}
             onSubmit={(e) =>
-              handleMovement(e, "merma", mermaForm, () => setMermaForm({ sku_id: "", deposit_id: "", quantity: "", reference: "Merma/Descarte" }))
+              handleMovement(e, "MERMA", mermaForm, () => setMermaForm({ sku_id: "", deposit_id: "", quantity: "", reference: "Merma/Descarte" }))
             }
           >
             <TextField

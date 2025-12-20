@@ -77,10 +77,14 @@ export function OrdersPage() {
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
 
   const sections: SectionConfig[] = [
-    { key: "pt", title: "Productos terminados", filter: (sku) => sku.tag === "PT" },
-    { key: "consumibles", title: "Consumibles (depósito)", filter: (sku) => sku.tag === "CON" && sku.family === "consumible" },
-    { key: "papeleria", title: "Papelería", filter: (sku) => sku.tag === "CON" && sku.family === "papeleria" },
-    { key: "limpieza", title: "Limpieza", filter: (sku) => sku.tag === "CON" && sku.family === "limpieza" },
+    { key: "pt", title: "Productos terminados", filter: (sku) => sku.sku_type_code === "PT" },
+    {
+      key: "consumibles",
+      title: "Consumibles (depósito)",
+      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "consumible",
+    },
+    { key: "papeleria", title: "Papelería", filter: (sku) => sku.sku_type_code === "CON" && sku.family === "papeleria" },
+    { key: "limpieza", title: "Limpieza", filter: (sku) => sku.sku_type_code === "CON" && sku.family === "limpieza" },
   ];
 
   const loadData = async () => {
@@ -176,10 +180,10 @@ export function OrdersPage() {
     order.items.forEach((item) => {
       const sku = skus.find((s) => s.id === item.sku_id);
       let section: SectionKey = "consumibles";
-      if (sku?.tag === "PT") section = "pt";
-      else if (sku?.tag === "CON" && sku.family === "papeleria") section = "papeleria";
-      else if (sku?.tag === "CON" && sku.family === "limpieza") section = "limpieza";
-      else if (sku?.tag === "CON") section = "consumibles";
+      if (sku?.sku_type_code === "PT") section = "pt";
+      else if (sku?.sku_type_code === "CON" && sku.family === "papeleria") section = "papeleria";
+      else if (sku?.sku_type_code === "CON" && sku.family === "limpieza") section = "limpieza";
+      else if (sku?.sku_type_code === "CON") section = "consumibles";
       nextLines[section].push({ sku_id: String(item.sku_id), quantity: String(item.quantity), current_stock: item.current_stock != null ? String(item.current_stock) : "" });
     });
     const filledLines: Record<SectionKey, OrderLine[]> = {

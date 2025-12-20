@@ -10,13 +10,6 @@ class TimestampedModel(SQLModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
-class SKUTag(str, Enum):
-    PT = "PT"  # Producto Terminado
-    SEMI = "SEMI"  # Semielaborado
-    MP = "MP"  # Materia Prima
-    CON = "CON"  # Consumible / Material para locales
-
-
 class UnitOfMeasure(str, Enum):
     UNIT = "unit"  # Unidad
     KG = "kg"
@@ -33,15 +26,6 @@ class SKUFamily(str, Enum):
     CONSUMIBLE = "consumible"
     PAPELERIA = "papeleria"
     LIMPIEZA = "limpieza"
-
-
-class MovementType(str, Enum):
-    PRODUCTION = "production"
-    CONSUMPTION = "consumption"
-    ADJUSTMENT = "adjustment"
-    TRANSFER = "transfer"
-    REMITO = "remito"
-    MERMA = "merma"
 
 
 class MermaStage(str, Enum):

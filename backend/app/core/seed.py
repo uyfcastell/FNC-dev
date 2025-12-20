@@ -1,7 +1,19 @@
 from sqlmodel import Session, select
 
-from ..models import Deposit, MermaCause, MermaStage, MermaType, ProductionLine, Recipe, RecipeItem, Role, SKU
-from ..models.common import SKUTag, UnitOfMeasure
+from ..models import (
+    Deposit,
+    MermaCause,
+    MermaStage,
+    MermaType,
+    ProductionLine,
+    Recipe,
+    RecipeItem,
+    Role,
+    SKU,
+    SKUType,
+    StockMovementType,
+)
+from ..models.common import UnitOfMeasure
 
 DEFAULT_ROLES = [
     {"name": "admin", "description": "Administrador"},
@@ -14,10 +26,21 @@ DEFAULT_DEPOSITS = [
     {"name": "Depósito MP", "location": "Fábrica", "controls_lot": True},
 ]
 
+DEFAULT_SKU_TYPES = [
+    {"code": "MP", "label": "Materia Prima"},
+    {"code": "SEMI", "label": "Semielaborado"},
+    {"code": "PT", "label": "Producto Terminado"},
+    {"code": "CON", "label": "Consumible"},
+    {"code": "PAP", "label": "Papelería"},
+    {"code": "LIM", "label": "Limpieza"},
+    {"code": "PACK", "label": "Pack / Packaging"},
+    {"code": "OTRO", "label": "Otro"},
+]
+
 DEFAULT_SKUS = [
-    {"code": "CUC-PT-24", "name": "Cucuruchos x24", "tag": SKUTag.PT, "unit": UnitOfMeasure.BOX},
-    {"code": "CUC-GRANEL", "name": "Cucurucho granel", "tag": SKUTag.SEMI, "unit": UnitOfMeasure.UNIT},
-    {"code": "MP-HARINA", "name": "Harina 0000", "tag": SKUTag.MP, "unit": UnitOfMeasure.KG},
+    {"code": "CUC-PT-24", "name": "Cucuruchos x24", "sku_type_code": "PT", "unit": UnitOfMeasure.BOX},
+    {"code": "CUC-GRANEL", "name": "Cucurucho granel", "sku_type_code": "SEMI", "unit": UnitOfMeasure.UNIT},
+    {"code": "MP-HARINA", "name": "Harina 0000", "sku_type_code": "MP", "unit": UnitOfMeasure.KG},
 ]
 
 DEFAULT_RECIPES = [
@@ -86,6 +109,16 @@ DEFAULT_MERMA_CAUSES = [
     {"stage": MermaStage.ADMINISTRATIVA, "code": "error_pedido_local", "label": "Error de pedido local"},
 ]
 
+DEFAULT_STOCK_MOVEMENT_TYPES = [
+    {"code": "PRODUCTION", "label": "Producción"},
+    {"code": "CONSUMPTION", "label": "Consumo / Receta"},
+    {"code": "ADJUSTMENT", "label": "Ajuste"},
+    {"code": "TRANSFER", "label": "Transferencia"},
+    {"code": "REMITO", "label": "Remito"},
+    {"code": "MERMA", "label": "Merma"},
+    {"code": "PURCHASE", "label": "Ingreso desde Proveedor"},
+]
+
 
 def _get_existing_map(session: Session, model, field: str):
     records = session.exec(select(model)).all()
@@ -105,10 +138,36 @@ def seed_initial_data(session: Session) -> None:
         if payload["name"] not in existing_deposits:
             session.add(Deposit(**payload))
 
+    existing_sku_types = _get_existing_map(session, SKUType, "code")
+    for payload in DEFAULT_SKU_TYPES:
+        code = payload["code"]
+        if code not in existing_sku_types:
+            session.add(SKUType(**payload))
+
+    existing_movement_types = _get_existing_map(session, StockMovementType, "code")
+    for payload in DEFAULT_STOCK_MOVEMENT_TYPES:
+        code = payload["code"]
+        if code not in existing_movement_types:
+            session.add(StockMovementType(**payload))
+
+    session.commit()
+
+    sku_type_map = _get_existing_map(session, SKUType, "code")
     existing_skus = _get_existing_map(session, SKU, "code")
     for payload in DEFAULT_SKUS:
-        if payload["code"] not in existing_skus:
-            session.add(SKU(**payload))
+        if payload["code"] in existing_skus:
+            continue
+        sku_type = sku_type_map.get(payload["sku_type_code"])
+        if not sku_type:
+            continue
+        session.add(
+            SKU(
+                code=payload["code"],
+                name=payload["name"],
+                sku_type_id=sku_type.id,
+                unit=payload["unit"],
+            )
+        )
 
     session.commit()
 
