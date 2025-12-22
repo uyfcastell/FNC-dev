@@ -100,6 +100,7 @@ export function ProductionPage() {
       })),
     [sortedSkus]
   );
+  const selectedProductionProduct = productionSkus.find((sku) => sku.id === productionForm.product_sku_id) ?? null;
 
   useEffect(() => {
     void loadData();
@@ -144,7 +145,8 @@ export function ProductionPage() {
     if (!componentId) return "";
     const sku = skus.find((s) => s.id === componentId);
     if (!sku) return "";
-    return unitLabels[sku.unit] ?? sku.unit;
+    const preferredUnit = sku.sku_type_code === "SEMI" ? sku.secondary_unit ?? "unit" : sku.unit;
+    return unitLabels[preferredUnit] ?? preferredUnit;
   };
 
   const handleRecipeSubmit = async (event: FormEvent) => {
@@ -191,11 +193,14 @@ export function ProductionPage() {
       return;
     }
     try {
+      const productSku = skus.find((s) => s.id === Number(productionForm.product_sku_id));
+      const unit = productSku?.sku_type_code === "SEMI" ? "kg" : productSku?.unit;
       await createStockMovement({
         sku_id: Number(productionForm.product_sku_id),
         deposit_id: Number(productionForm.deposit_id),
         quantity: Number(productionForm.quantity),
         movement_type_id: productionMovementType.id,
+        unit: unit,
         reference: productionForm.reference || "Orden de producción",
       });
       setSuccess("Producción registrada en stock");
@@ -250,6 +255,11 @@ export function ProductionPage() {
                   onChange={(value) => setProductionForm((prev) => ({ ...prev, product_sku_id: value }))}
                   helperText="Selecciona el SKU producido"
                 />
+                {selectedProductionProduct?.sku_type_code === "SEMI" && (
+                  <Typography variant="caption" color="text.secondary">
+                    SEMI base: kg. Equivalencia: {selectedProductionProduct.units_per_kg ?? 1} un = 1 kg
+                  </Typography>
+                )}
                 <SearchableSelect
                   label="Depósito de entrada"
                   required

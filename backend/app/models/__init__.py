@@ -1,7 +1,7 @@
 from .common import MermaAction, MermaStage, OrderStatus, RemitoStatus, SKUFamily, UnitOfMeasure
 from .inventory import Deposit, StockLevel, StockMovement, StockMovementType
 from .order import Order, OrderItem, Remito, RemitoItem
-from .sku import Recipe, RecipeItem, SKU, SKUType
+from .sku import Recipe, RecipeItem, SKU, SKUType, SemiConversionRule
 from .merma import MermaCause, MermaEvent, MermaType, ProductionLine
 from .user import Role, User
 
@@ -28,6 +28,7 @@ __all__ = [
     "Recipe",
     "RecipeItem",
     "SKU",
+    "SemiConversionRule",
     "Role",
     "User",
 ]

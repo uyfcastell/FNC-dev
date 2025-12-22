@@ -82,6 +82,7 @@ export function StockPage() {
     deposit_id: number | null;
     movement_type_id: number | null;
     quantity: string;
+    unit: UnitOfMeasure | null;
     reference: string;
     lot_code: string;
   }>({
@@ -89,6 +90,7 @@ export function StockPage() {
     deposit_id: null,
     movement_type_id: null,
     quantity: "",
+    unit: null,
     reference: "",
     lot_code: "",
   });
@@ -101,7 +103,10 @@ export function StockPage() {
       sortedSkus.map((sku) => ({
         value: sku.id,
         label: `${sku.name} (${sku.code})`,
-        description: `Unidad: ${unitLabel(sku.unit)}`,
+        description:
+          sku.sku_type_code === "SEMI" && sku.units_per_kg
+            ? `Base: kg · Secundaria: unidad (${sku.units_per_kg} un/kg)`
+            : `Unidad: ${unitLabel(sku.unit)}`,
       })),
     [sortedSkus, units]
   );
@@ -116,6 +121,13 @@ export function StockPage() {
   );
   const selectedMovementSku = useMemo(() => sortedSkus.find((sku) => sku.id === movementForm.sku_id) ?? null, [sortedSkus, movementForm.sku_id]);
   const movementUnitLabel = selectedMovementSku ? unitLabel(selectedMovementSku.unit) : null;
+  const isSemiMovementSku = selectedMovementSku?.sku_type_code === "SEMI";
+  const selectedMovementType = useMemo(
+    () => movementTypes.find((type) => type.id === movementForm.movement_type_id) ?? null,
+    [movementTypes, movementForm.movement_type_id]
+  );
+  const semiUnitsPerKg = isSemiMovementSku ? selectedMovementSku?.units_per_kg || 1 : null;
+  const quantityUnitLabel = movementForm.unit ? unitLabel(movementForm.unit) : movementUnitLabel;
 
   useEffect(() => {
     void reloadData();
@@ -146,6 +158,17 @@ export function StockPage() {
       }
     }
   }, [movementTypes, movementForm.movement_type_id]);
+
+  useEffect(() => {
+    if (!selectedMovementSku) return;
+    if (selectedMovementSku.sku_type_code === "SEMI") {
+      const isConsumption = selectedMovementType?.code === "CONSUMPTION";
+      const desiredUnit: UnitOfMeasure = isConsumption ? "unit" : "kg";
+      setMovementForm((prev) => (prev.unit === desiredUnit ? prev : { ...prev, unit: desiredUnit }));
+    } else if (!movementForm.unit) {
+      setMovementForm((prev) => ({ ...prev, unit: selectedMovementSku.unit }));
+    }
+  }, [selectedMovementSku, selectedMovementType, movementForm.unit]);
 
   const reloadData = async () => {
     try {
@@ -228,6 +251,7 @@ export function StockPage() {
         deposit_id: Number(movementForm.deposit_id),
         movement_type_id: Number(movementForm.movement_type_id),
         quantity: Number(movementForm.quantity),
+        unit: movementForm.unit || undefined,
         reference: movementForm.reference || undefined,
         lot_code: movementForm.lot_code || undefined,
       });
@@ -237,6 +261,7 @@ export function StockPage() {
         deposit_id: null,
         movement_type_id: movementForm.movement_type_id,
         quantity: "",
+        unit: null,
         reference: "",
         lot_code: "",
       });
@@ -401,12 +426,31 @@ export function StockPage() {
                       </MenuItem>
                     ))}
                 </TextField>
+                {isSemiMovementSku && (
+                  <>
+                    <TextField
+                      select
+                      label="Unidad"
+                      value={movementForm.unit ?? ""}
+                      onChange={(e) => setMovementForm((prev) => ({ ...prev, unit: e.target.value as UnitOfMeasure }))}
+                      helperText="El stock se descuenta en kg (base)"
+                    >
+                      <MenuItem value="kg">kg (base)</MenuItem>
+                      <MenuItem value="unit">Unidades (conv.)</MenuItem>
+                    </TextField>
+                    {semiUnitsPerKg && (
+                      <Typography variant="caption" color="text.secondary">
+                        Equivalencia SEMI: {semiUnitsPerKg} un = 1 kg
+                      </Typography>
+                    )}
+                  </>
+                )}
                 <TextField
                   required
                   label="Cantidad"
                   type="number"
                   inputProps={{ step: "0.01" }}
-                  InputProps={movementUnitLabel ? { endAdornment: <InputAdornment position="end">{movementUnitLabel}</InputAdornment> } : undefined}
+                  InputProps={quantityUnitLabel ? { endAdornment: <InputAdornment position="end">{quantityUnitLabel}</InputAdornment> } : undefined}
                   value={movementForm.quantity}
                   onChange={(e) => setMovementForm((prev) => ({ ...prev, quantity: e.target.value }))}
                 />

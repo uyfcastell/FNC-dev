@@ -94,6 +94,8 @@ export function MobileHomePage() {
       })),
     [sortedDeposits]
   );
+  const selectedProductionSku = productionSkus.find((sku) => sku.id === productionForm.sku_id);
+  const selectedMermaSku = productionSkus.find((sku) => sku.id === mermaForm.sku_id);
 
   const handleMovement = async (
     event: FormEvent,
@@ -111,12 +113,16 @@ export function MobileHomePage() {
       setError("Configura los tipos de movimiento antes de registrar");
       return;
     }
+    const sku = skus.find((s) => s.id === Number(formState.sku_id));
+    const isSemi = sku?.sku_type_code === "SEMI";
+    const unit = isSemi ? (movementTypeCode === "CONSUMPTION" ? "unit" : "kg") : sku?.unit;
     try {
       await createStockMovement({
         sku_id: Number(formState.sku_id),
         deposit_id: Number(formState.deposit_id),
         quantity: Number(formState.quantity),
         movement_type_id: movementType.id,
+        unit: unit,
         reference: formState.reference || undefined,
       });
       setSuccess("Registrado correctamente");
@@ -155,7 +161,7 @@ export function MobileHomePage() {
             onSubmit={(e) =>
               handleMovement(e, "PRODUCTION", productionForm, () => setProductionForm({ sku_id: null, deposit_id: null, quantity: "", reference: "" }))
             }
-          >
+            >
             <SearchableSelect
               label="SKU producido"
               required
@@ -164,6 +170,11 @@ export function MobileHomePage() {
               onChange={(value) => setProductionForm((prev) => ({ ...prev, sku_id: value }))}
               textFieldProps={{ InputLabelProps: { sx: { fontSize: 16 } } }}
             />
+            {selectedProductionSku?.sku_type_code === "SEMI" && (
+              <Typography variant="caption" color="text.secondary">
+                SEMI en kg (base). Equivalencia: {selectedProductionSku.units_per_kg ?? 1} un = 1 kg
+              </Typography>
+            )}
             <SearchableSelect
               label="Depósito"
               required
@@ -214,6 +225,11 @@ export function MobileHomePage() {
               onChange={(value) => setMermaForm((prev) => ({ ...prev, sku_id: value }))}
               textFieldProps={{ InputLabelProps: { sx: { fontSize: 16 } } }}
             />
+            {selectedMermaSku?.sku_type_code === "SEMI" && (
+              <Typography variant="caption" color="text.secondary">
+                SEMI en kg (base). Equivalencia: {selectedMermaSku.units_per_kg ?? 1} un = 1 kg
+              </Typography>
+            )}
             <SearchableSelect
               label="Depósito"
               required

@@ -117,12 +117,13 @@ export function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
 
-  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; sku_type_id: number | ""; unit: UnitOfMeasure; notes: string; family: SKUFamily | ""; is_active: boolean }>(
+  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; sku_type_id: number | ""; unit: UnitOfMeasure; units_per_kg?: number | ""; notes: string; family: SKUFamily | ""; is_active: boolean }>(
     {
       code: "",
       name: "",
       sku_type_id: "",
       unit: "unit",
+      units_per_kg: "",
       notes: "",
       family: "",
       is_active: true,
@@ -231,6 +232,7 @@ export function AdminPage() {
     [users, userSearch]
   );
   const selectedSkuType = skuForm.sku_type_id ? skuTypeMap.get(Number(skuForm.sku_type_id)) : undefined;
+  const isSemiSku = selectedSkuType?.code === "SEMI";
 
   const loadData = async () => {
     try {
@@ -285,9 +287,17 @@ export function AdminPage() {
         setError("Tipo de SKU inválido");
         return;
       }
-      const { id, ...rest } = skuForm;
+      const isSemi = selectedType.code === "SEMI";
+      const unitsPerKgValue = isSemi ? Number(skuForm.units_per_kg || 1) : undefined;
+      if (isSemi && (!unitsPerKgValue || unitsPerKgValue <= 0)) {
+        setError("Configura las unidades por kg para SEMI");
+        return;
+      }
+      const { id, units_per_kg, ...rest } = skuForm;
       const payload = {
         ...rest,
+        unit: isSemi ? "kg" : skuForm.unit,
+        units_per_kg: unitsPerKgValue,
         sku_type_id: selectedType.id,
         notes: skuForm.notes || null,
         family: selectedType.code === "CON" ? (skuForm.family || null) : null,
@@ -306,6 +316,7 @@ export function AdminPage() {
         name: "",
         sku_type_id: defaultSkuType?.id ?? "",
         unit: "unit",
+        units_per_kg: "",
         notes: "",
         family: "",
         is_active: true,
@@ -418,6 +429,7 @@ export function AdminPage() {
       name: sku.name,
       sku_type_id: sku.sku_type_id,
       unit: sku.unit,
+      units_per_kg: sku.units_per_kg ?? "",
       notes: sku.notes ?? "",
       family: sku.family ?? "",
       is_active: sku.is_active,
@@ -646,7 +658,17 @@ export function AdminPage() {
                 label="Tipo"
                 required
                 value={skuForm.sku_type_id}
-                onChange={(e) => setSkuForm((prev) => ({ ...prev, sku_type_id: Number(e.target.value) }))}
+                onChange={(e) => {
+                  const typeId = Number(e.target.value);
+                  const type = skuTypeMap.get(typeId);
+                  setSkuForm((prev) => ({
+                    ...prev,
+                    sku_type_id: typeId,
+                    unit: type?.code === "SEMI" ? "kg" : prev.unit,
+                    units_per_kg: type?.code === "SEMI" ? prev.units_per_kg || 1 : "",
+                    family: type?.code === "CON" ? prev.family : "",
+                  }));
+                }}
                 helperText="Tipos administrables"
               >
                 {skuTypes.map((type) => (
@@ -674,6 +696,8 @@ export function AdminPage() {
                 label="Unidad"
                 value={skuForm.unit}
                 onChange={(e) => setSkuForm((prev) => ({ ...prev, unit: e.target.value as UnitOfMeasure }))}
+                helperText={isSemiSku ? "Los SEMI operan en kg como unidad base" : undefined}
+                disabled={isSemiSku}
               >
                 {units.map((unit) => (
                   <MenuItem key={unit.code} value={unit.code}>
@@ -681,6 +705,17 @@ export function AdminPage() {
                   </MenuItem>
                 ))}
               </TextField>
+              {isSemiSku && (
+                <TextField
+                  label="Unidades por kg (SEMI)"
+                  type="number"
+                  inputProps={{ min: "0.0001", step: "0.01" }}
+                  value={skuForm.units_per_kg}
+                  onChange={(e) => setSkuForm((prev) => ({ ...prev, units_per_kg: Number(e.target.value) }))}
+                  helperText="Equivalencia de la unidad operativa vs kg base"
+                  required
+                />
+              )}
               <TextField
                 label="Notas"
                 value={skuForm.notes}
@@ -706,6 +741,7 @@ export function AdminPage() {
                         name: "",
                         sku_type_id: defaultSkuType?.id ?? "",
                         unit: "unit",
+                        units_per_kg: "",
                         notes: "",
                         family: "",
                         is_active: true,
@@ -750,6 +786,7 @@ export function AdminPage() {
                   <TableCell>Tipo</TableCell>
                   <TableCell>Familia</TableCell>
                   <TableCell>Unidad</TableCell>
+                  <TableCell>Conv. SEMI</TableCell>
                   <TableCell>Estado</TableCell>
                   <TableCell align="right">Acciones</TableCell>
                 </TableRow>
@@ -762,6 +799,9 @@ export function AdminPage() {
                     <TableCell>{`${sku.sku_type_code} — ${sku.sku_type_label}`}</TableCell>
                     <TableCell>{sku.sku_type_code === "CON" ? sku.family || "—" : "—"}</TableCell>
                     <TableCell>{unitLabel(sku.unit)}</TableCell>
+                    <TableCell>
+                      {sku.sku_type_code === "SEMI" ? `${sku.units_per_kg ?? 1} un = 1 kg` : "—"}
+                    </TableCell>
                     <TableCell>{sku.is_active ? "Activo" : "Inactivo"}</TableCell>
                     <TableCell align="right">
                       <Tooltip title="Editar">

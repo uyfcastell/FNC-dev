@@ -247,6 +247,60 @@ export function MermasPage() {
     }),
     [skus, eventForm.stage]
   );
+  const selectedEventSku = useMemo(() => skus.find((sku) => sku.id === eventForm.sku_id) ?? null, [skus, eventForm.sku_id]);
+  const isSemiEventSku = selectedEventSku?.sku_type_code === "SEMI";
+  const semiUnitsPerKg = isSemiEventSku ? selectedEventSku?.units_per_kg ?? 1 : null;
+
+  const typeOptions = useMemo(
+    () =>
+      filteredTypes.map((type) => ({
+        value: type.id,
+        label: type.label,
+        description: `${stageLabel(type.stage)} · ${type.code}`,
+      })),
+    [filteredTypes]
+  );
+
+  const causeOptions = useMemo(
+    () =>
+      filteredCauses.map((cause) => ({
+        value: cause.id,
+        label: cause.label,
+        description: `${stageLabel(cause.stage)} · ${cause.code}`,
+      })),
+    [filteredCauses]
+  );
+
+  const skuOptions = useMemo(
+    () =>
+      filteredSkus.map((sku) => ({
+        value: sku.id,
+        label: `${sku.name} (${sku.code})`,
+        description: `Unidad: ${unitLabel(sku.unit)}`,
+      })),
+    [filteredSkus, units]
+  );
+
+  const depositOptions = useMemo(
+    () =>
+      deposits.map((deposit) => ({
+        value: deposit.id,
+        label: deposit.name,
+        description: deposit.location || undefined,
+      })),
+    [deposits]
+  );
+
+  const productionLineOptions = useMemo(
+    () =>
+      productionLines
+        .filter((line) => line.is_active)
+        .map((line) => ({
+          value: line.id,
+          label: line.name,
+        })),
+    [productionLines]
+  );
 
   const typeOptions = useMemo(
     () =>
@@ -507,6 +561,11 @@ export function MermasPage() {
                       </MenuItem>
                     ))}
                   </TextField>
+                  {isSemiEventSku && (
+                    <Typography variant="caption" color="text.secondary">
+                      SEMI en kg (base). Equivalencia: {semiUnitsPerKg} un = 1 kg
+                    </Typography>
+                  )}
                 </Grid>
                 {(eventForm.stage === "production" || eventForm.stage === "empaque" || eventForm.stage === "stock" || (eventForm.stage === "administrativa" && eventForm.affects_stock)) && (
                   <Grid item xs={12} md={3}>

@@ -32,6 +32,7 @@ class SKUBase(SQLModel):
     notes: str | None = None
     family: SKUFamily | None = None
     is_active: bool = True
+    units_per_kg: float | None = None  # Solo aplica a SEMI; base kg
 
 
 class SKUCreate(SKUBase):
@@ -45,12 +46,14 @@ class SKUUpdate(SQLModel):
     notes: str | None = None
     family: SKUFamily | None = None
     is_active: bool | None = None
+    units_per_kg: float | None = None
 
 
 class SKURead(SKUBase):
     id: int
     sku_type_code: str
     sku_type_label: str
+    secondary_unit: UnitOfMeasure | None = None
 
 
 class DepositCreate(SQLModel):
@@ -108,6 +111,7 @@ class StockMovementCreate(SQLModel):
     deposit_id: int
     movement_type_id: int
     quantity: float
+    unit: UnitOfMeasure | None = None
     reference: str | None = None
     lot_code: str | None = None
     movement_date: date | None = None

@@ -38,6 +38,9 @@ class SKU(TimestampedModel, table=True):
     recipes: list["Recipe"] = Relationship(back_populates="product")
     merma_events: list["MermaEvent"] = Relationship(back_populates="sku")
     sku_type: SKUType = Relationship(back_populates="skus")
+    semi_conversion_rule: Optional["SemiConversionRule"] = Relationship(
+        back_populates="sku", sa_relationship_kwargs={"uselist": False}
+    )
 
 
 class Recipe(TimestampedModel, table=True):
@@ -61,3 +64,13 @@ class RecipeItem(TimestampedModel, table=True):
 
     recipe: Recipe = Relationship(back_populates="items")
     component: SKU = Relationship()
+
+
+class SemiConversionRule(TimestampedModel, table=True):
+    __tablename__ = "semi_conversion_rules"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sku_id: int = Field(foreign_key="skus.id", unique=True)
+    units_per_kg: float = Field(default=1, gt=0, description="Unidades secundarias por cada kg base")
+
+    sku: SKU = Relationship(back_populates="semi_conversion_rule")

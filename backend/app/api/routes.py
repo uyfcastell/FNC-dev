@@ -20,6 +20,7 @@ from ..models import (
     ProductionLine,
     SKU,
     SKUType,
+    SemiConversionRule,
     StockLevel,
     StockMovement,
     StockMovementType,
@@ -72,6 +73,7 @@ router = APIRouter()
 
 SKU_PRODUCTION_TYPES = {"PT", "SEMI"}
 SKU_CONSUMABLE_CODE = "CON"
+SKU_SEMI_CODE = "SEMI"
 OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
 INCOMING_MOVEMENTS = {"PRODUCTION", "PURCHASE", "ADJUSTMENT", "TRANSFER"}
 
@@ -102,10 +104,47 @@ def _get_sku_type_or_404(session: Session, sku_type_id: int) -> SKUType:
     return sku_type
 
 
+def _get_semi_units_per_kg(session: Session, sku_id: int) -> float:
+    rule = session.exec(select(SemiConversionRule).where(SemiConversionRule.sku_id == sku_id)).first()
+    return float(rule.units_per_kg) if rule else 1.0
+
+
+def _upsert_semi_conversion_rule(session: Session, sku_id: int, units_per_kg: float) -> None:
+    if units_per_kg <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La conversión de SEMI debe ser mayor a cero")
+    rule = session.exec(select(SemiConversionRule).where(SemiConversionRule.sku_id == sku_id)).first()
+    if rule:
+        rule.units_per_kg = units_per_kg
+        rule.updated_at = datetime.utcnow()
+    else:
+        rule = SemiConversionRule(sku_id=sku_id, units_per_kg=units_per_kg)
+    session.add(rule)
+
+
+def _delete_semi_conversion_rule(session: Session, sku_id: int) -> None:
+    existing = session.exec(select(SemiConversionRule).where(SemiConversionRule.sku_id == sku_id)).first()
+    if existing:
+        session.delete(existing)
+
+
+def _convert_to_base_quantity(sku: SKU, quantity: float, unit: UnitOfMeasure | None, session: Session) -> float:
+    session.refresh(sku, attribute_names=["sku_type"])
+    if sku.sku_type and sku.sku_type.code == SKU_SEMI_CODE:
+        units_per_kg = _get_semi_units_per_kg(session, sku.id)
+        if unit in (None, UnitOfMeasure.KG):
+            return quantity
+        if unit == UnitOfMeasure.UNIT:
+            return quantity / units_per_kg
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unidad no soportada para SEMI")
+    return quantity
+
+
 def _map_sku(sku: SKU, session: Session) -> SKURead:
     session.refresh(sku, attribute_names=["sku_type"])
     type_code = sku.sku_type.code if sku.sku_type else ""
     type_label = sku.sku_type.label if sku.sku_type else ""
+    secondary_unit = UnitOfMeasure.UNIT if type_code == SKU_SEMI_CODE else None
+    units_per_kg = _get_semi_units_per_kg(session, sku.id) if type_code == SKU_SEMI_CODE else None
     return SKURead(
         id=sku.id,
         code=sku.code,
@@ -114,6 +153,8 @@ def _map_sku(sku: SKU, session: Session) -> SKURead:
         sku_type_code=type_code,
         sku_type_label=type_label,
         unit=sku.unit,
+        secondary_unit=secondary_unit,
+        units_per_kg=units_per_kg,
         notes=sku.notes,
         family=sku.family,
         is_active=sku.is_active,
@@ -525,12 +566,18 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo de SKU está inactivo")
 
     family = payload.family if sku_type.code == SKU_CONSUMABLE_CODE else None
+    units_per_kg = payload.units_per_kg or 1
+    unit = payload.unit
+    if sku_type.code == SKU_SEMI_CODE:
+        unit = UnitOfMeasure.KG
+    if sku_type.code != SKU_SEMI_CODE:
+        units_per_kg = None
 
     sku = SKU(
         code=payload.code,
         name=payload.name,
         sku_type_id=payload.sku_type_id,
-        unit=payload.unit,
+        unit=unit,
         notes=payload.notes,
         family=family,
         is_active=payload.is_active,
@@ -538,6 +585,9 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
     session.add(sku)
     session.commit()
     session.refresh(sku)
+    if sku_type.code == SKU_SEMI_CODE:
+        _upsert_semi_conversion_rule(session, sku.id, units_per_kg)
+        session.commit()
     return _map_sku(sku, session)
 
 
@@ -553,6 +603,12 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
     if not sku_type.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo de SKU está inactivo")
 
+    units_per_kg = update_data.pop("units_per_kg", None)
+    if sku_type.code == SKU_SEMI_CODE:
+        update_data["unit"] = UnitOfMeasure.KG
+    if units_per_kg is None and sku_type.code == SKU_SEMI_CODE:
+        units_per_kg = _get_semi_units_per_kg(session, sku_id)
+
     if sku_type.code != SKU_CONSUMABLE_CODE:
         update_data["family"] = None
 
@@ -560,6 +616,12 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
         setattr(sku, field, value)
     sku.updated_at = datetime.utcnow()
     session.add(sku)
+    session.commit()
+
+    if sku_type.code == SKU_SEMI_CODE:
+        _upsert_semi_conversion_rule(session, sku.id, units_per_kg or 1)
+    else:
+        _delete_semi_conversion_rule(session, sku.id)
     session.commit()
     session.refresh(sku)
     return _map_sku(sku, session)
@@ -664,7 +726,11 @@ def _map_recipe(recipe: Recipe, session: Session) -> RecipeRead:
         component = session.get(SKU, item.component_id)
         component_code = component.code if component else ""
         component_name = component.name if component else f"SKU {item.component_id}"
-        component_unit = component.unit if component else UnitOfMeasure.UNIT
+        session.refresh(component, attribute_names=["sku_type"]) if component else None
+        if component and component.sku_type and component.sku_type.code == SKU_SEMI_CODE:
+            component_unit = UnitOfMeasure.UNIT
+        else:
+            component_unit = component.unit if component else UnitOfMeasure.UNIT
         items.append(
             {
                 "component_id": item.component_id,
@@ -1013,10 +1079,12 @@ def _apply_stock_movement(
     if not (sku.sku_type and sku.sku_type.is_active):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo del SKU está inactivo")
 
-    delta = payload.quantity
+    input_unit = payload.unit or sku.unit
+    base_quantity = _convert_to_base_quantity(sku, payload.quantity, input_unit, session)
+    delta = base_quantity
     movement_code = movement_type.code.upper()
     if movement_code in OUTGOING_MOVEMENTS:
-        delta = -payload.quantity
+        delta = -base_quantity
     elif movement_code not in INCOMING_MOVEMENTS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de movimiento no soportado")
 
@@ -1207,6 +1275,7 @@ def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get
             deposit_id=deposit.id,
             movement_type_id=merma_movement_type.id,
             quantity=payload.quantity,
+            unit=unit,
             reference=f"MERMA-{merma_type.code}",
             lot_code=payload.lot_code,
             movement_date=detected_at.date(),

@@ -28,6 +28,8 @@ export type SKU = {
   sku_type_code: string;
   sku_type_label: string;
   unit: UnitOfMeasure;
+  secondary_unit?: UnitOfMeasure | null;
+  units_per_kg?: number | null;
   notes?: string | null;
   family?: SKUFamily | null;
   is_active: boolean;
@@ -38,6 +40,7 @@ export type SkuPayload = {
   name: string;
   sku_type_id: number;
   unit: UnitOfMeasure;
+  units_per_kg?: number | null;
   notes?: string | null;
   family?: SKUFamily | null;
   is_active: boolean;
@@ -65,6 +68,7 @@ export type StockMovementPayload = {
   deposit_id: number;
   movement_type_id: number;
   quantity: number;
+  unit?: UnitOfMeasure;
   reference?: string;
   lot_code?: string;
   movement_date?: string;
