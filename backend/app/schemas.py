@@ -262,6 +262,7 @@ class MermaTypeCreate(MermaTypeBase):
 
 
 class MermaTypeUpdate(SQLModel):
+    stage: MermaStage | None = None
     label: str | None = None
     is_active: bool | None = None
 
@@ -282,6 +283,7 @@ class MermaCauseCreate(MermaCauseBase):
 
 
 class MermaCauseUpdate(SQLModel):
+    stage: MermaStage | None = None
     label: str | None = None
     is_active: bool | None = None
 

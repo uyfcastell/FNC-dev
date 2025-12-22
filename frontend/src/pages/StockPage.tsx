@@ -9,6 +9,7 @@ import {
   Divider,
   FormControlLabel,
   Grid,
+  InputAdornment,
   MenuItem,
   Skeleton,
   Stack,
@@ -23,6 +24,7 @@ import {
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { SearchableSelect } from "../components/SearchableSelect";
 import {
   createDeposit,
   createSku,
@@ -76,16 +78,16 @@ export function StockPage() {
   });
 
   const [movementForm, setMovementForm] = useState<{
-    sku_id: string;
-    deposit_id: string;
-    movement_type_id: string;
+    sku_id: number | null;
+    deposit_id: number | null;
+    movement_type_id: number | null;
     quantity: string;
     reference: string;
     lot_code: string;
   }>({
-    sku_id: "",
-    deposit_id: "",
-    movement_type_id: "",
+    sku_id: null,
+    deposit_id: null,
+    movement_type_id: null,
     quantity: "",
     reference: "",
     lot_code: "",
@@ -93,6 +95,27 @@ export function StockPage() {
 
   const sortedSkus = useMemo(() => (skus ? [...skus].sort((a, b) => a.name.localeCompare(b.name)) : []), [skus]);
   const sortedDeposits = useMemo(() => (deposits ? [...deposits].sort((a, b) => a.name.localeCompare(b.name)) : []), [deposits]);
+  const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label ?? unitCode ?? "";
+  const movementSkuOptions = useMemo(
+    () =>
+      sortedSkus.map((sku) => ({
+        value: sku.id,
+        label: `${sku.name} (${sku.code})`,
+        description: `Unidad: ${unitLabel(sku.unit)}`,
+      })),
+    [sortedSkus, units]
+  );
+  const depositOptions = useMemo(
+    () =>
+      sortedDeposits.map((deposit) => ({
+        value: deposit.id,
+        label: deposit.name,
+        description: deposit.location || undefined,
+      })),
+    [sortedDeposits]
+  );
+  const selectedMovementSku = useMemo(() => sortedSkus.find((sku) => sku.id === movementForm.sku_id) ?? null, [sortedSkus, movementForm.sku_id]);
+  const movementUnitLabel = selectedMovementSku ? unitLabel(selectedMovementSku.unit) : null;
 
   useEffect(() => {
     void reloadData();
@@ -119,7 +142,7 @@ export function StockPage() {
         movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active) ??
         movementTypes.find((type) => type.is_active);
       if (defaultType) {
-        setMovementForm((prev) => ({ ...prev, movement_type_id: String(defaultType.id) }));
+        setMovementForm((prev) => ({ ...prev, movement_type_id: defaultType.id }));
       }
     }
   }, [movementTypes, movementForm.movement_type_id]);
@@ -201,7 +224,6 @@ export function StockPage() {
     }
     try {
       await createStockMovement({
-        ...movementForm,
         sku_id: Number(movementForm.sku_id),
         deposit_id: Number(movementForm.deposit_id),
         movement_type_id: Number(movementForm.movement_type_id),
@@ -211,8 +233,8 @@ export function StockPage() {
       });
       setSuccess("Movimiento registrado");
       setMovementForm({
-        sku_id: "",
-        deposit_id: "",
+        sku_id: null,
+        deposit_id: null,
         movement_type_id: movementForm.movement_type_id,
         quantity: "",
         reference: "",
@@ -337,44 +359,37 @@ export function StockPage() {
           </Card>
         </Grid>
         <Grid item xs={12} md={4}>
-          <Card>
-            <CardHeader title="Movimiento de stock" subheader="Ingresos, consumos, ajustes y remitos" />
-            <Divider />
-            <CardContent>
-              <Stack component="form" spacing={2} onSubmit={handleCreateMovement}>
-                <TextField
-                  select
-                  required
+            <Card>
+              <CardHeader title="Movimiento de stock" subheader="Ingresos, consumos, ajustes y remitos" />
+              <Divider />
+              <CardContent>
+                <Stack component="form" spacing={2} onSubmit={handleCreateMovement}>
+                <SearchableSelect
                   label="SKU"
-                  value={movementForm.sku_id}
-                  onChange={(e) => setMovementForm((prev) => ({ ...prev, sku_id: e.target.value }))}
-                  helperText={!skus?.length ? "Carga SKUs primero" : undefined}
-                >
-                  {sortedSkus.map((sku) => (
-                    <MenuItem key={sku.id} value={sku.id}>
-                      {sku.name} ({sku.code})
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
                   required
+                  options={movementSkuOptions}
+                  value={movementForm.sku_id}
+                  onChange={(value) => setMovementForm((prev) => ({ ...prev, sku_id: value }))}
+                  helperText={!skus?.length ? "Carga SKUs primero" : undefined}
+                />
+                {movementUnitLabel && (
+                  <Typography variant="body2" color="text.secondary">
+                    Unidad: {movementUnitLabel}
+                  </Typography>
+                )}
+                <SearchableSelect
                   label="Depósito"
+                  required
+                  options={depositOptions}
                   value={movementForm.deposit_id}
-                  onChange={(e) => setMovementForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
+                  onChange={(value) => setMovementForm((prev) => ({ ...prev, deposit_id: value }))}
                   helperText={!deposits?.length ? "Crea un depósito primero" : undefined}
-                >
-                  {sortedDeposits.map((deposit) => (
-                    <MenuItem key={deposit.id} value={deposit.id}>
-                      {deposit.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                />
                 <TextField
                   select
                   label="Tipo de movimiento"
-                  value={movementForm.movement_type_id}
-                  onChange={(e) => setMovementForm((prev) => ({ ...prev, movement_type_id: e.target.value }))}
+                  value={movementForm.movement_type_id ?? ""}
+                  onChange={(e) => setMovementForm((prev) => ({ ...prev, movement_type_id: Number(e.target.value) }))}
                   helperText={!movementTypes.length ? "Configura los tipos de movimiento primero" : undefined}
                   required
                 >
@@ -391,6 +406,7 @@ export function StockPage() {
                   label="Cantidad"
                   type="number"
                   inputProps={{ step: "0.01" }}
+                  InputProps={movementUnitLabel ? { endAdornment: <InputAdornment position="end">{movementUnitLabel}</InputAdornment> } : undefined}
                   value={movementForm.quantity}
                   onChange={(e) => setMovementForm((prev) => ({ ...prev, quantity: e.target.value }))}
                 />

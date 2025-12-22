@@ -32,6 +32,7 @@ import {
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { SearchableSelect } from "../components/SearchableSelect";
 import {
   createMermaCause,
   createMermaEvent,
@@ -64,7 +65,25 @@ import {
 
 type TabKey = "registro" | "listado" | "catalogos";
 
-type MermaEventFormState = Omit<MermaEventPayload, "quantity"> & { quantity: number | "" };
+type MermaEventFormState = {
+  stage: MermaStage;
+  type_id: number | null;
+  cause_id: number | null;
+  sku_id: number | null;
+  quantity: number | "";
+  unit?: UnitOfMeasure;
+  lot_code?: string | null;
+  deposit_id?: number | null;
+  remito_id?: number | null;
+  order_id?: number | null;
+  production_line_id?: number | null;
+  reported_by_user_id?: number | null;
+  reported_by_role?: string | null;
+  notes?: string | null;
+  detected_at?: string | null;
+  affects_stock: boolean;
+  action: MermaAction;
+};
 
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
   { value: "production", label: "Producción" },
@@ -97,21 +116,23 @@ export function MermasPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label ?? unitCode ?? "";
+
   const [eventForm, setEventForm] = useState<MermaEventFormState>({
     stage: "production",
-    type_id: 0,
-    cause_id: 0,
-    sku_id: 0,
+    type_id: null,
+    cause_id: null,
+    sku_id: null,
     quantity: "",
     unit: undefined,
-    deposit_id: undefined,
-    remito_id: undefined,
-    order_id: undefined,
-    production_line_id: undefined,
-    reported_by_user_id: undefined,
+    deposit_id: null,
+    remito_id: null,
+    order_id: null,
+    production_line_id: null,
+    reported_by_user_id: null,
     reported_by_role: "",
-    notes: "",
-    detected_at: undefined,
+    notes: null,
+    detected_at: null,
     affects_stock: true,
     action: "none",
     lot_code: "",
@@ -227,6 +248,57 @@ export function MermasPage() {
     [skus, eventForm.stage]
   );
 
+  const typeOptions = useMemo(
+    () =>
+      filteredTypes.map((type) => ({
+        value: type.id,
+        label: type.label,
+        description: `${stageLabel(type.stage)} · ${type.code}`,
+      })),
+    [filteredTypes]
+  );
+
+  const causeOptions = useMemo(
+    () =>
+      filteredCauses.map((cause) => ({
+        value: cause.id,
+        label: cause.label,
+        description: `${stageLabel(cause.stage)} · ${cause.code}`,
+      })),
+    [filteredCauses]
+  );
+
+  const skuOptions = useMemo(
+    () =>
+      filteredSkus.map((sku) => ({
+        value: sku.id,
+        label: `${sku.name} (${sku.code})`,
+        description: `Unidad: ${unitLabel(sku.unit)}`,
+      })),
+    [filteredSkus, units]
+  );
+
+  const depositOptions = useMemo(
+    () =>
+      deposits.map((deposit) => ({
+        value: deposit.id,
+        label: deposit.name,
+        description: deposit.location || undefined,
+      })),
+    [deposits]
+  );
+
+  const productionLineOptions = useMemo(
+    () =>
+      productionLines
+        .filter((line) => line.is_active)
+        .map((line) => ({
+          value: line.id,
+          label: line.name,
+        })),
+    [productionLines]
+  );
+
   const handleEventSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!eventForm.type_id || !eventForm.cause_id || !eventForm.sku_id || !eventForm.quantity) {
@@ -251,15 +323,23 @@ export function MermasPage() {
     }
     try {
       await createMermaEvent({
-        ...eventForm,
+        stage: eventForm.stage,
+        type_id: Number(eventForm.type_id),
+        cause_id: Number(eventForm.cause_id),
+        sku_id: Number(eventForm.sku_id),
+        unit: eventForm.unit,
+        notes: eventForm.notes || undefined,
+        reported_by_role: eventForm.reported_by_role || undefined,
+        reported_by_user_id: eventForm.reported_by_user_id ? Number(eventForm.reported_by_user_id) : undefined,
         quantity: Number(eventForm.quantity),
         deposit_id: eventForm.deposit_id ? Number(eventForm.deposit_id) : undefined,
         remito_id: eventForm.remito_id ? Number(eventForm.remito_id) : undefined,
         order_id: eventForm.order_id ? Number(eventForm.order_id) : undefined,
         production_line_id: eventForm.production_line_id ? Number(eventForm.production_line_id) : undefined,
-        reported_by_user_id: eventForm.reported_by_user_id ? Number(eventForm.reported_by_user_id) : undefined,
         detected_at: eventForm.detected_at || undefined,
         lot_code: eventForm.lot_code || undefined,
+        affects_stock: eventForm.affects_stock,
+        action: eventForm.action,
       });
       setSuccess("Merma registrada");
       setError(null);
@@ -282,7 +362,7 @@ export function MermasPage() {
     event.preventDefault();
     try {
       if (typeForm.id) {
-        await updateMermaType(typeForm.id, { label: typeForm.label, is_active: typeForm.is_active });
+        await updateMermaType(typeForm.id, { label: typeForm.label, is_active: typeForm.is_active, stage: typeForm.stage });
       } else {
         await createMermaType({ stage: typeForm.stage, code: typeForm.code, label: typeForm.label, is_active: typeForm.is_active });
       }
@@ -299,7 +379,7 @@ export function MermasPage() {
     event.preventDefault();
     try {
       if (causeForm.id) {
-        await updateMermaCause(causeForm.id, { label: causeForm.label, is_active: causeForm.is_active });
+        await updateMermaCause(causeForm.id, { label: causeForm.label, is_active: causeForm.is_active, stage: causeForm.stage });
       } else {
         await createMermaCause({ stage: causeForm.stage, code: causeForm.code, label: causeForm.label, is_active: causeForm.is_active });
       }
@@ -374,52 +454,34 @@ export function MermasPage() {
                   </TextField>
                 </Grid>
                 <Grid item xs={12} md={3}>
-                  <TextField
-                    select
-                    fullWidth
+                  <SearchableSelect
                     label="Tipo"
                     required
-                    value={eventForm.type_id || ""}
-                    onChange={(e) => setEventForm((prev) => ({ ...prev, type_id: Number(e.target.value) }))}
-                  >
-                    {filteredTypes.map((type) => (
-                      <MenuItem key={type.id} value={type.id}>
-                        {type.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                    options={typeOptions}
+                    value={eventForm.type_id}
+                    onChange={(value) => setEventForm((prev) => ({ ...prev, type_id: value }))}
+                  />
                 </Grid>
                 <Grid item xs={12} md={3}>
-                  <TextField
-                    select
-                    fullWidth
+                  <SearchableSelect
                     label="Causa"
                     required
-                    value={eventForm.cause_id || ""}
-                    onChange={(e) => setEventForm((prev) => ({ ...prev, cause_id: Number(e.target.value) }))}
-                  >
-                    {filteredCauses.map((cause) => (
-                      <MenuItem key={cause.id} value={cause.id}>
-                        {cause.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                    options={causeOptions}
+                    value={eventForm.cause_id}
+                    onChange={(value) => setEventForm((prev) => ({ ...prev, cause_id: value }))}
+                  />
                 </Grid>
                 <Grid item xs={12} md={3}>
-                  <TextField
-                    select
-                    fullWidth
+                  <SearchableSelect
                     label="SKU"
                     required
-                    value={eventForm.sku_id || ""}
-                    onChange={(e) => setEventForm((prev) => ({ ...prev, sku_id: Number(e.target.value), unit: undefined }))}
-                  >
-                    {filteredSkus.map((sku) => (
-                      <MenuItem key={sku.id} value={sku.id}>
-                        {sku.name} ({sku.code})
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                    options={skuOptions}
+                    value={eventForm.sku_id}
+                    onChange={(value) => {
+                      const skuUnit = value ? skus.find((s) => s.id === value)?.unit : undefined;
+                      setEventForm((prev) => ({ ...prev, sku_id: value, unit: skuUnit ?? undefined }));
+                    }}
+                  />
                 </Grid>
                 <Grid item xs={12} md={3}>
                   <TextField
@@ -448,38 +510,24 @@ export function MermasPage() {
                 </Grid>
                 {(eventForm.stage === "production" || eventForm.stage === "empaque" || eventForm.stage === "stock" || (eventForm.stage === "administrativa" && eventForm.affects_stock)) && (
                   <Grid item xs={12} md={3}>
-                    <TextField
-                      select
-                      fullWidth
+                    <SearchableSelect
                       label="Depósito"
                       required
-                      value={eventForm.deposit_id || ""}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, deposit_id: Number(e.target.value) }))}
-                    >
-                      {deposits.map((deposit) => (
-                        <MenuItem key={deposit.id} value={deposit.id}>
-                          {deposit.name}
-                        </MenuItem>
-                      ))}
-                    </TextField>
+                      options={depositOptions}
+                      value={eventForm.deposit_id ?? null}
+                      onChange={(value) => setEventForm((prev) => ({ ...prev, deposit_id: value }))}
+                    />
                   </Grid>
                 )}
                 {eventForm.stage === "production" && (
                   <Grid item xs={12} md={3}>
-                    <TextField
-                      select
-                      fullWidth
+                    <SearchableSelect
                       label="Línea de producción"
                       required
-                      value={eventForm.production_line_id || ""}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, production_line_id: Number(e.target.value) }))}
-                    >
-                      {productionLines.filter((line) => line.is_active).map((line) => (
-                        <MenuItem key={line.id} value={line.id}>
-                          {line.name}
-                        </MenuItem>
-                      ))}
-                    </TextField>
+                      options={productionLineOptions}
+                      value={eventForm.production_line_id ?? null}
+                      onChange={(value) => setEventForm((prev) => ({ ...prev, production_line_id: value }))}
+                    />
                   </Grid>
                 )}
                 {eventForm.stage === "transito_post_remito" && (
@@ -925,10 +973,10 @@ export function MermasPage() {
                             try {
                               await deleteMermaType(type.id);
                               await loadReferenceData();
-                              setSuccess("Tipo eliminado");
+                              setSuccess("Tipo desactivado");
                             } catch (err) {
                               console.error(err);
-                              setError("No se puede eliminar el tipo (en uso)");
+                              setError("No se puede desactivar el tipo");
                             }
                           }}
                         >
@@ -1021,10 +1069,10 @@ export function MermasPage() {
                             try {
                               await deleteMermaCause(cause.id);
                               await loadReferenceData();
-                              setSuccess("Causa eliminada");
+                              setSuccess("Causa desactivada");
                             } catch (err) {
                               console.error(err);
-                              setError("No se puede eliminar la causa (en uso)");
+                              setError("No se puede desactivar la causa");
                             }
                           }}
                         >

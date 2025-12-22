@@ -11,7 +11,6 @@ import {
   Grid,
   IconButton,
   LinearProgress,
-  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -25,6 +24,7 @@ import {
 import { AddCircleOutline, DeleteForever } from "@mui/icons-material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { SearchableSelect } from "../components/SearchableSelect";
 import {
   createRecipe,
   createStockMovement,
@@ -39,6 +39,7 @@ import {
 } from "../lib/api";
 
 const PRODUCTION_TYPE_CODES: string[] = ["PT", "SEMI", "MP"];
+type RecipeFormItem = { component_id: number | null; quantity: string };
 
 export function ProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
@@ -49,21 +50,21 @@ export function ProductionPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [recipeForm, setRecipeForm] = useState<{
-    product_id: string;
+    product_id: number | null;
     name: string;
-    items: { component_id: string; quantity: string }[];
+    items: RecipeFormItem[];
   }>({
-    product_id: "",
+    product_id: null,
     name: "",
     items: [
-      { component_id: "", quantity: "" },
-      { component_id: "", quantity: "" },
+      { component_id: null, quantity: "" },
+      { component_id: null, quantity: "" },
     ],
   });
 
   const [productionForm, setProductionForm] = useState({
-    product_sku_id: "",
-    deposit_id: "",
+    product_sku_id: null as number | null,
+    deposit_id: null as number | null,
     quantity: "",
     reference: "",
   });
@@ -72,6 +73,31 @@ export function ProductionPage() {
   const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
   const productionSkus = useMemo(
     () => sortedSkus.filter((sku) => PRODUCTION_TYPE_CODES.includes(sku.sku_type_code)),
+    [sortedSkus]
+  );
+  const productOptions = useMemo(
+    () =>
+      productionSkus.map((sku) => ({
+        value: sku.id,
+        label: `${sku.name} (${sku.code})`,
+      })),
+    [productionSkus]
+  );
+  const depositOptions = useMemo(
+    () =>
+      sortedDeposits.map((deposit) => ({
+        value: deposit.id,
+        label: deposit.name,
+        description: deposit.location || undefined,
+      })),
+    [sortedDeposits]
+  );
+  const componentOptions = useMemo(
+    () =>
+      sortedSkus.map((sku) => ({
+        value: sku.id,
+        label: `${sku.name} (${sku.code})`,
+      })),
     [sortedSkus]
   );
 
@@ -114,9 +140,9 @@ export function ProductionPage() {
     cm: "Centímetro",
   };
 
-  const getComponentUnit = (componentId: string) => {
+  const getComponentUnit = (componentId: number | null) => {
     if (!componentId) return "";
-    const sku = skus.find((s) => s.id === Number(componentId));
+    const sku = skus.find((s) => s.id === componentId);
     if (!sku) return "";
     return unitLabels[sku.unit] ?? sku.unit;
   };
@@ -128,9 +154,10 @@ export function ProductionPage() {
       return;
     }
     try {
+      const recipeName = recipeForm.name || getSkuLabel(recipeForm.product_id);
       await createRecipe({
-        product_id: Number(recipeForm.product_id),
-        name: recipeForm.name || getSkuLabel(Number(recipeForm.product_id)),
+        product_id: recipeForm.product_id,
+        name: recipeName,
         items: recipeForm.items.map((item) => ({
           component_id: Number(item.component_id),
           quantity: Number(item.quantity),
@@ -138,11 +165,11 @@ export function ProductionPage() {
       });
       setSuccess("Receta creada");
       setRecipeForm({
-        product_id: "",
+        product_id: null,
         name: "",
         items: [
-          { component_id: "", quantity: "" },
-          { component_id: "", quantity: "" },
+          { component_id: null, quantity: "" },
+          { component_id: null, quantity: "" },
         ],
       });
       await loadData();
@@ -172,7 +199,7 @@ export function ProductionPage() {
         reference: productionForm.reference || "Orden de producción",
       });
       setSuccess("Producción registrada en stock");
-      setProductionForm({ product_sku_id: "", deposit_id: "", quantity: "", reference: "" });
+      setProductionForm({ product_sku_id: null, deposit_id: null, quantity: "", reference: "" });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -180,7 +207,7 @@ export function ProductionPage() {
     }
   };
 
-  const handleItemChange = (index: number, field: "component_id" | "quantity", value: string) => {
+  const handleItemChange = (index: number, field: "component_id" | "quantity", value: string | number | null) => {
     setRecipeForm((prev) => {
       const items = [...prev.items];
       items[index] = { ...items[index], [field]: value };
@@ -189,7 +216,7 @@ export function ProductionPage() {
   };
 
   const addComponentRow = () => {
-    setRecipeForm((prev) => ({ ...prev, items: [...prev.items, { component_id: "", quantity: "" }] }));
+    setRecipeForm((prev) => ({ ...prev, items: [...prev.items, { component_id: null, quantity: "" }] }));
   };
 
   const removeComponentRow = (index: number) => {
@@ -211,37 +238,25 @@ export function ProductionPage() {
       <Grid container spacing={2}>
         <Grid item xs={12} md={6}>
           <Card>
-            <CardHeader title="Registrar producción" subheader="Suma stock de PT o SEMI en un depósito" />
-            <Divider />
-            <CardContent>
-              <Stack component="form" spacing={2} onSubmit={handleProductionSubmit}>
-                <TextField
-                  select
-                  required
+                <CardHeader title="Registrar producción" subheader="Suma stock de PT o SEMI en un depósito" />
+                <Divider />
+                <CardContent>
+                  <Stack component="form" spacing={2} onSubmit={handleProductionSubmit}>
+                <SearchableSelect
                   label="Producto"
-                  value={productionForm.product_sku_id}
-                  onChange={(e) => setProductionForm((prev) => ({ ...prev, product_sku_id: e.target.value }))}
-                  helperText="Selecciona el SKU producido"
-                >
-                  {productionSkus.map((sku) => (
-                    <MenuItem key={sku.id} value={sku.id}>
-                      {sku.name} ({sku.code})
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
                   required
+                  options={productOptions}
+                  value={productionForm.product_sku_id}
+                  onChange={(value) => setProductionForm((prev) => ({ ...prev, product_sku_id: value }))}
+                  helperText="Selecciona el SKU producido"
+                />
+                <SearchableSelect
                   label="Depósito de entrada"
+                  required
+                  options={depositOptions}
                   value={productionForm.deposit_id}
-                  onChange={(e) => setProductionForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
-                >
-                  {sortedDeposits.map((deposit) => (
-                    <MenuItem key={deposit.id} value={deposit.id}>
-                      {deposit.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  onChange={(value) => setProductionForm((prev) => ({ ...prev, deposit_id: value }))}
+                />
                 <TextField
                   required
                   label="Cantidad producida"
@@ -264,23 +279,17 @@ export function ProductionPage() {
         </Grid>
         <Grid item xs={12} md={6}>
           <Card>
-            <CardHeader title="Definir receta" subheader="SKU producido y componentes requeridos" />
-            <Divider />
-            <CardContent>
-              <Stack component="form" spacing={2} onSubmit={handleRecipeSubmit}>
-                <TextField
-                  select
-                  required
+                <CardHeader title="Definir receta" subheader="SKU producido y componentes requeridos" />
+                <Divider />
+                <CardContent>
+                  <Stack component="form" spacing={2} onSubmit={handleRecipeSubmit}>
+                <SearchableSelect
                   label="Producto final"
+                  required
+                  options={productOptions}
                   value={recipeForm.product_id}
-                  onChange={(e) => setRecipeForm((prev) => ({ ...prev, product_id: e.target.value }))}
-                >
-                  {productionSkus.map((sku) => (
-                    <MenuItem key={sku.id} value={sku.id}>
-                      {sku.name} ({sku.code})
-                    </MenuItem>
-                  ))}
-                </TextField>
+                  onChange={(value) => setRecipeForm((prev) => ({ ...prev, product_id: value }))}
+                />
                 <TextField
                   label="Nombre de receta"
                   placeholder="Si lo dejas vacío usamos el nombre del SKU"
@@ -291,20 +300,15 @@ export function ProductionPage() {
                   <Typography variant="subtitle2">Componentes</Typography>
                   {recipeForm.items.map((item, index) => (
                     <Stack key={index} direction="row" spacing={1} alignItems="center">
-                      <TextField
-                        select
-                        required
-                        label="Componente"
-                        sx={{ flex: 1 }}
-                        value={item.component_id}
-                        onChange={(e) => handleItemChange(index, "component_id", e.target.value)}
-                      >
-                        {sortedSkus.map((sku) => (
-                          <MenuItem key={sku.id} value={sku.id}>
-                            {sku.name} ({sku.code})
-                          </MenuItem>
-                        ))}
-                      </TextField>
+                      <Box sx={{ flex: 1 }}>
+                        <SearchableSelect
+                          label="Componente"
+                          required
+                          options={componentOptions}
+                          value={item.component_id}
+                          onChange={(value) => handleItemChange(index, "component_id", value)}
+                        />
+                      </Box>
                       <TextField label="Unidad" value={getComponentUnit(item.component_id)} sx={{ width: 140 }} InputProps={{ readOnly: true }} />
                       <TextField
                         required
@@ -359,7 +363,7 @@ export function ProductionPage() {
                           <Chip
                             key={`${recipe.id}-${idx}`}
                             label={`${getSkuLabel(item.component_id)} · ${item.quantity} ${
-                              item.component_unit ? unitLabels[item.component_unit] ?? item.component_unit : getComponentUnit(String(item.component_id))
+                              item.component_unit ? unitLabels[item.component_unit] ?? item.component_unit : getComponentUnit(item.component_id ?? null)
                             }`}
                           />
                         ))}

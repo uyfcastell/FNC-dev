@@ -381,6 +381,14 @@ def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session =
     record = session.get(MermaType, type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de merma no encontrado")
+
+    new_stage = payload.stage or record.stage
+    duplicate = session.exec(
+        select(MermaType).where(MermaType.stage == new_stage, MermaType.code == record.code, MermaType.id != type_id)
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo con ese código en la etapa")
+
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(record, field, value)
@@ -396,11 +404,11 @@ def delete_merma_type(type_id: int, session: Session = Depends(get_session)) -> 
     record = session.get(MermaType, type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de merma no encontrado")
-    in_use = session.exec(select(MermaEvent).where(MermaEvent.type_id == type_id)).first()
-    if in_use:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar: está en uso")
-    session.delete(record)
+    record.is_active = False
+    record.updated_at = datetime.utcnow()
+    session.add(record)
     session.commit()
+    session.refresh(record)
 
 
 @router.get("/mermas/causes", tags=["mermas"], response_model=list[MermaCauseRead])
@@ -437,6 +445,14 @@ def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Sessio
     record = session.get(MermaCause, cause_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Causa de merma no encontrada")
+
+    new_stage = payload.stage or record.stage
+    duplicate = session.exec(
+        select(MermaCause).where(MermaCause.stage == new_stage, MermaCause.code == record.code, MermaCause.id != cause_id)
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una causa con ese código en la etapa")
+
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(record, field, value)
@@ -452,11 +468,11 @@ def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -
     record = session.get(MermaCause, cause_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Causa de merma no encontrada")
-    in_use = session.exec(select(MermaEvent).where(MermaEvent.cause_id == cause_id)).first()
-    if in_use:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar: está en uso")
-    session.delete(record)
+    record.is_active = False
+    record.updated_at = datetime.utcnow()
+    session.add(record)
     session.commit()
+    session.refresh(record)
 
 
 @router.get("/skus", tags=["sku"], response_model=list[SKURead])

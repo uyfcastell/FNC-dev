@@ -656,7 +656,7 @@ export async function createMermaType(payload: Omit<MermaType, "id">): Promise<M
   return response.json();
 }
 
-export async function updateMermaType(id: number, payload: Partial<Omit<MermaType, "id" | "code" | "stage" >>): Promise<MermaType> {
+export async function updateMermaType(id: number, payload: Partial<Omit<MermaType, "id" | "code">>): Promise<MermaType> {
   const response = await fetch(`${API_BASE_URL}/mermas/types/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -670,11 +670,7 @@ export async function updateMermaType(id: number, payload: Partial<Omit<MermaTyp
 }
 
 export async function deleteMermaType(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/mermas/types/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el tipo de merma");
-  }
+  await updateMermaType(id, { is_active: false });
 }
 
 export async function fetchMermaCauses(params?: { stage?: MermaStage; include_inactive?: boolean }): Promise<MermaCause[]> {
@@ -705,7 +701,7 @@ export async function createMermaCause(payload: Omit<MermaCause, "id">): Promise
   return response.json();
 }
 
-export async function updateMermaCause(id: number, payload: Partial<Omit<MermaCause, "id" | "code" | "stage">>): Promise<MermaCause> {
+export async function updateMermaCause(id: number, payload: Partial<Omit<MermaCause, "id" | "code">>): Promise<MermaCause> {
   const response = await fetch(`${API_BASE_URL}/mermas/causes/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -719,11 +715,7 @@ export async function updateMermaCause(id: number, payload: Partial<Omit<MermaCa
 }
 
 export async function deleteMermaCause(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/mermas/causes/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar la causa de merma");
-  }
+  await updateMermaCause(id, { is_active: false });
 }
 
 export type MermaEventPayload = {

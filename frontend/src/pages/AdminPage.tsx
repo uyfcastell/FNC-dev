@@ -38,7 +38,11 @@ import {
   createRecipe,
   createSku,
   createUser,
+  createMermaCause,
+  createMermaType,
   deleteDeposit,
+  deleteMermaCause,
+  deleteMermaType,
   deleteRecipe,
   deleteSku,
   deleteUser,
@@ -46,6 +50,8 @@ import {
   fetchDeposits,
   fetchRecipes,
   fetchRoles,
+  fetchMermaCauses,
+  fetchMermaTypes,
   fetchSkuTypes,
   fetchStockMovementTypes,
   fetchSkus,
@@ -54,6 +60,9 @@ import {
   Recipe,
   SKUFamily,
   SKU,
+  MermaCause,
+  MermaStage,
+  MermaType,
   SKUType,
   StockMovementType,
   UnitOfMeasure,
@@ -65,6 +74,8 @@ import {
   updateStockMovementType,
   deleteStockMovementType,
   updateDeposit,
+  updateMermaCause,
+  updateMermaType,
   updateRecipe,
   updateSku,
   updateUser,
@@ -73,6 +84,14 @@ import {
 } from "../lib/api";
 
 const PRODUCTION_TYPE_CODES = ["PT", "SEMI"];
+const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
+  { value: "production", label: "Producción" },
+  { value: "empaque", label: "Empaque" },
+  { value: "stock", label: "Stock/Depósito" },
+  { value: "transito_post_remito", label: "Tránsito post-remito" },
+  { value: "administrativa", label: "Administrativa" },
+];
+const mermaStageLabel = (stage: MermaStage) => MERMA_STAGE_OPTIONS.find((s) => s.value === stage)?.label ?? stage;
 
 type RecipeFormItem = { component_id: string; quantity: string };
 
@@ -83,6 +102,8 @@ export function AdminPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
   const [skuTypes, setSkuTypes] = useState<SKUType[]>([]);
   const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
+  const [mermaTypes, setMermaTypes] = useState<MermaType[]>([]);
+  const [mermaCauses, setMermaCauses] = useState<MermaCause[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -141,6 +162,18 @@ export function AdminPage() {
     label: "",
     is_active: true,
   });
+  const [mermaTypeForm, setMermaTypeForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>({
+    stage: "production",
+    code: "",
+    label: "",
+    is_active: true,
+  });
+  const [mermaCauseForm, setMermaCauseForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>({
+    stage: "production",
+    code: "",
+    label: "",
+    is_active: true,
+  });
 
   useEffect(() => {
     void loadData();
@@ -152,6 +185,14 @@ export function AdminPage() {
   const skuTypeMap = useMemo(() => new Map(skuTypes.map((type) => [type.id, type])), [skuTypes]);
   const sortedSkuTypes = useMemo(() => [...skuTypes].sort((a, b) => a.code.localeCompare(b.code)), [skuTypes]);
   const sortedMovementTypes = useMemo(() => [...movementTypes].sort((a, b) => a.code.localeCompare(b.code)), [movementTypes]);
+  const sortedMermaTypes = useMemo(
+    () => [...mermaTypes].sort((a, b) => a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code)),
+    [mermaTypes]
+  );
+  const sortedMermaCauses = useMemo(
+    () => [...mermaCauses].sort((a, b) => a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code)),
+    [mermaCauses]
+  );
 
   const matchesSearch = (text: string, search: string) => text.toLowerCase().includes(search.trim().toLowerCase());
 
@@ -193,7 +234,7 @@ export function AdminPage() {
 
   const loadData = async () => {
     try {
-      const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList] = await Promise.all([
+      const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList, mermaTypeList, mermaCauseList] = await Promise.all([
         fetchSkus({ include_inactive: true }),
         fetchDeposits(),
         fetchRecipes(),
@@ -202,6 +243,8 @@ export function AdminPage() {
         fetchUnits(),
         fetchSkuTypes({ include_inactive: true }),
         fetchStockMovementTypes({ include_inactive: true }),
+        fetchMermaTypes({ include_inactive: true }),
+        fetchMermaCauses({ include_inactive: true }),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
@@ -211,6 +254,8 @@ export function AdminPage() {
       setUnits(unitList);
       setSkuTypes(skuTypeList);
       setMovementTypes(movementTypeList);
+      setMermaTypes(mermaTypeList);
+      setMermaCauses(mermaCauseList);
 
       const defaultSkuType = skuTypeList.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.find((t) => t.is_active);
       if (defaultSkuType && !skuForm.sku_type_id) {
@@ -476,6 +521,68 @@ export function AdminPage() {
     }
   };
 
+  const handleMermaTypeSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      if (!mermaTypeForm.code || !mermaTypeForm.label) {
+        setError("Completa código, etapa y etiqueta");
+        return;
+      }
+      if (mermaTypeForm.id) {
+        await updateMermaType(mermaTypeForm.id, {
+          stage: mermaTypeForm.stage,
+          label: mermaTypeForm.label,
+          is_active: mermaTypeForm.is_active,
+        });
+        setSuccess("Tipo de merma actualizado");
+      } else {
+        await createMermaType({
+          stage: mermaTypeForm.stage,
+          code: mermaTypeForm.code,
+          label: mermaTypeForm.label,
+          is_active: mermaTypeForm.is_active,
+        });
+        setSuccess("Tipo de merma creado");
+      }
+      setMermaTypeForm({ id: undefined, stage: "production", code: "", label: "", is_active: true });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos guardar el tipo de merma. ¿Código duplicado?");
+    }
+  };
+
+  const handleMermaCauseSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      if (!mermaCauseForm.code || !mermaCauseForm.label) {
+        setError("Completa código, etapa y etiqueta");
+        return;
+      }
+      if (mermaCauseForm.id) {
+        await updateMermaCause(mermaCauseForm.id, {
+          stage: mermaCauseForm.stage,
+          label: mermaCauseForm.label,
+          is_active: mermaCauseForm.is_active,
+        });
+        setSuccess("Causa de merma actualizada");
+      } else {
+        await createMermaCause({
+          stage: mermaCauseForm.stage,
+          code: mermaCauseForm.code,
+          label: mermaCauseForm.label,
+          is_active: mermaCauseForm.is_active,
+        });
+        setSuccess("Causa de merma creada");
+      }
+      setMermaCauseForm({ id: undefined, stage: "production", code: "", label: "", is_active: true });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos guardar la causa de merma. ¿Código duplicado?");
+    }
+  };
+
   const handleSkuTypeDelete = async (id: number) => {
     if (!window.confirm("¿Eliminar/desactivar el tipo de SKU?")) return;
     try {
@@ -497,6 +604,30 @@ export function AdminPage() {
     } catch (err) {
       console.error(err);
       setError("No pudimos eliminar el tipo de movimiento");
+    }
+  };
+
+  const handleMermaTypeDelete = async (id: number) => {
+    if (!window.confirm("¿Desactivar el tipo de merma?")) return;
+    try {
+      await deleteMermaType(id);
+      setSuccess("Tipo de merma desactivado");
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos desactivar el tipo de merma");
+    }
+  };
+
+  const handleMermaCauseDelete = async (id: number) => {
+    if (!window.confirm("¿Desactivar la causa de merma?")) return;
+    try {
+      await deleteMermaCause(id);
+      setSuccess("Causa de merma desactivada");
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos desactivar la causa de merma");
     }
   };
 
@@ -799,6 +930,212 @@ export function AdminPage() {
                 ))}
               </TableBody>
             </Table>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid item xs={12} md={6}>
+        <Card>
+          <CardHeader title="Tipos de merma" subheader="Catálogo por etapa" avatar={<LibraryAddIcon color="primary" />} />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleMermaTypeSubmit}>
+              <TextField
+                select
+                label="Etapa"
+                value={mermaTypeForm.stage}
+                onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
+              >
+                {MERMA_STAGE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Código"
+                value={mermaTypeForm.code}
+                onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                inputProps={{ style: { textTransform: "uppercase" } }}
+                required
+                disabled={!!mermaTypeForm.id}
+              />
+              <TextField
+                label="Nombre visible"
+                value={mermaTypeForm.label}
+                onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, label: e.target.value }))}
+                required
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={mermaTypeForm.is_active}
+                    onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
+              />
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" variant="contained">
+                  {mermaTypeForm.id ? "Actualizar" : "Crear"}
+                </Button>
+                {mermaTypeForm.id && (
+                  <Button onClick={() => setMermaTypeForm({ id: undefined, stage: "production", code: "", label: "", is_active: true })}>
+                    Cancelar
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+            <Divider sx={{ my: 2 }} />
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Etapa</TableCell>
+                  <TableCell>Código</TableCell>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedMermaTypes.map((type) => (
+                  <TableRow key={type.id} hover>
+                    <TableCell>{mermaStageLabel(type.stage)}</TableCell>
+                  <TableCell>{type.code}</TableCell>
+                  <TableCell>{type.label}</TableCell>
+                  <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
+                  <TableCell align="right">
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                        <Switch
+                          checked={type.is_active}
+                          onChange={async (e) => {
+                            try {
+                              await updateMermaType(type.id, { is_active: e.target.checked });
+                              await loadData();
+                            } catch (err) {
+                              console.error(err);
+                              setError("No pudimos actualizar el estado");
+                            }
+                          }}
+                        />
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => setMermaTypeForm({ ...type })}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Desactivar">
+                          <IconButton size="small" color="error" onClick={() => handleMermaTypeDelete(type.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid item xs={12} md={6}>
+        <Card>
+          <CardHeader title="Causas de merma" subheader="Catálogo por etapa" avatar={<LibraryAddIcon color="primary" />} />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleMermaCauseSubmit}>
+              <TextField
+                select
+                label="Etapa"
+                value={mermaCauseForm.stage}
+                onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
+              >
+                {MERMA_STAGE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Código"
+                value={mermaCauseForm.code}
+                onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                inputProps={{ style: { textTransform: "uppercase" } }}
+                required
+                disabled={!!mermaCauseForm.id}
+              />
+              <TextField
+                label="Nombre visible"
+                value={mermaCauseForm.label}
+                onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, label: e.target.value }))}
+                required
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={mermaCauseForm.is_active}
+                    onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
+              />
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" variant="contained">
+                  {mermaCauseForm.id ? "Actualizar" : "Crear"}
+                </Button>
+                {mermaCauseForm.id && (
+                  <Button onClick={() => setMermaCauseForm({ id: undefined, stage: "production", code: "", label: "", is_active: true })}>
+                    Cancelar
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+            <Divider sx={{ my: 2 }} />
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Etapa</TableCell>
+                  <TableCell>Código</TableCell>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedMermaCauses.map((cause) => (
+                  <TableRow key={cause.id} hover>
+                    <TableCell>{mermaStageLabel(cause.stage)}</TableCell>
+                  <TableCell>{cause.code}</TableCell>
+                  <TableCell>{cause.label}</TableCell>
+                  <TableCell>{cause.is_active ? "Activo" : "Inactivo"}</TableCell>
+                  <TableCell align="right">
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                        <Switch
+                          checked={cause.is_active}
+                          onChange={async (e) => {
+                            try {
+                              await updateMermaCause(cause.id, { is_active: e.target.checked });
+                              await loadData();
+                            } catch (err) {
+                              console.error(err);
+                              setError("No pudimos actualizar el estado");
+                            }
+                          }}
+                        />
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => setMermaCauseForm({ ...cause })}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Desactivar">
+                          <IconButton size="small" color="error" onClick={() => handleMermaCauseDelete(cause.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
           </CardContent>
         </Card>
       </Grid>
