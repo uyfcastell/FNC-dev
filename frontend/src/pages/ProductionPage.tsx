@@ -30,9 +30,11 @@ import {
   createStockMovement,
   Deposit,
   fetchDeposits,
+  fetchProductionLines,
   fetchRecipes,
   fetchSkus,
   fetchStockMovementTypes,
+  ProductionLine,
   Recipe,
   SKU,
   StockMovementType,
@@ -46,6 +48,7 @@ export function ProductionPage() {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
+  const [productionLines, setProductionLines] = useState<ProductionLine[]>([]);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +68,8 @@ export function ProductionPage() {
   const [productionForm, setProductionForm] = useState({
     product_sku_id: null as number | null,
     deposit_id: null as number | null,
+    production_line_id: null as number | null,
+    lot_code: "",
     quantity: "",
     reference: "",
   });
@@ -92,6 +97,16 @@ export function ProductionPage() {
       })),
     [sortedDeposits]
   );
+  const productionLineOptions = useMemo(
+    () =>
+      productionLines
+        .filter((line) => line.is_active)
+        .map((line) => ({
+          value: line.id,
+          label: line.name,
+        })),
+    [productionLines]
+  );
   const componentOptions = useMemo(
     () =>
       sortedSkus.map((sku) => ({
@@ -108,16 +123,18 @@ export function ProductionPage() {
 
   const loadData = async () => {
     try {
-      const [skuList, depositList, recipeList, movementTypeList] = await Promise.all([
+      const [skuList, depositList, recipeList, movementTypeList, productionLineList] = await Promise.all([
         fetchSkus({ tags: PRODUCTION_TYPE_CODES }),
         fetchDeposits(),
         fetchRecipes(),
         fetchStockMovementTypes({ include_inactive: true }),
+        fetchProductionLines(),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
       setRecipes(recipeList);
       setMovementTypes(movementTypeList);
+      setProductionLines(productionLineList);
     } catch (err) {
       console.error(err);
       setError("No pudimos cargar catálogo y recetas. ¿Está levantado el backend?");
@@ -183,8 +200,8 @@ export function ProductionPage() {
 
   const handleProductionSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!productionForm.product_sku_id || !productionForm.deposit_id || !productionForm.quantity) {
-      setError("Selecciona SKU, depósito y cantidad para registrar la producción");
+    if (!productionForm.product_sku_id || !productionForm.deposit_id || !productionForm.production_line_id || !productionForm.quantity) {
+      setError("Selecciona SKU, depósito, línea y cantidad para registrar la producción");
       return;
     }
     const productionMovementType = movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active);
@@ -198,13 +215,15 @@ export function ProductionPage() {
       await createStockMovement({
         sku_id: Number(productionForm.product_sku_id),
         deposit_id: Number(productionForm.deposit_id),
+        production_line_id: Number(productionForm.production_line_id),
         quantity: Number(productionForm.quantity),
         movement_type_id: productionMovementType.id,
         unit: unit,
+        lot_code: productionForm.lot_code.trim() || undefined,
         reference: productionForm.reference || "Orden de producción",
       });
       setSuccess("Producción registrada en stock");
-      setProductionForm({ product_sku_id: null, deposit_id: null, quantity: "", reference: "" });
+      setProductionForm({ product_sku_id: null, deposit_id: null, production_line_id: null, lot_code: "", quantity: "", reference: "" });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -266,6 +285,21 @@ export function ProductionPage() {
                   options={depositOptions}
                   value={productionForm.deposit_id}
                   onChange={(value) => setProductionForm((prev) => ({ ...prev, deposit_id: value }))}
+                />
+                <SearchableSelect
+                  label="Línea de producción"
+                  required
+                  options={productionLineOptions}
+                  value={productionForm.production_line_id}
+                  onChange={(value) => setProductionForm((prev) => ({ ...prev, production_line_id: value }))}
+                  helperText="Obligatorio para registrar un lote de producción"
+                />
+                <TextField
+                  label="Lote (opcional)"
+                  placeholder="YYMMDD-Lx-SKU-###"
+                  value={productionForm.lot_code}
+                  onChange={(e) => setProductionForm((prev) => ({ ...prev, lot_code: e.target.value }))}
+                  helperText="Si lo dejas vacío, el sistema lo generará"
                 />
                 <TextField
                   required

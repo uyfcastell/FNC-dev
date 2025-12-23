@@ -1,5 +1,5 @@
 import hashlib
-import uuid
+import re
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -79,6 +79,7 @@ SKU_CONSUMABLE_CODE = "CON"
 SKU_SEMI_CODE = "SEMI"
 OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
 INCOMING_MOVEMENTS = {"PRODUCTION", "PURCHASE", "ADJUSTMENT", "TRANSFER"}
+LOT_CODE_SEQUENCE_LENGTH = 3
 
 
 def _hash_password(raw_password: str) -> str:
@@ -112,8 +113,87 @@ def _get_semi_units_per_kg(session: Session, sku_id: int) -> float:
     return float(rule.units_per_kg) if rule else 1.0
 
 
-def _generate_lot_code(sku: SKU) -> str:
-    return f"{sku.code}-{datetime.utcnow():%Y%m%d}-{uuid.uuid4().hex[:6].upper()}"
+def _get_production_line_or_404(session: Session, production_line_id: int) -> ProductionLine:
+    production_line = session.get(ProductionLine, production_line_id)
+    if not production_line:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Línea de producción no encontrada")
+    if not production_line.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción está inactiva")
+    return production_line
+
+
+def _format_production_date(value: date) -> str:
+    return value.strftime("%y%m%d")
+
+
+def _line_code(line: ProductionLine) -> str:
+    return f"L{line.id}"
+
+
+def _parse_lot_code(lot_code: str) -> tuple[str, str, str, str]:
+    parts = lot_code.split("-")
+    if len(parts) < 4:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Formato de lote inválido")
+    date_part = parts[0]
+    line_part = parts[1]
+    seq_part = parts[-1]
+    sku_part = "-".join(parts[2:-1])
+    return date_part, line_part, sku_part, seq_part
+
+
+def _validate_lot_code(
+    session: Session,
+    lot_code: str,
+    sku: SKU,
+    deposit: Deposit,
+    production_line: ProductionLine,
+    produced_at: date,
+    allow_existing_id: int | None = None,
+) -> None:
+    date_part, line_part, sku_part, seq_part = _parse_lot_code(lot_code)
+    expected_date = _format_production_date(produced_at)
+    expected_line = _line_code(production_line)
+
+    if not re.fullmatch(r"\d{6}", date_part):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote debe iniciar con YYMMDD")
+    if date_part != expected_date:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La fecha del lote no coincide con la producción")
+    if line_part != expected_line:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no corresponde a la línea indicada")
+    if sku_part != sku.code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no corresponde al SKU producido")
+    if not re.fullmatch(rf"\d{{{LOT_CODE_SEQUENCE_LENGTH}}}", seq_part):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La secuencia del lote debe tener 3 dígitos")
+
+    existing = session.exec(select(ProductionLot).where(ProductionLot.lot_code == lot_code)).first()
+    if existing and existing.id != allow_existing_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote ya existe para otro registro")
+    if existing:
+        if existing.sku_id != sku.id or existing.deposit_id != deposit.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote pertenece a otro SKU o depósito")
+        if existing.production_line_id and existing.production_line_id != production_line.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote pertenece a otra línea")
+
+
+def _extract_sequence(lot_code: str) -> int:
+    try:
+        _, _, _, seq_part = _parse_lot_code(lot_code)
+        return int(seq_part)
+    except Exception:
+        return 0
+
+
+def _generate_lot_code(session: Session, sku: SKU, production_line: ProductionLine, produced_at: date) -> str:
+    prefix = f"{_format_production_date(produced_at)}-{_line_code(production_line)}-{sku.code}"
+    existing_codes = session.exec(
+        select(ProductionLot.lot_code).where(
+            ProductionLot.sku_id == sku.id,
+            ProductionLot.production_line_id == production_line.id,
+            ProductionLot.produced_at == produced_at,
+        )
+    ).all()
+    max_seq = max((_extract_sequence(code) for code in existing_codes), default=0)
+    return f"{prefix}-{max_seq + 1:0{LOT_CODE_SEQUENCE_LENGTH}d}"
 
 
 def _upsert_semi_conversion_rule(session: Session, sku_id: int, units_per_kg: float) -> None:
@@ -1107,11 +1187,7 @@ def _apply_stock_movement(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo del SKU está inactivo")
     production_line = None
     if payload.production_line_id:
-        production_line = session.get(ProductionLine, payload.production_line_id)
-        if not production_line:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Línea de producción no encontrada")
-        if not production_line.is_active:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción está inactiva")
+        production_line = _get_production_line_or_404(session, payload.production_line_id)
 
     input_unit = payload.unit or sku.unit
     base_quantity = _convert_to_base_quantity(sku, payload.quantity, input_unit, session)
@@ -1121,6 +1197,10 @@ def _apply_stock_movement(
         delta = -base_quantity
     elif movement_code not in INCOMING_MOVEMENTS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de movimiento no soportado")
+
+    produced_at = payload.movement_date or date.today()
+    if movement_code == "PRODUCTION" and not production_line:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción es obligatoria")
 
     lot_code = payload.lot_code
     production_lot: ProductionLot | None = None
@@ -1137,6 +1217,11 @@ def _apply_stock_movement(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote está bloqueado para movimientos")
         if payload.production_line_id and production_lot.production_line_id not in (None, payload.production_line_id):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote está asociado a otra línea")
+        if movement_code == "PRODUCTION":
+            if produced_at != production_lot.produced_at:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La fecha de producción no coincide con el lote")
+            if not production_lot.production_line_id and production_line:
+                production_lot.production_line_id = production_line.id
         lot_code = production_lot.lot_code
     elif lot_code:
         production_lot = session.exec(select(ProductionLot).where(ProductionLot.lot_code == lot_code)).first()
@@ -1147,9 +1232,28 @@ def _apply_stock_movement(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote está bloqueado para movimientos")
             if payload.production_line_id and production_lot.production_line_id not in (None, payload.production_line_id):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote está asociado a otra línea")
+            validation_line = production_line or (
+                production_lot.production_line_id and _get_production_line_or_404(session, production_lot.production_line_id)
+            )
+            if not validation_line:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no tiene línea asociada")
+            _validate_lot_code(
+                session,
+                lot_code,
+                sku,
+                deposit,
+                validation_line,
+                production_lot.produced_at,
+                allow_existing_id=production_lot.id,
+            )
+        elif movement_code != "PRODUCTION":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote indicado no existe")
 
     if movement_code == "PRODUCTION" and not production_lot:
-        lot_code = lot_code or _generate_lot_code(sku)
+        if not production_line:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción es obligatoria")
+        lot_code = lot_code or _generate_lot_code(session, sku, production_line, produced_at)
+        _validate_lot_code(session, lot_code, sku, deposit, production_line, produced_at)
         production_lot = ProductionLot(
             lot_code=lot_code,
             sku_id=sku.id,
@@ -1157,11 +1261,30 @@ def _apply_stock_movement(
             production_line_id=payload.production_line_id,
             produced_quantity=base_quantity,
             remaining_quantity=base_quantity,
-            produced_at=payload.movement_date or date.today(),
+            produced_at=produced_at,
         )
         session.add(production_lot)
         session.flush()
         created_lot = True
+    elif movement_code == "PRODUCTION" and production_lot:
+        if produced_at != production_lot.produced_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La fecha de producción no coincide con el lote")
+        validation_line = production_line or (
+            production_lot.production_line_id and _get_production_line_or_404(session, production_lot.production_line_id)
+        )
+        if not validation_line:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no tiene línea asociada")
+        _validate_lot_code(
+            session,
+            production_lot.lot_code,
+            sku,
+            deposit,
+            validation_line,
+            production_lot.produced_at,
+            allow_existing_id=production_lot.id,
+        )
+        if not production_lot.production_line_id and production_line:
+            production_lot.production_line_id = production_line.id
 
     stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
     new_quantity = stock_level.quantity + delta

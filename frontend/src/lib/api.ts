@@ -71,6 +71,7 @@ export type StockMovementPayload = {
   unit?: UnitOfMeasure;
   reference?: string;
   lot_code?: string;
+  production_line_id?: number | null;
   movement_date?: string;
 };
 
