@@ -63,6 +63,32 @@ export type StockLevel = {
   quantity: number;
 };
 
+export type StockMovement = {
+  id: number;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  deposit_id: number;
+  deposit_name: string;
+  movement_type_id: number;
+  movement_type_code: string;
+  movement_type_label: string;
+  quantity: number;
+  reference?: string | null;
+  lot_code?: string | null;
+  production_lot_id?: number | null;
+  production_line_id?: number | null;
+  production_line_name?: string | null;
+  movement_date: string;
+  created_at: string;
+  current_balance?: number | null;
+};
+
+export type StockMovementList = {
+  total: number;
+  items: StockMovement[];
+};
+
 export type StockMovementPayload = {
   sku_id: number;
   deposit_id: number;
@@ -303,6 +329,37 @@ export async function fetchStockLevels(): Promise<StockLevel[]> {
   const response = await fetch(`${API_BASE_URL}/stock-levels`);
   if (!response.ok) {
     throw new Error("No se pudo obtener el stock actual");
+  }
+  return response.json();
+}
+
+export async function fetchStockMovements(params?: {
+  sku_id?: number;
+  deposit_id?: number;
+  movement_type_id?: number;
+  movement_type_code?: string;
+  production_line_id?: number;
+  lot_code?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<StockMovementList> {
+  const query = new URLSearchParams();
+  if (params?.sku_id) query.append("sku_id", String(params.sku_id));
+  if (params?.deposit_id) query.append("deposit_id", String(params.deposit_id));
+  if (params?.movement_type_id) query.append("movement_type_id", String(params.movement_type_id));
+  if (params?.movement_type_code) query.append("movement_type_code", params.movement_type_code);
+  if (params?.production_line_id) query.append("production_line_id", String(params.production_line_id));
+  if (params?.lot_code) query.append("lot_code", params.lot_code);
+  if (params?.date_from) query.append("date_from", params.date_from);
+  if (params?.date_to) query.append("date_to", params.date_to);
+  if (params?.limit) query.append("limit", String(params.limit));
+  if (params?.offset) query.append("offset", String(params.offset));
+
+  const response = await fetch(`${API_BASE_URL}/stock/movements${query.toString() ? `?${query.toString()}` : ""}`);
+  if (!response.ok) {
+    throw new Error("No se pudieron obtener los movimientos de stock");
   }
   return response.json();
 }

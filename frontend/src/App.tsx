@@ -16,6 +16,7 @@ import { MobileOrdersPage } from "./pages/MobileOrdersPage";
 import { AdminPage } from "./pages/AdminPage";
 import { OrderEntryPage } from "./pages/OrderEntryPage";
 import { MermasPage } from "./pages/MermasPage";
+import { StockMovementsPage } from "./pages/StockMovementsPage";
 
 export function App() {
   const [mode, setMode] = useState<"mobile" | "desktop">(getDeviceProfile().mode);
@@ -52,6 +53,7 @@ export function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/produccion" element={<ProductionPage />} />
           <Route path="/stock" element={<StockPage />} />
+          <Route path="/stock/movimientos" element={<StockMovementsPage />} />
           <Route path="/mermas" element={<MermasPage />} />
           <Route path="/pedidos" element={<OrdersPage />} />
           <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />

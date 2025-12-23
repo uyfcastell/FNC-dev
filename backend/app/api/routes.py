@@ -3,6 +3,7 @@ import re
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -43,6 +44,8 @@ from ..schemas import (
     SKURead,
     SKUUpdate,
     StockMovementCreate,
+    StockMovementList,
+    StockMovementRead,
     StockMovementTypeCreate,
     StockMovementTypeRead,
     StockMovementTypeUpdate,
@@ -1169,7 +1172,7 @@ def _ensure_stock_level(session: Session, deposit_id: int, sku_id: int) -> Stock
 def _apply_stock_movement(
     session: Session,
     payload: StockMovementCreate,
-    allow_negative_balance: bool = False,
+    allow_negative_balance: bool = True,
 ) -> tuple[StockLevel, StockMovement]:
     if payload.quantity <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
@@ -1288,18 +1291,13 @@ def _apply_stock_movement(
 
     stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
     new_quantity = stock_level.quantity + delta
-    if new_quantity < 0 and not allow_negative_balance:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Saldo insuficiente")
 
     if production_lot:
         if movement_code == "PRODUCTION" and not created_lot:
             production_lot.produced_quantity += base_quantity
             production_lot.remaining_quantity += base_quantity
         else:
-            new_remaining = production_lot.remaining_quantity + delta
-            if new_remaining < 0:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no tiene saldo suficiente")
-            production_lot.remaining_quantity = new_remaining
+            production_lot.remaining_quantity = production_lot.remaining_quantity + delta
         production_lot.updated_at = datetime.utcnow()
         session.add(production_lot)
 
@@ -1319,6 +1317,42 @@ def _apply_stock_movement(
     session.flush()
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
     return stock_level, movement
+
+
+def _map_stock_movement(movement: StockMovement, session: Session) -> StockMovementRead:
+    session.refresh(movement, attribute_names=["sku", "deposit", "movement_type", "production_lot"])
+    production_line_id = None
+    production_line_name = None
+    if movement.production_lot:
+        session.refresh(movement.production_lot, attribute_names=["production_line"])
+        production_line_id = movement.production_lot.production_line_id
+        production_line_name = (
+            movement.production_lot.production_line.name if movement.production_lot.production_line else None
+        )
+    stock_level = session.exec(
+        select(StockLevel).where(StockLevel.deposit_id == movement.deposit_id, StockLevel.sku_id == movement.sku_id)
+    ).first()
+    current_balance = stock_level.quantity if stock_level else 0
+    return StockMovementRead(
+        id=movement.id,
+        sku_id=movement.sku_id,
+        sku_code=movement.sku.code if movement.sku else str(movement.sku_id),
+        sku_name=movement.sku.name if movement.sku else f"SKU {movement.sku_id}",
+        deposit_id=movement.deposit_id,
+        deposit_name=movement.deposit.name if movement.deposit else "",
+        movement_type_id=movement.movement_type_id,
+        movement_type_code=movement.movement_type.code if movement.movement_type else "",
+        movement_type_label=movement.movement_type.label if movement.movement_type else "",
+        quantity=movement.quantity,
+        reference=movement.reference,
+        lot_code=movement.lot_code,
+        production_lot_id=movement.production_lot_id,
+        production_line_id=production_line_id,
+        production_line_name=production_line_name,
+        movement_date=movement.movement_date,
+        created_at=movement.created_at,
+        current_balance=current_balance,
+    )
 
 
 def _map_merma_event(event: MermaEvent, session: Session) -> MermaEventRead:
@@ -1407,6 +1441,51 @@ def register_stock_movement(payload: StockMovementCreate, session: Session = Dep
         sku_name=stock_level.sku.name,
         quantity=stock_level.quantity,
     )
+
+
+@router.get("/stock/movements", tags=["stock"], response_model=StockMovementList)
+def list_stock_movements(
+    sku_id: int | None = None,
+    deposit_id: int | None = None,
+    movement_type_id: int | None = None,
+    movement_type_code: str | None = None,
+    production_line_id: int | None = None,
+    lot_code: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+) -> StockMovementList:
+    statement = select(StockMovement)
+    if sku_id:
+        statement = statement.where(StockMovement.sku_id == sku_id)
+    if deposit_id:
+        statement = statement.where(StockMovement.deposit_id == deposit_id)
+    if movement_type_id:
+        statement = statement.where(StockMovement.movement_type_id == movement_type_id)
+    if movement_type_code:
+        statement = statement.join(StockMovementType).where(
+            StockMovementType.code == movement_type_code.strip().upper()
+        )
+    if production_line_id:
+        statement = statement.join(ProductionLot).where(ProductionLot.production_line_id == production_line_id)
+    if lot_code:
+        statement = statement.where(StockMovement.lot_code == lot_code)
+    if date_from:
+        statement = statement.where(StockMovement.movement_date >= date_from)
+    if date_to:
+        statement = statement.where(StockMovement.movement_date <= date_to)
+
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(offset, 0)
+    total = session.exec(select(func.count()).select_from(statement.subquery())).scalar_one()
+    records = session.exec(
+        statement.order_by(StockMovement.movement_date.desc(), StockMovement.id.desc())
+        .offset(safe_offset)
+        .limit(safe_limit)
+    ).all()
+    return StockMovementList(total=total or 0, items=[_map_stock_movement(item, session) for item in records])
 
 
 @router.get("/production/lots", tags=["production"], response_model=list[ProductionLotRead])

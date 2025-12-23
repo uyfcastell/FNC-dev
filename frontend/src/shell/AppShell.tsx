@@ -7,6 +7,7 @@ import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MenuIcon from "@mui/icons-material/Menu";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
+import HistoryIcon from "@mui/icons-material/History";
 import { AppBar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from "@mui/material";
 import { PropsWithChildren, ReactNode, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
@@ -24,6 +25,7 @@ const defaultNavItems: NavItem[] = [
   { label: "Inicio", icon: <DashboardIcon />, to: "/" },
   { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion" },
   { label: "Stock", icon: <InventoryIcon />, to: "/stock" },
+  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos" },
   { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas" },
   { label: "Pedidos y remitos", icon: <ListAltIcon />, to: "/pedidos" },
   { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },

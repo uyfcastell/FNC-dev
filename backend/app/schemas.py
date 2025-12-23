@@ -147,6 +147,32 @@ class StockLevelRead(SQLModel):
     quantity: float
 
 
+class StockMovementRead(SQLModel):
+    id: int
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    deposit_id: int
+    deposit_name: str
+    movement_type_id: int
+    movement_type_code: str
+    movement_type_label: str
+    quantity: float
+    reference: str | None = None
+    lot_code: str | None = None
+    production_lot_id: int | None = None
+    production_line_id: int | None = None
+    production_line_name: str | None = None
+    movement_date: date
+    created_at: datetime
+    current_balance: float | None = None
+
+
+class StockMovementList(SQLModel):
+    total: int
+    items: list[StockMovementRead]
+
+
 class UnitRead(SQLModel):
     code: UnitOfMeasure
     label: str
