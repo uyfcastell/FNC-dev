@@ -1479,9 +1479,12 @@ def list_stock_movements(
 
     safe_limit = max(1, min(limit, 200))
     safe_offset = max(offset, 0)
-    total = session.exec(
+    result = session.exec(
         select(func.count()).select_from(statement.subquery())
-    ).one()[0]
+    )
+    total = result.first()
+    if isinstance(total, tuple):
+        total = total[0]
 
     records = session.exec(
         statement.order_by(StockMovement.movement_date.desc(), StockMovement.id.desc())
