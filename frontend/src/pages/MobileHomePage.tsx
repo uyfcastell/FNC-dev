@@ -21,8 +21,10 @@ import {
   createStockMovement,
   Deposit,
   fetchDeposits,
+  fetchProductionLines,
   fetchSkus,
   fetchStockMovementTypes,
+  ProductionLine,
   SKU,
   StockMovementType,
 } from "../lib/api";
@@ -33,12 +35,15 @@ export function MobileHomePage() {
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
+  const [productionLines, setProductionLines] = useState<ProductionLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const [productionForm, setProductionForm] = useState({
     sku_id: null as number | null,
     deposit_id: null as number | null,
+    production_line_id: null as number | null,
+    lot_code: "",
     quantity: "",
     reference: "",
   });
@@ -56,14 +61,16 @@ export function MobileHomePage() {
 
   const loadCatalog = async () => {
     try {
-      const [skuList, depositList, movementTypeList] = await Promise.all([
+      const [skuList, depositList, movementTypeList, productionLineList] = await Promise.all([
         fetchSkus(),
         fetchDeposits(),
         fetchStockMovementTypes({ include_inactive: true }),
+        fetchProductionLines(),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
       setMovementTypes(movementTypeList);
+      setProductionLines(productionLineList);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -94,6 +101,16 @@ export function MobileHomePage() {
       })),
     [sortedDeposits]
   );
+  const productionLineOptions = useMemo(
+    () =>
+      productionLines
+        .filter((line) => line.is_active)
+        .map((line) => ({
+          value: line.id,
+          label: line.name,
+        })),
+    [productionLines]
+  );
   const selectedProductionSku = productionSkus.find((sku) => sku.id === productionForm.sku_id);
   const selectedMermaSku = productionSkus.find((sku) => sku.id === mermaForm.sku_id);
 
@@ -104,8 +121,8 @@ export function MobileHomePage() {
     reset: () => void
   ) => {
     event.preventDefault();
-    if (!formState.sku_id || !formState.deposit_id || !formState.quantity) {
-      setError("Completa SKU, depósito y cantidad");
+    if (!formState.sku_id || !formState.deposit_id || !formState.quantity || (movementTypeCode === "PRODUCTION" && !("production_line_id" in formState ? formState.production_line_id : null))) {
+      setError(movementTypeCode === "PRODUCTION" ? "Completa SKU, depósito, línea y cantidad" : "Completa SKU, depósito y cantidad");
       return;
     }
     const movementType = movementTypes.find((type) => type.code === movementTypeCode && type.is_active);
@@ -124,6 +141,8 @@ export function MobileHomePage() {
         movement_type_id: movementType.id,
         unit: unit,
         reference: formState.reference || undefined,
+        production_line_id: "production_line_id" in formState ? (formState.production_line_id ?? undefined) : undefined,
+        lot_code: "lot_code" in formState ? formState.lot_code.trim() || undefined : undefined,
       });
       setSuccess("Registrado correctamente");
       setError(null);
@@ -159,7 +178,9 @@ export function MobileHomePage() {
             component="form"
             spacing={2}
             onSubmit={(e) =>
-              handleMovement(e, "PRODUCTION", productionForm, () => setProductionForm({ sku_id: null, deposit_id: null, quantity: "", reference: "" }))
+              handleMovement(e, "PRODUCTION", productionForm, () =>
+                setProductionForm({ sku_id: null, deposit_id: null, production_line_id: null, lot_code: "", quantity: "", reference: "" })
+              )
             }
             >
             <SearchableSelect
@@ -182,6 +203,21 @@ export function MobileHomePage() {
               value={productionForm.deposit_id}
               onChange={(value) => setProductionForm((prev) => ({ ...prev, deposit_id: value }))}
               textFieldProps={{ InputLabelProps: { sx: { fontSize: 16 } } }}
+            />
+            <SearchableSelect
+              label="Línea de producción"
+              required
+              options={productionLineOptions}
+              value={productionForm.production_line_id}
+              onChange={(value) => setProductionForm((prev) => ({ ...prev, production_line_id: value }))}
+              textFieldProps={{ InputLabelProps: { sx: { fontSize: 16 } } }}
+            />
+            <TextField
+              label="Lote (opcional)"
+              placeholder="YYMMDD-Lx-SKU-###"
+              value={productionForm.lot_code}
+              onChange={(e) => setProductionForm((prev) => ({ ...prev, lot_code: e.target.value }))}
+              InputProps={{ sx: { fontSize: 16 } }}
             />
             <TextField
               required
