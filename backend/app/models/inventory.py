@@ -58,7 +58,7 @@ class ProductionLot(TimestampedModel, table=True):
     deposit_id: int = Field(foreign_key="deposits.id")
     production_line_id: int | None = Field(default=None, foreign_key="production_lines.id")
     produced_quantity: float = Field(gt=0)
-    remaining_quantity: float = Field(gt=0)
+    remaining_quantity: float = Field(default=0)
     produced_at: date = Field(default_factory=date.today)
     is_blocked: bool = Field(default=False)
     notes: str | None = Field(default=None, max_length=255)

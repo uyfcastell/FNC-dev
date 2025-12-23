@@ -24,10 +24,11 @@ def _get_balance(client, sku_id):
     return match[0]["quantity"] if match else 0
 
 
-def test_negative_stock_is_not_allowed(client):
+def test_negative_stock_is_recorded(client):
     # tomamos cualquier SKU válido
     sku = _get_any_sku(client)
     movement_type_id = _get_movement_type_id(client, "CONSUMPTION")
+    before_balance = _get_balance(client, sku["id"])
 
     movement = {
         "sku_id": sku["id"],
@@ -38,8 +39,9 @@ def test_negative_stock_is_not_allowed(client):
 
     res = client.post("/api/stock/movements", json=movement)
 
-    assert res.status_code == 400
-    assert "saldo" in res.json()["detail"].lower()
+    assert res.status_code in (200, 201)
+    after_balance = _get_balance(client, sku["id"])
+    assert after_balance < before_balance
 
 
 def test_stock_adjustment_affects_balance(client):

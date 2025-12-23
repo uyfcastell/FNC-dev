@@ -43,6 +43,7 @@ import {
   UnitOption,
   UnitOfMeasure,
 } from "../lib/api";
+import { useNavigate } from "react-router-dom";
 
 export function StockPage() {
   const [stock, setStock] = useState<StockLevel[] | null>(null);
@@ -128,6 +129,7 @@ export function StockPage() {
   );
   const semiUnitsPerKg = isSemiMovementSku ? selectedMovementSku?.units_per_kg || 1 : null;
   const quantityUnitLabel = movementForm.unit ? unitLabel(movementForm.unit) : movementUnitLabel;
+  const navigate = useNavigate();
 
   useEffect(() => {
     void reloadData();
@@ -268,16 +270,21 @@ export function StockPage() {
       await reloadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos registrar el movimiento. Verifica saldo o datos.");
+      setError("No pudimos registrar el movimiento. Verifica los datos.");
     }
   };
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <InventoryIcon color="primary" />
-        Stock y kardex
-      </Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <InventoryIcon color="primary" />
+          Stock y kardex
+        </Typography>
+        <Button variant="outlined" onClick={() => navigate("/stock/movimientos")}>
+          Ver movimientos
+        </Button>
+      </Stack>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
         <Alert severity="success" onClose={() => setSuccess(null)}>

@@ -109,3 +109,25 @@ def test_consumption_reduces_stock(client):
     res = client.post("/api/stock/movements", json=movement)
     print(res.json())
     assert res.status_code in (200, 201)
+
+
+def test_list_stock_movements_with_filters(client):
+    sku_id = _get_sku_id(client, "MP-HARINA")
+    movement_type_id = _get_movement_type_id(client, "ADJUSTMENT")
+    movement = {
+        "sku_id": sku_id,
+        "deposit_id": 1,
+        "quantity": 1,
+        "movement_type_id": movement_type_id,
+        "reference": "test-listing",
+    }
+    res = client.post("/api/stock/movements", json=movement)
+    assert res.status_code in (200, 201)
+
+    list_res = client.get(
+        f"/api/stock/movements?sku_id={sku_id}&movement_type_id={movement_type_id}&limit=5&offset=0"
+    )
+    assert list_res.status_code == 200
+    data = list_res.json()
+    assert data["total"] >= 1
+    assert any(item["sku_id"] == sku_id for item in data["items"])
