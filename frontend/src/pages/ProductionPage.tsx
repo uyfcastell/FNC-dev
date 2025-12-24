@@ -17,6 +17,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  InputAdornment,
   TextField,
   Tooltip,
   Typography,
@@ -116,6 +117,14 @@ export function ProductionPage() {
     [sortedSkus]
   );
   const selectedProductionProduct = productionSkus.find((sku) => sku.id === productionForm.product_sku_id) ?? null;
+  const selectedProductionRecipe = useMemo(
+    () => recipes.find((recipe) => recipe.product_id === productionForm.product_sku_id) ?? null,
+    [productionForm.product_sku_id, recipes]
+  );
+  const productionQuantityNumber = useMemo(
+    () => (productionForm.quantity ? Number(productionForm.quantity) : 0),
+    [productionForm.quantity]
+  );
 
   useEffect(() => {
     void loadData();
@@ -156,6 +165,17 @@ export function ProductionPage() {
     box: "Caja",
     m: "Metro",
     cm: "Centímetro",
+  };
+  const unitBadges: Record<string, string> = {
+    unit: "UN",
+    kg: "KG",
+    g: "G",
+    l: "L",
+    ml: "ML",
+    pack: "PACK",
+    box: "CAJA",
+    m: "M",
+    cm: "CM",
   };
 
   const getComponentUnit = (componentId: number | null) => {
@@ -247,6 +267,39 @@ export function ProductionPage() {
     setRecipeForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
   };
 
+  const productionUnitCode: string | undefined = useMemo(() => {
+    if (!selectedProductionProduct) return undefined;
+    return selectedProductionProduct.sku_type_code === "SEMI"
+      ? "kg"
+      : selectedProductionProduct.unit ?? selectedProductionProduct.secondary_unit ?? selectedProductionProduct.unit;
+  }, [selectedProductionProduct]);
+
+  const productionUnitLabel = productionUnitCode ? unitLabels[productionUnitCode] ?? productionUnitCode.toUpperCase() : undefined;
+  const productionUnitBadge = productionUnitCode ? unitBadges[productionUnitCode] ?? productionUnitCode.toUpperCase() : undefined;
+
+  const computedComponents = useMemo(() => {
+    if (!selectedProductionRecipe || !selectedProductionProduct || productionQuantityNumber <= 0) return [];
+    return selectedProductionRecipe.items.map((item) => {
+      const component = skus.find((s) => s.id === item.component_id);
+      const componentType = component?.sku_type_label ?? component?.sku_type_code ?? "Componente";
+      const componentUnitCode =
+        item.component_unit ??
+        (component?.sku_type_code === "SEMI" ? component?.secondary_unit ?? "unit" : component?.unit ?? "unit");
+      const requiredQuantity = productionQuantityNumber * item.quantity;
+      return {
+        id: item.component_id,
+        name: component ? `${component.name} (${component.code})` : `SKU ${item.component_id}`,
+        type: componentType,
+        unitCode: componentUnitCode,
+        unitLabel: unitLabels[componentUnitCode ?? ""] ?? componentUnitCode ?? "",
+        quantity: requiredQuantity,
+      };
+    });
+  }, [productionQuantityNumber, selectedProductionProduct, selectedProductionRecipe, skus, unitLabels]);
+
+  const formatQuantity = (value: number) =>
+    new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3, minimumFractionDigits: value % 1 === 0 ? 0 : 2 }).format(value);
+
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -308,7 +361,58 @@ export function ProductionPage() {
                   inputProps={{ step: "0.01" }}
                   value={productionForm.quantity}
                   onChange={(e) => setProductionForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                  InputProps={
+                    productionUnitBadge
+                      ? {
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <Chip size="small" color="primary" label={productionUnitBadge} />
+                            </InputAdornment>
+                          ),
+                        }
+                      : undefined
+                  }
+                  helperText={productionUnitLabel ? `Unidad del producto: ${productionUnitLabel}` : undefined}
                 />
+                {selectedProductionProduct && (
+                  <Card variant="outlined" sx={{ bgcolor: "grey.50" }}>
+                    <CardHeader
+                      titleTypographyProps={{ variant: "subtitle1" }}
+                      title="Componentes necesarios para esta producción"
+                      subheader={
+                        selectedProductionRecipe
+                          ? "Cálculo automático según la receta del SKU seleccionado"
+                          : "No hay receta cargada para este SKU"
+                      }
+                    />
+                    {selectedProductionRecipe && computedComponents.length > 0 && (
+                      <CardContent sx={{ pt: 0 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Componente</TableCell>
+                              <TableCell>Tipo</TableCell>
+                              <TableCell>Unidad</TableCell>
+                              <TableCell align="right">Cantidad requerida</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {computedComponents.map((component) => (
+                              <TableRow key={component.id}>
+                                <TableCell>{component.name}</TableCell>
+                                <TableCell>{component.type}</TableCell>
+                                <TableCell>{component.unitLabel}</TableCell>
+                                <TableCell align="right">
+                                  <Chip size="small" label={`${formatQuantity(component.quantity)} ${unitBadges[component.unitCode ?? ""] ?? ""}`} />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    )}
+                  </Card>
+                )}
                 <TextField
                   label="Referencia / Orden"
                   value={productionForm.reference}
