@@ -229,6 +229,93 @@ def _convert_to_base_quantity(sku: SKU, quantity: float, unit: UnitOfMeasure | N
     return quantity
 
 
+def _get_recipe_for_product(session: Session, product_id: int) -> Recipe | None:
+    return session.exec(select(Recipe).where(Recipe.product_id == product_id)).first()
+
+
+def _calculate_consumption_by_lot(
+    session: Session, component_id: int, deposit_id: int, required_quantity: float
+) -> list[tuple[ProductionLot | None, float]]:
+    lots = session.exec(
+        select(ProductionLot)
+        .where(
+            ProductionLot.sku_id == component_id,
+            ProductionLot.deposit_id == deposit_id,
+            ProductionLot.is_blocked.is_(False),
+        )
+        .order_by(ProductionLot.produced_at, ProductionLot.id)
+    ).all()
+
+    remaining = required_quantity
+    consumptions: list[tuple[ProductionLot | None, float]] = []
+
+    for lot in lots:
+        if remaining <= 0:
+            break
+        available = float(lot.remaining_quantity)
+        if available <= 0:
+            continue
+        take = min(remaining, available)
+        consumptions.append((lot, take))
+        remaining -= take
+
+    if remaining > 0 and lots:
+        target_lot = consumptions[-1][0] if consumptions else lots[-1]
+        if consumptions and consumptions[-1][0] == target_lot:
+            consumptions[-1] = (target_lot, consumptions[-1][1] + remaining)
+        else:
+            consumptions.append((target_lot, remaining))
+        remaining = 0
+    elif remaining > 0 and not lots:
+        consumptions.append((None, remaining))
+
+    return consumptions
+
+
+def _consume_recipe_components(
+    session: Session,
+    product: SKU,
+    deposit: Deposit,
+    production_lot: ProductionLot | None,
+    produced_quantity: float,
+    reference: str | None,
+    movement_date: date,
+) -> None:
+    if produced_quantity <= 0:
+        return
+
+    recipe = _get_recipe_for_product(session, product.id)
+    if not recipe:
+        return
+    session.refresh(recipe, attribute_names=["items"])
+    if not recipe.items:
+        return
+
+    consumption_type = _get_movement_type_by_code(session, "CONSUMPTION")
+    reference_value = reference or (production_lot.lot_code if production_lot else f"PROD-{product.code}")
+
+    for item in recipe.items:
+        component = session.get(SKU, item.component_id)
+        if not component:
+            continue
+
+        required_quantity = produced_quantity * item.quantity
+        consumptions = _calculate_consumption_by_lot(session, component.id, deposit.id, required_quantity)
+
+        for lot, quantity in consumptions:
+            movement_payload = StockMovementCreate(
+                sku_id=component.id,
+                deposit_id=deposit.id,
+                movement_type_id=consumption_type.id,
+                quantity=quantity,
+                reference=reference_value,
+                lot_code=lot.lot_code if lot else None,
+                production_lot_id=lot.id if lot else None,
+                movement_date=movement_date,
+            )
+            _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+
+
 def _map_sku(sku: SKU, session: Session) -> SKURead:
     session.refresh(sku, attribute_names=["sku_type"])
     type_code = sku.sku_type.code if sku.sku_type else ""
@@ -1316,6 +1403,18 @@ def _apply_stock_movement(
     session.add(movement)
     session.flush()
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
+    session.refresh(movement, attribute_names=["sku", "deposit", "movement_type", "production_lot"])
+
+    if movement_code == "PRODUCTION" and sku.sku_type and sku.sku_type.code in SKU_PRODUCTION_TYPES:
+        _consume_recipe_components(
+            session,
+            sku,
+            deposit,
+            production_lot,
+            base_quantity,
+            payload.reference,
+            movement.movement_date,
+        )
     return stock_level, movement
 
 
