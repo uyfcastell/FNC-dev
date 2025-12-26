@@ -19,16 +19,30 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db import init_db
 
+
 # =======================
 # AUTH OVERRIDE PARA TEST
 # =======================
-from fastapi.security import OAuth2PasswordBearer
 
-def fake_oauth():
-    return "fake-token"
+from app.api.deps import get_current_user
 
-# Override global de seguridad
-app.dependency_overrides[OAuth2PasswordBearer] = fake_oauth
+
+def override_current_user():
+    """
+    Usuario fake para tests.
+    Tiene rol admin y está activo.
+    """
+    class FakeUser:
+        id = 1
+        username = "test-admin"
+        is_active = True
+        role = "admin"
+
+    return FakeUser()
+
+
+app.dependency_overrides[get_current_user] = override_current_user
+# =======================
 
 
 @pytest.fixture(scope="session", autouse=True)
