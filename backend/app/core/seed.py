@@ -16,9 +16,11 @@ from ..models import (
 from ..models.common import UnitOfMeasure
 
 DEFAULT_ROLES = [
-    {"name": "admin", "description": "Administrador"},
-    {"name": "deposito", "description": "Operador de depósito"},
-    {"name": "produccion", "description": "Operador de producción"},
+    {"name": "ADMIN", "description": "Administrador"},
+    {"name": "WAREHOUSE", "description": "Operador de depósito"},
+    {"name": "PRODUCTION", "description": "Operador de producción"},
+    {"name": "SALES", "description": "Operador comercial / remitos"},
+    {"name": "AUDIT", "description": "Lectura / auditoría"},
 ]
 
 DEFAULT_DEPOSITS = [

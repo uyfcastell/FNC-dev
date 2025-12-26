@@ -1,4 +1,3 @@
-import hashlib
 import re
 from datetime import date, datetime, timedelta
 
@@ -6,7 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from ..core.config import get_settings
 from ..db import get_session
+from ..core.security import create_access_token, hash_password, is_legacy_hash, needs_rehash, verify_password
+from .deps import get_current_user, require_active_user, require_roles
 from ..models import (
     Deposit,
     Recipe,
@@ -15,6 +17,7 @@ from ..models import (
     Order,
     OrderItem,
     Remito,
+    RemitoItem,
     MermaCause,
     MermaEvent,
     MermaStage,
@@ -29,7 +32,7 @@ from ..models import (
     StockMovementType,
     User,
 )
-from ..models.common import OrderStatus, SKUFamily, UnitOfMeasure
+from ..models.common import OrderStatus, RemitoStatus, SKUFamily, UnitOfMeasure
 from ..schemas import (
     DepositCreate,
     DepositRead,
@@ -55,6 +58,8 @@ from ..schemas import (
     MovementSummary,
     UnitRead,
     ProductionLotRead,
+    LoginRequest,
+    TokenResponse,
     UserCreate,
     UserRead,
     UserUpdate,
@@ -62,6 +67,11 @@ from ..schemas import (
     OrderRead,
     OrderUpdate,
     OrderStatusUpdate,
+    RemitoRead,
+    RemitoItemRead,
+    RemitoFromOrderRequest,
+    RemitoDispatchRequest,
+    RemitoReceiveRequest,
     MermaCauseCreate,
     MermaCauseRead,
     MermaCauseUpdate,
@@ -75,7 +85,9 @@ from ..schemas import (
     ProductionLineUpdate,
 )
 
-router = APIRouter()
+public_router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_active_user)])
+api_router = APIRouter()
 
 SKU_PRODUCTION_TYPES = {"PT", "SEMI"}
 SKU_CONSUMABLE_CODE = "CON"
@@ -84,9 +96,7 @@ OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
 INCOMING_MOVEMENTS = {"PRODUCTION", "PURCHASE", "ADJUSTMENT", "TRANSFER"}
 LOT_CODE_SEQUENCE_LENGTH = 3
 
-
-def _hash_password(raw_password: str) -> str:
-    return hashlib.sha256(raw_password.encode()).hexdigest()
+settings = get_settings()
 
 
 def _map_user(user: User, session: Session) -> UserRead:
@@ -234,7 +244,7 @@ def _get_recipe_for_product(session: Session, product_id: int) -> Recipe | None:
 
 
 def _calculate_consumption_by_lot(
-    session: Session, component_id: int, deposit_id: int, required_quantity: float
+    session: Session, component_id: int, deposit_id: int, required_quantity: float, strict: bool = False
 ) -> list[tuple[ProductionLot | None, float]]:
     lots = session.exec(
         select(ProductionLot)
@@ -259,15 +269,21 @@ def _calculate_consumption_by_lot(
         consumptions.append((lot, take))
         remaining -= take
 
-    if remaining > 0 and lots:
-        target_lot = consumptions[-1][0] if consumptions else lots[-1]
-        if consumptions and consumptions[-1][0] == target_lot:
-            consumptions[-1] = (target_lot, consumptions[-1][1] + remaining)
+    if remaining > 0:
+        if strict:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Stock insuficiente para cubrir la cantidad requerida",
+            )
+        if lots:
+            target_lot = consumptions[-1][0] if consumptions else lots[-1]
+            if consumptions and consumptions[-1][0] == target_lot:
+                consumptions[-1] = (target_lot, consumptions[-1][1] + remaining)
+            else:
+                consumptions.append((target_lot, remaining))
+            remaining = 0
         else:
-            consumptions.append((target_lot, remaining))
-        remaining = 0
-    elif remaining > 0 and not lots:
-        consumptions.append((None, remaining))
+            consumptions.append((None, remaining))
 
     return consumptions
 
@@ -437,23 +453,117 @@ def _map_order(order: Order, session: Session) -> OrderRead:
     )
 
 
-@router.get("/health", tags=["health"])
+def _get_deposit_or_404(session: Session, deposit_id: int) -> Deposit:
+    deposit = session.get(Deposit, deposit_id)
+    if not deposit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
+    return deposit
+
+
+def _default_source_deposit(session: Session) -> Deposit:
+    deposit = session.exec(select(Deposit).where(Deposit.is_store.is_(False))).first()
+    if not deposit:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay depósitos configurados como origen")
+    return deposit
+
+
+def _get_remito_or_404(session: Session, remito_id: int) -> Remito:
+    remito = session.get(Remito, remito_id)
+    if not remito:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Remito no encontrado")
+    return remito
+
+
+def _map_remito(remito: Remito, session: Session) -> RemitoRead:
+    session.refresh(remito, attribute_names=["items", "source_deposit", "destination_deposit"])
+    items: list[RemitoItemRead] = []
+    for item in remito.items:
+        sku = session.get(SKU, item.sku_id)
+        items.append(
+            RemitoItemRead(
+                id=item.id,
+                remito_id=item.remito_id,
+                sku_id=item.sku_id,
+                sku_code=sku.code if sku else str(item.sku_id),
+                sku_name=sku.name if sku else f"SKU {item.sku_id}",
+                quantity=item.quantity,
+                lot_code=item.lot_code,
+            )
+        )
+    return RemitoRead(
+        id=remito.id,
+        order_id=remito.order_id,
+        status=remito.status,
+        destination=remito.destination,
+        source_deposit_id=remito.source_deposit_id,
+        destination_deposit_id=remito.destination_deposit_id,
+        source_deposit_name=remito.source_deposit.name if remito.source_deposit else None,
+        destination_deposit_name=remito.destination_deposit.name if remito.destination_deposit else None,
+        issue_date=remito.issue_date,
+        dispatched_at=remito.dispatched_at,
+        received_at=remito.received_at,
+        cancelled_at=remito.cancelled_at,
+        created_at=remito.created_at,
+        items=items,
+    )
+
+
+@public_router.post("/auth/login", tags=["auth"], response_model=TokenResponse)
+def login(payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
+    user = session.exec(select(User).where(User.email == payload.username)).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo")
+
+    if is_legacy_hash(user.hashed_password) or needs_rehash(user.hashed_password):
+        user.hashed_password = hash_password(payload.password)
+        user.updated_at = datetime.utcnow()
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+    token = create_access_token({"sub": user.id})
+    return TokenResponse(access_token=token, token_type="bearer", expires_in=settings.jwt_expires_minutes * 60)
+
+
+@router.get("/auth/me", tags=["auth"], response_model=UserRead)
+def auth_me(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> UserRead:
+    return _map_user(current_user, session)
+
+
+@public_router.get("/health", tags=["health"])
 def health() -> dict[str, str]:
     return {"status": "ok", "version": "0.1.0"}
 
 
-@router.get("/roles", tags=["admin"])
+@router.get(
+    "/roles",
+    tags=["admin"],
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def list_roles(session: Session = Depends(get_session)) -> list[Role]:
     return session.exec(select(Role)).all()
 
 
-@router.get("/users", tags=["admin"], response_model=list[UserRead])
+@router.get(
+    "/users",
+    tags=["admin"],
+    response_model=list[UserRead],
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def list_users(session: Session = Depends(get_session)) -> list[UserRead]:
     users = session.exec(select(User)).all()
     return [_map_user(user, session) for user in users]
 
 
-@router.post("/users", tags=["admin"], status_code=status.HTTP_201_CREATED, response_model=UserRead)
+@router.post(
+    "/users",
+    tags=["admin"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=UserRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def create_user(payload: UserCreate, session: Session = Depends(get_session)) -> UserRead:
     existing = session.exec(select(User).where(User.email == payload.email)).first()
     if existing:
@@ -467,7 +577,7 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)) ->
     user = User(
         email=payload.email,
         full_name=payload.full_name,
-        hashed_password=_hash_password(payload.password),
+        hashed_password=hash_password(payload.password),
         role_id=payload.role_id,
         is_active=payload.is_active,
     )
@@ -477,7 +587,12 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)) ->
     return _map_user(user, session)
 
 
-@router.put("/users/{user_id}", tags=["admin"], response_model=UserRead)
+@router.put(
+    "/users/{user_id}",
+    tags=["admin"],
+    response_model=UserRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(get_session)) -> UserRead:
     user = session.get(User, user_id)
     if not user:
@@ -498,7 +613,7 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
     for field, value in update_data.items():
         setattr(user, field, value)
     if password:
-        user.hashed_password = _hash_password(password)
+        user.hashed_password = hash_password(password)
     user.updated_at = datetime.utcnow()
     session.add(user)
     session.commit()
@@ -506,7 +621,12 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
     return _map_user(user, session)
 
 
-@router.delete("/users/{user_id}", tags=["admin"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/users/{user_id}",
+    tags=["admin"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def delete_user(user_id: int, session: Session = Depends(get_session)) -> None:
     user = session.get(User, user_id)
     if not user:
@@ -542,7 +662,13 @@ def list_sku_types(include_inactive: bool = False, session: Session = Depends(ge
     return [SKUTypeRead.model_validate(item) for item in types]
 
 
-@router.post("/sku-types", tags=["catalogs"], status_code=status.HTTP_201_CREATED, response_model=SKUTypeRead)
+@router.post(
+    "/sku-types",
+    tags=["catalogs"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=SKUTypeRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_session)) -> SKUTypeRead:
     code = payload.code.strip().upper()
     duplicate = session.exec(select(SKUType).where(SKUType.code == code)).first()
@@ -555,7 +681,12 @@ def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_sessi
     return SKUTypeRead.model_validate(record)
 
 
-@router.put("/sku-types/{sku_type_id}", tags=["catalogs"], response_model=SKUTypeRead)
+@router.put(
+    "/sku-types/{sku_type_id}",
+    tags=["catalogs"],
+    response_model=SKUTypeRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session = Depends(get_session)) -> SKUTypeRead:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
@@ -570,7 +701,12 @@ def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session =
     return SKUTypeRead.model_validate(sku_type)
 
 
-@router.delete("/sku-types/{sku_type_id}", tags=["catalogs"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/sku-types/{sku_type_id}",
+    tags=["catalogs"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def delete_sku_type(sku_type_id: int, session: Session = Depends(get_session)) -> None:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
@@ -741,15 +877,13 @@ def list_skus(
     return [_map_sku(item, session) for item in skus]
 
 
-@router.get("/skus", tags=["sku"], response_model=list[SKURead])
-def list_skus(session: Session = Depends(get_session)) -> list[SKURead]:
-    skus = session.exec(
-        select(SKU).where(SKU.active == True)
-    ).all()
-    return [_map_sku(s, session) for s in skus]
-
-
-@router.post("/skus", tags=["sku"], status_code=status.HTTP_201_CREATED, response_model=SKURead)
+@router.post(
+    "/skus",
+    tags=["sku"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=SKURead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> SKURead:
     existing = session.exec(select(SKU).where(SKU.code == payload.code)).first()
     if existing:
@@ -788,7 +922,12 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
     return _map_sku(sku, session)
 
 
-@router.put("/skus/{sku_id}", tags=["sku"], response_model=SKURead)
+@router.put(
+    "/skus/{sku_id}",
+    tags=["sku"],
+    response_model=SKURead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_session)) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
@@ -824,7 +963,12 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
     return _map_sku(sku, session)
 
 
-@router.delete("/skus/{sku_id}", tags=["sku"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/skus/{sku_id}",
+    tags=["sku"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
 def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
     sku = session.get(SKU, sku_id)
     if not sku:
@@ -1044,7 +1188,12 @@ def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> No
     session.commit()
 
 
-@router.get("/orders", tags=["orders"], response_model=list[OrderRead])
+@router.get(
+    "/orders",
+    tags=["orders"],
+    response_model=list[OrderRead],
+    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+)
 def list_orders(status_filter: OrderStatus | None = None, session: Session = Depends(get_session)) -> list[OrderRead]:
     statement = select(Order)
     if status_filter:
@@ -1053,7 +1202,12 @@ def list_orders(status_filter: OrderStatus | None = None, session: Session = Dep
     return [_map_order(order, session) for order in orders]
 
 
-@router.get("/orders/{order_id}", tags=["orders"], response_model=OrderRead)
+@router.get(
+    "/orders/{order_id}",
+    tags=["orders"],
+    response_model=OrderRead,
+    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+)
 def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -1061,7 +1215,13 @@ def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRe
     return _map_order(order, session)
 
 
-@router.post("/orders", tags=["orders"], status_code=status.HTTP_201_CREATED, response_model=OrderRead)
+@router.post(
+    "/orders",
+    tags=["orders"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=OrderRead,
+    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+)
 def create_order(payload: OrderCreate, session: Session = Depends(get_session)) -> OrderRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
@@ -1095,7 +1255,12 @@ def create_order(payload: OrderCreate, session: Session = Depends(get_session)) 
     return _map_order(order, session)
 
 
-@router.put("/orders/{order_id}", tags=["orders"], response_model=OrderRead)
+@router.put(
+    "/orders/{order_id}",
+    tags=["orders"],
+    response_model=OrderRead,
+    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+)
 def update_order(order_id: int, payload: OrderUpdate, session: Session = Depends(get_session)) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -1144,7 +1309,12 @@ def update_order(order_id: int, payload: OrderUpdate, session: Session = Depends
     return _map_order(order, session)
 
 
-@router.post("/orders/{order_id}/status", tags=["orders"], response_model=OrderRead)
+@router.post(
+    "/orders/{order_id}/status",
+    tags=["orders"],
+    response_model=OrderRead,
+    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+)
 def update_order_status(order_id: int, payload: OrderStatusUpdate, session: Session = Depends(get_session)) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -1157,7 +1327,12 @@ def update_order_status(order_id: int, payload: OrderStatusUpdate, session: Sess
     return _map_order(order, session)
 
 
-@router.delete("/orders/{order_id}", tags=["orders"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/orders/{order_id}",
+    tags=["orders"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+)
 def delete_order(order_id: int, session: Session = Depends(get_session)) -> None:
     order = session.get(Order, order_id)
     if not order:
@@ -1167,6 +1342,231 @@ def delete_order(order_id: int, session: Session = Depends(get_session)) -> None
         session.delete(item)
     session.delete(order)
     session.commit()
+
+
+@router.get(
+    "/remitos",
+    tags=["remitos"],
+    response_model=list[RemitoRead],
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def list_remitos(
+    status_filter: RemitoStatus | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    session: Session = Depends(get_session),
+) -> list[RemitoRead]:
+    statement = select(Remito)
+    if status_filter:
+        statement = statement.where(Remito.status == status_filter)
+    if date_from:
+        statement = statement.where(Remito.issue_date >= date_from)
+    if date_to:
+        statement = statement.where(Remito.issue_date <= date_to)
+    remitos = session.exec(statement.order_by(Remito.created_at.desc())).all()
+    return [_map_remito(remito, session) for remito in remitos]
+
+
+@router.get(
+    "/remitos/{remito_id}",
+    tags=["remitos"],
+    response_model=RemitoRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def get_remito(remito_id: int, session: Session = Depends(get_session)) -> RemitoRead:
+    remito = _get_remito_or_404(session, remito_id)
+    return _map_remito(remito, session)
+
+
+@router.post(
+    "/remitos/from-order/{order_id}",
+    tags=["remitos"],
+    response_model=RemitoRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def create_remito_from_order(
+    order_id: int,
+    payload: RemitoFromOrderRequest | None = None,
+    session: Session = Depends(get_session),
+) -> RemitoRead:
+    order = session.get(Order, order_id)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    session.refresh(order, attribute_names=["items", "destination_deposit"])
+    if not order.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no tiene ítems")
+
+    destination_deposit_id = (payload.destination_deposit_id if payload else None) or order.destination_deposit_id
+    if not destination_deposit_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no tiene destino definido")
+    destination_deposit = _get_deposit_or_404(session, destination_deposit_id)
+    source_deposit = (
+        _get_deposit_or_404(session, payload.source_deposit_id)
+        if payload and payload.source_deposit_id
+        else _default_source_deposit(session)
+    )
+
+    remito = Remito(
+        order_id=order.id,
+        status=RemitoStatus.PENDING,
+        destination=destination_deposit.name,
+        issue_date=date.today(),
+        source_deposit_id=source_deposit.id,
+        destination_deposit_id=destination_deposit.id,
+    )
+    session.add(remito)
+    session.flush()
+
+    for item in order.items:
+        session.add(RemitoItem(remito_id=remito.id, sku_id=item.sku_id, quantity=item.quantity))
+
+    session.commit()
+    session.refresh(remito)
+    return _map_remito(remito, session)
+
+
+@router.post(
+    "/remitos/{remito_id}/dispatch",
+    tags=["remitos"],
+    response_model=RemitoRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def dispatch_remito(
+    remito_id: int,
+    payload: RemitoDispatchRequest | None = None,
+    session: Session = Depends(get_session),
+) -> RemitoRead:
+    remito = _get_remito_or_404(session, remito_id)
+    session.refresh(remito, attribute_names=["items"])
+    if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito ya fue procesado")
+    if not remito.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito no tiene ítems cargados")
+
+    source_deposit = _get_deposit_or_404(session, remito.source_deposit_id) if remito.source_deposit_id else _default_source_deposit(session)
+    movement_type = _get_movement_type_by_code(session, "REMITO")
+    reference = f"REMITO-{remito.id}"
+    movement_date = payload.movement_date if payload else None
+
+    for item in remito.items:
+        sku = session.get(SKU, item.sku_id)
+        if not sku:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"SKU {item.sku_id} no encontrado")
+        if source_deposit.controls_lot:
+            consumptions = _calculate_consumption_by_lot(
+                session, item.sku_id, source_deposit.id, item.quantity, strict=True
+            )
+            for lot, quantity in consumptions:
+                movement_payload = StockMovementCreate(
+                    sku_id=item.sku_id,
+                deposit_id=source_deposit.id,
+                movement_type_id=movement_type.id,
+                quantity=quantity,
+                is_outgoing=True,
+                reference_type="REMITO",
+                reference_id=remito.id,
+                reference_item_id=item.id,
+                    reference=reference,
+                    lot_code=lot.lot_code if lot else None,
+                    production_lot_id=lot.id if lot else None,
+                    movement_date=movement_date,
+                )
+                _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
+        else:
+            movement_payload = StockMovementCreate(
+                sku_id=item.sku_id,
+                deposit_id=source_deposit.id,
+                movement_type_id=movement_type.id,
+                quantity=item.quantity,
+                is_outgoing=True,
+                reference_type="REMITO",
+                reference_id=remito.id,
+                reference_item_id=item.id,
+                reference=reference,
+                movement_date=movement_date,
+            )
+            _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
+
+    remito.status = RemitoStatus.DISPATCHED
+    remito.dispatched_at = datetime.utcnow()
+    remito.source_deposit_id = source_deposit.id
+    remito.updated_at = datetime.utcnow()
+    session.add(remito)
+    session.commit()
+    session.refresh(remito)
+    return _map_remito(remito, session)
+
+
+@router.post(
+    "/remitos/{remito_id}/receive",
+    tags=["remitos"],
+    response_model=RemitoRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def receive_remito(
+    remito_id: int,
+    payload: RemitoReceiveRequest | None = None,
+    session: Session = Depends(get_session),
+) -> RemitoRead:
+    remito = _get_remito_or_404(session, remito_id)
+    session.refresh(remito, attribute_names=["items"])
+    if remito.status not in {RemitoStatus.DISPATCHED, RemitoStatus.SENT}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden recibir remitos despachados")
+    if not remito.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito no tiene ítems cargados")
+
+    destination_deposit = (
+        _get_deposit_or_404(session, remito.destination_deposit_id)
+        if remito.destination_deposit_id
+        else _default_source_deposit(session)
+    )
+    movement_type = _get_movement_type_by_code(session, "REMITO")
+    reference = f"REMITO-{remito.id}"
+    movement_date = payload.movement_date if payload else None
+
+    for item in remito.items:
+        movement_payload = StockMovementCreate(
+            sku_id=item.sku_id,
+            deposit_id=destination_deposit.id,
+            movement_type_id=movement_type.id,
+            quantity=item.quantity,
+            is_outgoing=False,
+            reference_type="REMITO",
+            reference_id=remito.id,
+            reference_item_id=item.id,
+            reference=f"{reference}-RECIBIDO",
+            movement_date=movement_date,
+        )
+        _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+
+    remito.status = RemitoStatus.RECEIVED
+    remito.received_at = datetime.utcnow()
+    remito.destination_deposit_id = destination_deposit.id
+    remito.updated_at = datetime.utcnow()
+    session.add(remito)
+    session.commit()
+    session.refresh(remito)
+    return _map_remito(remito, session)
+
+
+@router.post(
+    "/remitos/{remito_id}/cancel",
+    tags=["remitos"],
+    response_model=RemitoRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def cancel_remito(remito_id: int, session: Session = Depends(get_session)) -> RemitoRead:
+    remito = _get_remito_or_404(session, remito_id)
+    if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar un remito procesado")
+    remito.status = RemitoStatus.CANCELLED
+    remito.cancelled_at = datetime.utcnow()
+    remito.updated_at = datetime.utcnow()
+    session.add(remito)
+    session.commit()
+    session.refresh(remito)
+    return _map_remito(remito, session)
 
 
 @router.get("/stock/movement-types", tags=["stock"], response_model=list[StockMovementTypeRead])
@@ -1185,6 +1585,7 @@ def list_stock_movement_types(
     tags=["stock"],
     status_code=status.HTTP_201_CREATED,
     response_model=StockMovementTypeRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
 )
 def create_stock_movement_type(
     payload: StockMovementTypeCreate,
@@ -1205,6 +1606,7 @@ def create_stock_movement_type(
     "/stock/movement-types/{movement_type_id}",
     tags=["stock"],
     response_model=StockMovementTypeRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
 )
 def update_stock_movement_type(
     movement_type_id: int,
@@ -1228,6 +1630,7 @@ def update_stock_movement_type(
     "/stock/movement-types/{movement_type_id}",
     tags=["stock"],
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_roles("ADMIN"))],
 )
 def delete_stock_movement_type(movement_type_id: int, session: Session = Depends(get_session)) -> None:
     record = session.get(StockMovementType, movement_type_id)
@@ -1281,12 +1684,16 @@ def _apply_stock_movement(
 
     input_unit = payload.unit or sku.unit
     base_quantity = _convert_to_base_quantity(sku, payload.quantity, input_unit, session)
-    delta = base_quantity
     movement_code = movement_type.code.upper()
-    if movement_code in OUTGOING_MOVEMENTS:
-        delta = -base_quantity
-    elif movement_code not in INCOMING_MOVEMENTS:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de movimiento no soportado")
+    is_outgoing = payload.is_outgoing
+    if is_outgoing is None:
+        if movement_code in OUTGOING_MOVEMENTS:
+            is_outgoing = True
+        elif movement_code in INCOMING_MOVEMENTS:
+            is_outgoing = False
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de movimiento no soportado")
+    delta = -base_quantity if is_outgoing else base_quantity
 
     produced_at = payload.movement_date or date.today()
     if movement_code == "PRODUCTION" and not production_line:
@@ -1378,13 +1785,18 @@ def _apply_stock_movement(
 
     stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
     new_quantity = stock_level.quantity + delta
+    if not allow_negative_balance and new_quantity < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Stock insuficiente en el depósito")
 
     if production_lot:
         if movement_code == "PRODUCTION" and not created_lot:
             production_lot.produced_quantity += base_quantity
             production_lot.remaining_quantity += base_quantity
         else:
-            production_lot.remaining_quantity = production_lot.remaining_quantity + delta
+            new_remaining = production_lot.remaining_quantity + delta
+            if not allow_negative_balance and new_remaining < 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no tiene stock suficiente")
+            production_lot.remaining_quantity = new_remaining
         production_lot.updated_at = datetime.utcnow()
         session.add(production_lot)
 
@@ -1394,6 +1806,9 @@ def _apply_stock_movement(
         deposit_id=payload.deposit_id,
         movement_type_id=movement_type.id,
         quantity=delta,
+        reference_type=payload.reference_type,
+        reference_id=payload.reference_id,
+        reference_item_id=payload.reference_item_id,
         reference=payload.reference,
         lot_code=lot_code,
         production_lot_id=production_lot.id if production_lot else None,
@@ -1443,6 +1858,9 @@ def _map_stock_movement(movement: StockMovement, session: Session) -> StockMovem
         movement_type_code=movement.movement_type.code if movement.movement_type else "",
         movement_type_label=movement.movement_type.label if movement.movement_type else "",
         quantity=movement.quantity,
+        reference_type=movement.reference_type,
+        reference_id=movement.reference_id,
+        reference_item_id=movement.reference_item_id,
         reference=movement.reference,
         lot_code=movement.lot_code,
         production_lot_id=movement.production_lot_id,
@@ -1526,6 +1944,7 @@ def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLeve
     tags=["stock"],
     status_code=status.HTTP_201_CREATED,
     response_model=StockLevelRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "PRODUCTION"))],
 )
 def register_stock_movement(payload: StockMovementCreate, session: Session = Depends(get_session)) -> StockLevelRead:
     stock_level, _ = _apply_stock_movement(session, payload)
@@ -1550,6 +1969,8 @@ def list_stock_movements(
     movement_type_code: str | None = None,
     production_line_id: int | None = None,
     lot_code: str | None = None,
+    reference_type: str | None = None,
+    reference_id: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     limit: int = 50,
@@ -1571,6 +1992,10 @@ def list_stock_movements(
         statement = statement.join(ProductionLot).where(ProductionLot.production_line_id == production_line_id)
     if lot_code:
         statement = statement.where(StockMovement.lot_code == lot_code)
+    if reference_type:
+        statement = statement.where(StockMovement.reference_type == reference_type)
+    if reference_id:
+        statement = statement.where(StockMovement.reference_id == reference_id)
     if date_from:
         statement = statement.where(StockMovement.movement_date >= date_from)
     if date_to:
@@ -1823,3 +2248,7 @@ def stock_summary(session: Session = Depends(get_session)) -> StockReportRead:
             for code, data in movement_totals.items()
         ],
     )
+
+
+api_router.include_router(public_router)
+api_router.include_router(router)

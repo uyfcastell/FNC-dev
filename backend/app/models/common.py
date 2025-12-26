@@ -55,6 +55,9 @@ class RemitoStatus(str, Enum):
     PENDING = "pending"
     SENT = "sent"
     DELIVERED = "delivered"
+    DISPATCHED = "dispatched"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
 
 
 class BaseUUIDModel(SQLModel):

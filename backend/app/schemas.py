@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from sqlmodel import SQLModel
 
-from .models.common import MermaAction, MermaStage, OrderStatus, SKUFamily, UnitOfMeasure
+from .models.common import MermaAction, MermaStage, OrderStatus, RemitoStatus, SKUFamily, UnitOfMeasure
 
 class SKUTypeBase(SQLModel):
     code: str
@@ -110,6 +110,10 @@ class StockMovementCreate(SQLModel):
     deposit_id: int
     movement_type_id: int
     quantity: float
+    is_outgoing: bool | None = None
+    reference_type: str | None = None
+    reference_id: int | None = None
+    reference_item_id: int | None = None
     unit: UnitOfMeasure | None = None
     reference: str | None = None
     lot_code: str | None = None
@@ -158,6 +162,9 @@ class StockMovementRead(SQLModel):
     movement_type_code: str
     movement_type_label: str
     quantity: float
+    reference_type: str | None = None
+    reference_id: int | None = None
+    reference_item_id: int | None = None
     reference: str | None = None
     lot_code: str | None = None
     production_lot_id: int | None = None
@@ -240,6 +247,18 @@ class UserRead(SQLModel):
     is_active: bool
 
 
+class LoginRequest(SQLModel):
+    username: str
+    password: str
+
+
+class TokenResponse(SQLModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int | None = None
+    user: UserRead | None = None
+
+
 class OrderItemPayload(SQLModel):
     sku_id: int
     quantity: float
@@ -281,6 +300,46 @@ class OrderRead(SQLModel):
     notes: str | None = None
     created_at: datetime
     items: list[OrderItemRead]
+
+
+class RemitoItemRead(SQLModel):
+    id: int
+    remito_id: int
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    quantity: float
+    lot_code: str | None = None
+
+
+class RemitoRead(SQLModel):
+    id: int
+    order_id: int
+    status: RemitoStatus
+    destination: str
+    source_deposit_id: int | None = None
+    destination_deposit_id: int | None = None
+    source_deposit_name: str | None = None
+    destination_deposit_name: str | None = None
+    issue_date: date
+    dispatched_at: datetime | None = None
+    received_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    created_at: datetime
+    items: list[RemitoItemRead]
+
+
+class RemitoFromOrderRequest(SQLModel):
+    source_deposit_id: int | None = None
+    destination_deposit_id: int | None = None
+
+
+class RemitoDispatchRequest(SQLModel):
+    movement_date: date | None = None
+
+
+class RemitoReceiveRequest(SQLModel):
+    movement_date: date | None = None
 
 
 class ProductionLineBase(SQLModel):

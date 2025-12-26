@@ -19,6 +19,35 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db import init_db
 
+
+# =======================
+# AUTH OVERRIDE PARA TEST
+# =======================
+
+from app.api.deps import get_current_user
+
+
+def override_current_user():
+    """
+    Usuario fake para tests.
+    Simula un usuario admin válido del sistema.
+    """
+    class FakeUser:
+        id = 1
+        username = "test-admin"
+        is_active = True
+
+        # lo que espera require_role
+        role_id = 1
+        role = "admin"
+
+    return FakeUser()
+
+
+app.dependency_overrides[get_current_user] = override_current_user
+# =======================
+
+
 @pytest.fixture(scope="session", autouse=True)
 def setup_database():
     """

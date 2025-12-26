@@ -1,16 +1,18 @@
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import InventoryIcon from "@mui/icons-material/Inventory2";
 import ListAltIcon from "@mui/icons-material/ListAlt";
-import LoginIcon from "@mui/icons-material/Login";
+import LogoutIcon from "@mui/icons-material/Logout";
 import ManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MenuIcon from "@mui/icons-material/Menu";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import HistoryIcon from "@mui/icons-material/History";
-import { AppBar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from "@mui/material";
+import { AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Toolbar, Typography } from "@mui/material";
 import { PropsWithChildren, ReactNode, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
+
+import { useAuth } from "../lib/auth";
 
 const drawerWidth = 240;
 
@@ -31,12 +33,12 @@ const defaultNavItems: NavItem[] = [
   { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },
   { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion" },
   { label: "Reportes", icon: <ListAltIcon />, to: "/reportes" },
-  { label: "Login", icon: <LoginIcon />, to: "/login" },
 ];
 
 export function AppShell({ children, navItems = defaultNavItems }: PropsWithChildren<{ navItems?: NavItem[] }>) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   const drawer = (
     <div>
@@ -80,6 +82,17 @@ export function AppShell({ children, navItems = defaultNavItems }: PropsWithChil
           <Typography variant="h6" noWrap component="div">
             FNC | Gestión de producción y stock
           </Typography>
+          <Box flexGrow={1} />
+          <Stack direction="row" spacing={2} alignItems="center">
+            {user && (
+              <Typography variant="body2" color="inherit">
+                {user.full_name} {user.role_name ? `(${user.role_name})` : ""}
+              </Typography>
+            )}
+            <Button color="inherit" size="small" startIcon={<LogoutIcon />} onClick={logout}>
+              Salir
+            </Button>
+          </Stack>
         </Toolbar>
       </AppBar>
       <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }} aria-label="navigation">

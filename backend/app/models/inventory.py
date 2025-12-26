@@ -77,6 +77,9 @@ class StockMovement(TimestampedModel, table=True):
     deposit_id: int = Field(foreign_key="deposits.id")
     movement_type_id: int = Field(foreign_key="stock_movement_types.id")
     quantity: float
+    reference_type: str | None = Field(default=None, max_length=50)
+    reference_id: int | None = Field(default=None)
+    reference_item_id: int | None = Field(default=None)
     reference: str | None = Field(default=None, max_length=100)
     lot_code: str | None = Field(default=None, max_length=64)
     production_lot_id: int | None = Field(default=None, foreign_key="production_lots.id")

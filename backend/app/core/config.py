@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/FNC"
     api_prefix: str = "/api"
     load_seed: bool = False
+    # FIX: Default para dev / CI
+    jwt_secret: str = "20251212"
+    jwt_algorithm: str = "HS256"
+    jwt_expires_minutes: int = 720
 
     class Config:
         env_file = ".env"

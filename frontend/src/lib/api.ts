@@ -1,4 +1,39 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const AUTH_TOKEN_KEY = "fnc_access_token";
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setStoredToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
+async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = getStoredToken();
+  const headers = new Headers(options.headers ?? {});
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  const url = path.startsWith("http") ? path : `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+  return fetch(url, { ...options, headers });
+}
+
+async function apiRequest<T>(path: string, options: RequestInit, defaultError: string): Promise<T> {
+  const response = await apiFetch(path, options);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || defaultError);
+  }
+  return response.json() as Promise<T>;
+}
 
 export type SKUFamily = "consumible" | "papeleria" | "limpieza";
 export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
@@ -74,6 +109,9 @@ export type StockMovement = {
   movement_type_code: string;
   movement_type_label: string;
   quantity: number;
+  reference_type?: string | null;
+  reference_id?: number | null;
+  reference_item_id?: number | null;
   reference?: string | null;
   lot_code?: string | null;
   production_lot_id?: number | null;
@@ -94,6 +132,10 @@ export type StockMovementPayload = {
   deposit_id: number;
   movement_type_id: number;
   quantity: number;
+  is_outgoing?: boolean | null;
+  reference_type?: string | null;
+  reference_id?: number | null;
+  reference_item_id?: number | null;
   unit?: UnitOfMeasure;
   reference?: string;
   lot_code?: string;
@@ -136,12 +178,48 @@ export type OrderItem = {
 export type Order = {
   id: number;
   destination: string;
-   destination_deposit_id?: number | null;
+  destination_deposit_id?: number | null;
   requested_for?: string | null;
   status: OrderStatus;
   notes?: string | null;
   created_at: string;
   items: OrderItem[];
+};
+
+export type RemitoStatus = "pending" | "sent" | "delivered" | "dispatched" | "received" | "cancelled";
+
+export type RemitoItem = {
+  id: number;
+  remito_id: number;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  quantity: number;
+  lot_code?: string | null;
+};
+
+export type Remito = {
+  id: number;
+  order_id: number;
+  status: RemitoStatus;
+  destination: string;
+  source_deposit_id?: number | null;
+  destination_deposit_id?: number | null;
+  source_deposit_name?: string | null;
+  destination_deposit_name?: string | null;
+  issue_date: string;
+  dispatched_at?: string | null;
+  received_at?: string | null;
+  cancelled_at?: string | null;
+  created_at: string;
+  items: RemitoItem[];
+};
+
+export type LoginResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+  user?: User;
 };
 
 export type User = {
@@ -231,19 +309,19 @@ export type MermaEvent = {
 };
 
 export async function fetchHealth(): Promise<{ status: string; version?: string }> {
-  const response = await fetch(`${API_BASE_URL}/health`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener el estado de la API");
-  }
-  return response.json();
+  return apiRequest("/health", {}, "No se pudo obtener el estado de la API");
 }
 
 export async function fetchRoles(): Promise<Role[]> {
-  const response = await fetch(`${API_BASE_URL}/roles`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener los roles");
-  }
-  return response.json();
+  return apiRequest("/roles", {}, "No se pudo obtener los roles");
+}
+
+export async function loginWithCredentials(username: string, password: string): Promise<LoginResponse> {
+  return apiRequest("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, "No se pudo iniciar sesión");
+}
+
+export async function fetchCurrentUser(): Promise<User> {
+  return apiRequest("/auth/me", {}, "No se pudo obtener el usuario");
 }
 
 export async function fetchSkuTypes(params?: { include_inactive?: boolean }): Promise<SKUType[]> {
@@ -251,45 +329,19 @@ export async function fetchSkuTypes(params?: { include_inactive?: boolean }): Pr
   if (params?.include_inactive) {
     query.append("include_inactive", "true");
   }
-  const response = await fetch(`${API_BASE_URL}/sku-types${query.toString() ? `?${query.toString()}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener los tipos de SKU");
-  }
-  return response.json();
+  return apiRequest(`/sku-types${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudo obtener los tipos de SKU");
 }
 
 export async function createSkuType(payload: Omit<SKUType, "id">): Promise<SKUType> {
-  const response = await fetch(`${API_BASE_URL}/sku-types`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el tipo de SKU");
-  }
-  return response.json();
+  return apiRequest("/sku-types", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el tipo de SKU");
 }
 
 export async function updateSkuType(id: number, payload: Partial<Omit<SKUType, "id" | "code">>): Promise<SKUType> {
-  const response = await fetch(`${API_BASE_URL}/sku-types/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el tipo de SKU");
-  }
-  return response.json();
+  return apiRequest(`/sku-types/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el tipo de SKU");
 }
 
 export async function deleteSkuType(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/sku-types/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el tipo de SKU");
-  }
+  await apiRequest(`/sku-types/${id}`, { method: "DELETE" }, "No se pudo eliminar el tipo de SKU");
 }
 
 export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: string[]; families?: SKUFamily[]; include_inactive?: boolean; search?: string }): Promise<SKU[]> {
@@ -310,27 +362,15 @@ export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: strin
     query.append("search", params.search);
   }
   const queryString = query.toString();
-  const response = await fetch(`${API_BASE_URL}/skus${queryString ? `?${queryString}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener la lista de SKUs");
-  }
-  return response.json();
+  return apiRequest(`/skus${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener la lista de SKUs");
 }
 
 export async function fetchDeposits(): Promise<Deposit[]> {
-  const response = await fetch(`${API_BASE_URL}/deposits`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener la lista de depósitos");
-  }
-  return response.json();
+  return apiRequest("/deposits", {}, "No se pudo obtener la lista de depósitos");
 }
 
 export async function fetchStockLevels(): Promise<StockLevel[]> {
-  const response = await fetch(`${API_BASE_URL}/stock-levels`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener el stock actual");
-  }
-  return response.json();
+  return apiRequest("/stock-levels", {}, "No se pudo obtener el stock actual");
 }
 
 export async function fetchStockMovements(params?: {
@@ -357,87 +397,35 @@ export async function fetchStockMovements(params?: {
   if (params?.limit) query.append("limit", String(params.limit));
   if (params?.offset) query.append("offset", String(params.offset));
 
-  const response = await fetch(`${API_BASE_URL}/stock/movements${query.toString() ? `?${query.toString()}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener los movimientos de stock");
-  }
-  return response.json();
+  return apiRequest(`/stock/movements${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener los movimientos de stock");
 }
 
 export async function fetchUnits(): Promise<UnitOption[]> {
-  const response = await fetch(`${API_BASE_URL}/units`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener las unidades");
-  }
-  return response.json();
+  return apiRequest("/units", {}, "No se pudo obtener las unidades");
 }
 
 export async function createSku(payload: SkuPayload): Promise<SKU> {
-  const response = await fetch(`${API_BASE_URL}/skus`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el SKU");
-  }
-  return response.json();
+  return apiRequest("/skus", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el SKU");
 }
 
 export async function updateSku(id: number, payload: Partial<SkuPayload>): Promise<SKU> {
-  const response = await fetch(`${API_BASE_URL}/skus/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el SKU");
-  }
-  return response.json();
+  return apiRequest(`/skus/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el SKU");
 }
 
 export async function deleteSku(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/skus/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el SKU");
-  }
+  await apiRequest(`/skus/${id}`, { method: "DELETE" }, "No se pudo eliminar el SKU");
 }
 
 export async function createDeposit(payload: Omit<Deposit, "id">): Promise<Deposit> {
-  const response = await fetch(`${API_BASE_URL}/deposits`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el depósito");
-  }
-  return response.json();
+  return apiRequest("/deposits", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el depósito");
 }
 
 export async function updateDeposit(id: number, payload: Partial<Omit<Deposit, "id">>): Promise<Deposit> {
-  const response = await fetch(`${API_BASE_URL}/deposits/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el depósito");
-  }
-  return response.json();
+  return apiRequest(`/deposits/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el depósito");
 }
 
 export async function deleteDeposit(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/deposits/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el depósito");
-  }
+  await apiRequest(`/deposits/${id}`, { method: "DELETE" }, "No se pudo eliminar el depósito");
 }
 
 export async function fetchStockMovementTypes(params?: { include_inactive?: boolean }): Promise<StockMovementType[]> {
@@ -445,119 +433,50 @@ export async function fetchStockMovementTypes(params?: { include_inactive?: bool
   if (params?.include_inactive) {
     query.append("include_inactive", "true");
   }
-  const response = await fetch(`${API_BASE_URL}/stock/movement-types${query.toString() ? `?${query.toString()}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener los tipos de movimiento de stock");
-  }
-  return response.json();
+  return apiRequest(`/stock/movement-types${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener los tipos de movimiento de stock");
 }
 
 export async function createStockMovementType(payload: Omit<StockMovementType, "id">): Promise<StockMovementType> {
-  const response = await fetch(`${API_BASE_URL}/stock/movement-types`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el tipo de movimiento");
-  }
-  return response.json();
+  return apiRequest("/stock/movement-types", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el tipo de movimiento");
 }
 
 export async function updateStockMovementType(
   id: number,
   payload: Partial<Omit<StockMovementType, "id" | "code">>,
 ): Promise<StockMovementType> {
-  const response = await fetch(`${API_BASE_URL}/stock/movement-types/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el tipo de movimiento");
-  }
-  return response.json();
+  return apiRequest(`/stock/movement-types/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el tipo de movimiento");
 }
 
 export async function deleteStockMovementType(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/stock/movement-types/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el tipo de movimiento");
-  }
+  await apiRequest(`/stock/movement-types/${id}`, { method: "DELETE" }, "No se pudo eliminar el tipo de movimiento");
 }
 
 export async function createStockMovement(payload: StockMovementPayload): Promise<StockLevel> {
-  const response = await fetch(`${API_BASE_URL}/stock/movements`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo registrar el movimiento");
-  }
-  return response.json();
+  return apiRequest("/stock/movements", { method: "POST", body: JSON.stringify(payload) }, "No se pudo registrar el movimiento");
 }
 
 export async function fetchRecipes(): Promise<Recipe[]> {
-  const response = await fetch(`${API_BASE_URL}/recipes`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener las recetas");
-  }
-  return response.json();
+  return apiRequest("/recipes", {}, "No se pudo obtener las recetas");
 }
 
 export async function createRecipe(payload: Omit<Recipe, "id">): Promise<Recipe> {
-  const response = await fetch(`${API_BASE_URL}/recipes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear la receta");
-  }
-  return response.json();
+  return apiRequest("/recipes", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear la receta");
 }
 
 export async function updateRecipe(id: number, payload: Omit<Recipe, "id">): Promise<Recipe> {
-  const response = await fetch(`${API_BASE_URL}/recipes/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar la receta");
-  }
-  return response.json();
+  return apiRequest(`/recipes/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar la receta");
 }
 
 export async function deleteRecipe(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/recipes/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar la receta");
-  }
+  await apiRequest(`/recipes/${id}`, { method: "DELETE" }, "No se pudo eliminar la receta");
 }
 
 export async function fetchStockReport(): Promise<StockReport> {
-  const response = await fetch(`${API_BASE_URL}/reports/stock-summary`);
-  if (!response.ok) {
-    throw new Error("No se pudo obtener el reporte de stock");
-  }
-  return response.json();
+  return apiRequest("/reports/stock-summary", {}, "No se pudo obtener el reporte de stock");
 }
 
 export async function fetchOrders(): Promise<Order[]> {
-  const response = await fetch(`${API_BASE_URL}/orders`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener los pedidos");
-  }
-  return response.json();
+  return apiRequest("/orders", {}, "No se pudieron obtener los pedidos");
 }
 
 export async function createOrder(
@@ -568,126 +487,70 @@ export async function createOrder(
     requested_for?: string | null;
   }
 ): Promise<Order> {
-  const response = await fetch(`${API_BASE_URL}/orders`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el pedido");
-  }
-  return response.json();
+  return apiRequest("/orders", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el pedido");
 }
 
 export async function updateOrder(id: number, payload: Partial<Omit<Order, "id" | "created_at">>): Promise<Order> {
-  const response = await fetch(`${API_BASE_URL}/orders/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el pedido");
-  }
-  return response.json();
+  return apiRequest(`/orders/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el pedido");
 }
 
 export async function updateOrderStatus(id: number, status: OrderStatus): Promise<Order> {
-  const response = await fetch(`${API_BASE_URL}/orders/${id}/status`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el estado");
-  }
-  return response.json();
+  return apiRequest(`/orders/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }, "No se pudo actualizar el estado");
 }
 
 export async function deleteOrder(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/orders/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el pedido");
-  }
+  await apiRequest(`/orders/${id}`, { method: "DELETE" }, "No se pudo eliminar el pedido");
+}
+
+export async function fetchRemitos(): Promise<Remito[]> {
+  return apiRequest("/remitos", {}, "No se pudieron obtener los remitos");
+}
+
+export async function createRemitoFromOrder(
+  orderId: number,
+  payload?: { source_deposit_id?: number | null; destination_deposit_id?: number | null },
+): Promise<Remito> {
+  return apiRequest(`/remitos/from-order/${orderId}`, { method: "POST", body: JSON.stringify(payload ?? {}) }, "No se pudo crear el remito");
+}
+
+export async function dispatchRemito(remitoId: number): Promise<Remito> {
+  return apiRequest(`/remitos/${remitoId}/dispatch`, { method: "POST" }, "No se pudo despachar el remito");
+}
+
+export async function receiveRemito(remitoId: number): Promise<Remito> {
+  return apiRequest(`/remitos/${remitoId}/receive`, { method: "POST" }, "No se pudo recibir el remito");
+}
+
+export async function cancelRemito(remitoId: number): Promise<Remito> {
+  return apiRequest(`/remitos/${remitoId}/cancel`, { method: "POST" }, "No se pudo cancelar el remito");
 }
 
 export async function fetchUsers(): Promise<User[]> {
-  const response = await fetch(`${API_BASE_URL}/users`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener los usuarios");
-  }
-  return response.json();
+  return apiRequest("/users", {}, "No se pudieron obtener los usuarios");
 }
 
 export async function createUser(payload: { email: string; full_name: string; password: string; role_id?: number | null; is_active?: boolean }): Promise<User> {
-  const response = await fetch(`${API_BASE_URL}/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el usuario");
-  }
-  return response.json();
+  return apiRequest("/users", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el usuario");
 }
 
 export async function updateUser(id: number, payload: Partial<{ email: string; full_name: string; password: string; role_id?: number | null; is_active?: boolean }>): Promise<User> {
-  const response = await fetch(`${API_BASE_URL}/users/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el usuario");
-  }
-  return response.json();
+  return apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el usuario");
 }
 
 export async function deleteUser(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/users/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo eliminar el usuario");
-  }
+  await apiRequest(`/users/${id}`, { method: "DELETE" }, "No se pudo eliminar el usuario");
 }
 
 export async function fetchProductionLines(): Promise<ProductionLine[]> {
-  const response = await fetch(`${API_BASE_URL}/production-lines`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener las líneas de producción");
-  }
-  return response.json();
+  return apiRequest("/production-lines", {}, "No se pudieron obtener las líneas de producción");
 }
 
 export async function createProductionLine(payload: { name: string; is_active?: boolean }): Promise<ProductionLine> {
-  const response = await fetch(`${API_BASE_URL}/production-lines`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear la línea");
-  }
-  return response.json();
+  return apiRequest("/production-lines", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear la línea");
 }
 
 export async function updateProductionLine(id: number, payload: Partial<{ name: string; is_active: boolean }>): Promise<ProductionLine> {
-  const response = await fetch(`${API_BASE_URL}/production-lines/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar la línea");
-  }
-  return response.json();
+  return apiRequest(`/production-lines/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar la línea");
 }
 
 export async function fetchMermaTypes(params?: { stage?: MermaStage; include_inactive?: boolean }): Promise<MermaType[]> {
@@ -698,37 +561,15 @@ export async function fetchMermaTypes(params?: { stage?: MermaStage; include_ina
   if (params?.include_inactive) {
     query.append("include_inactive", "true");
   }
-  const response = await fetch(`${API_BASE_URL}/mermas/types${query.toString() ? `?${query.toString()}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener los tipos de merma");
-  }
-  return response.json();
+  return apiRequest(`/mermas/types${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener los tipos de merma");
 }
 
 export async function createMermaType(payload: Omit<MermaType, "id">): Promise<MermaType> {
-  const response = await fetch(`${API_BASE_URL}/mermas/types`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear el tipo de merma");
-  }
-  return response.json();
+  return apiRequest("/mermas/types", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el tipo de merma");
 }
 
 export async function updateMermaType(id: number, payload: Partial<Omit<MermaType, "id" | "code">>): Promise<MermaType> {
-  const response = await fetch(`${API_BASE_URL}/mermas/types/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar el tipo de merma");
-  }
-  return response.json();
+  return apiRequest(`/mermas/types/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el tipo de merma");
 }
 
 export async function deleteMermaType(id: number): Promise<void> {
@@ -743,37 +584,15 @@ export async function fetchMermaCauses(params?: { stage?: MermaStage; include_in
   if (params?.include_inactive) {
     query.append("include_inactive", "true");
   }
-  const response = await fetch(`${API_BASE_URL}/mermas/causes${query.toString() ? `?${query.toString()}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener las causas de merma");
-  }
-  return response.json();
+  return apiRequest(`/mermas/causes${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener las causas de merma");
 }
 
 export async function createMermaCause(payload: Omit<MermaCause, "id">): Promise<MermaCause> {
-  const response = await fetch(`${API_BASE_URL}/mermas/causes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo crear la causa de merma");
-  }
-  return response.json();
+  return apiRequest("/mermas/causes", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear la causa de merma");
 }
 
 export async function updateMermaCause(id: number, payload: Partial<Omit<MermaCause, "id" | "code">>): Promise<MermaCause> {
-  const response = await fetch(`${API_BASE_URL}/mermas/causes/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo actualizar la causa de merma");
-  }
-  return response.json();
+  return apiRequest(`/mermas/causes/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar la causa de merma");
 }
 
 export async function deleteMermaCause(id: number): Promise<void> {
@@ -801,16 +620,7 @@ export type MermaEventPayload = {
 };
 
 export async function createMermaEvent(payload: MermaEventPayload): Promise<MermaEvent> {
-  const response = await fetch(`${API_BASE_URL}/mermas`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo registrar la merma");
-  }
-  return response.json();
+  return apiRequest("/mermas", { method: "POST", body: JSON.stringify(payload) }, "No se pudo registrar la merma");
 }
 
 export async function fetchMermaEvents(params?: {
@@ -835,18 +645,9 @@ export async function fetchMermaEvents(params?: {
   if (params?.cause_id) query.append("cause_id", String(params.cause_id));
   if (params?.affects_stock !== undefined) query.append("affects_stock", params.affects_stock ? "true" : "false");
 
-  const response = await fetch(`${API_BASE_URL}/mermas${query.toString() ? `?${query.toString()}` : ""}`);
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener las mermas");
-  }
-  return response.json();
+  return apiRequest(`/mermas${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener las mermas");
 }
 
 export async function fetchMermaEventDetail(id: number): Promise<MermaEvent> {
-  const response = await fetch(`${API_BASE_URL}/mermas/${id}`);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || "No se pudo obtener el detalle de la merma");
-  }
-  return response.json();
+  return apiRequest(`/mermas/${id}`, {}, "No se pudo obtener el detalle de la merma");
 }

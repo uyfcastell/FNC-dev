@@ -1,7 +1,9 @@
 import MenuIcon from "@mui/icons-material/Menu";
-import { AppBar, Box, Container, Divider, Drawer, IconButton, List, ListItemButton, ListItemText, Toolbar, Typography } from "@mui/material";
+import { AppBar, Box, Button, Container, Divider, Drawer, IconButton, List, ListItemButton, ListItemText, Toolbar, Typography } from "@mui/material";
 import { PropsWithChildren, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
+
+import { useAuth } from "../lib/auth";
 
 type MobileNavItem = {
   label: string;
@@ -18,6 +20,7 @@ const drawerWidth = 260;
 export function MobileShell({ title, navItems, children }: Props) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const { logout } = useAuth();
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#f5f6fa" }}>
@@ -29,6 +32,10 @@ export function MobileShell({ title, navItems, children }: Props) {
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
             {title}
           </Typography>
+          <Box flexGrow={1} />
+          <Button color="inherit" size="small" onClick={logout}>
+            Salir
+          </Button>
         </Toolbar>
       </AppBar>
 

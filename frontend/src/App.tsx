@@ -17,6 +17,44 @@ import { AdminPage } from "./pages/AdminPage";
 import { OrderEntryPage } from "./pages/OrderEntryPage";
 import { MermasPage } from "./pages/MermasPage";
 import { StockMovementsPage } from "./pages/StockMovementsPage";
+import { RequireAuth } from "./lib/auth";
+
+function MobileRoutes() {
+  return (
+    <MobileShell
+      title="FNC | Producción"
+      navItems={[
+        { label: "Inicio", to: "/" },
+        { label: "Pedidos y remitos", to: "/mobile/pedidos" },
+      ]}
+    >
+      <Routes>
+        <Route path="/" element={<MobileHomePage />} />
+        <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
+        <Route path="*" element={<MobileHomePage />} />
+      </Routes>
+    </MobileShell>
+  );
+}
+
+function DesktopRoutes() {
+  return (
+    <AppShell>
+      <Routes>
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/produccion" element={<ProductionPage />} />
+        <Route path="/stock" element={<StockPage />} />
+        <Route path="/stock/movimientos" element={<StockMovementsPage />} />
+        <Route path="/mermas" element={<MermasPage />} />
+        <Route path="/pedidos" element={<OrdersPage />} />
+        <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
+        <Route path="/administracion" element={<AdminPage />} />
+        <Route path="/reportes" element={<ReportsPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </AppShell>
+  );
+}
 
 export function App() {
   const [mode, setMode] = useState<"mobile" | "desktop">(getDeviceProfile().mode);
@@ -26,43 +64,15 @@ export function App() {
     return cleanup;
   }, []);
 
-  if (mode === "mobile") {
-    return (
-      <BrowserRouter>
-        <MobileShell
-          title="FNC | Producción"
-          navItems={[
-            { label: "Inicio", to: "/" },
-            { label: "Pedidos y remitos", to: "/mobile/pedidos" },
-          ]}
-        >
-          <Routes>
-            <Route path="/" element={<MobileHomePage />} />
-            <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
-            <Route path="*" element={<MobileHomePage />} />
-          </Routes>
-        </MobileShell>
-      </BrowserRouter>
-    );
-  }
-
   return (
     <BrowserRouter>
-      <AppShell>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/produccion" element={<ProductionPage />} />
-          <Route path="/stock" element={<StockPage />} />
-          <Route path="/stock/movimientos" element={<StockMovementsPage />} />
-          <Route path="/mermas" element={<MermasPage />} />
-          <Route path="/pedidos" element={<OrdersPage />} />
-          <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
-          <Route path="/administracion" element={<AdminPage />} />
-          <Route path="/reportes" element={<ReportsPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </AppShell>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/*"
+          element={<RequireAuth>{mode === "mobile" ? <MobileRoutes /> : <DesktopRoutes />}</RequireAuth>}
+        />
+      </Routes>
     </BrowserRouter>
   );
 }

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship
@@ -45,10 +45,19 @@ class Remito(TimestampedModel, table=True):
     order_id: int = Field(foreign_key="orders.id")
     status: RemitoStatus = Field(default=RemitoStatus.PENDING)
     destination: str = Field(max_length=255)
+    source_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
+    destination_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
+    dispatched_at: datetime | None = Field(default=None)
+    received_at: datetime | None = Field(default=None)
+    cancelled_at: datetime | None = Field(default=None)
     issue_date: date = Field(default_factory=date.today)
 
     order: Order = Relationship(back_populates="remitos")
     items: list["RemitoItem"] = Relationship(back_populates="remito")
+    source_deposit: Optional["Deposit"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Remito.source_deposit_id]"})
+    destination_deposit: Optional["Deposit"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[Remito.destination_deposit_id]"}
+    )
     merma_events: list["MermaEvent"] = Relationship(back_populates="remito")
 
 
