@@ -523,7 +523,7 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)) -> Tok
         session.commit()
         session.refresh(user)
 
-    token = create_access_token({"sub": user.id})
+    token = create_access_token({"sub": str(user.id)})
     return TokenResponse(access_token=token, token_type="bearer", expires_in=settings.jwt_expires_minutes * 60)
 
 
