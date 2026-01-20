@@ -945,9 +945,6 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
     if units_per_kg is None and sku_type.code == SKU_SEMI_CODE:
         units_per_kg = _get_semi_units_per_kg(session, sku_id)
 
-    if sku_type.code != SKU_CONSUMABLE_CODE:
-        update_data["family"] = None
-
     for field, value in update_data.items():
         setattr(sku, field, value)
     sku.updated_at = datetime.utcnow()
