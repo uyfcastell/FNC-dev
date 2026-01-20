@@ -1,7 +1,9 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, Type
 
+from sqlalchemy import Column
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
 
@@ -57,3 +59,14 @@ class RemitoStatus(str, Enum):
 
 class BaseUUIDModel(SQLModel):
     id: Optional[int] = Field(default=None, primary_key=True)
+
+
+def enum_column(enum_cls: Type[Enum], name: str) -> Column:
+    return Column(
+        SAEnum(
+            enum_cls,
+            name=name,
+            values_callable=lambda values: [entry.value for entry in values],
+            native_enum=True,
+        )
+    )

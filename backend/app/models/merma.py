@@ -4,7 +4,7 @@ from typing import Optional, TYPE_CHECKING
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, Relationship
 
-from .common import MermaAction, MermaStage, TimestampedModel, UnitOfMeasure
+from .common import MermaAction, MermaStage, TimestampedModel, UnitOfMeasure, enum_column
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import Deposit, StockMovement
@@ -28,7 +28,7 @@ class MermaType(TimestampedModel, table=True):
     __table_args__ = (UniqueConstraint("stage", "code", name="uq_merma_types_stage_code"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    stage: MermaStage
+    stage: MermaStage = Field(sa_column=enum_column(MermaStage, "mermastage"))
     code: str = Field(max_length=64)
     label: str = Field(max_length=255)
     is_active: bool = Field(default=True)
@@ -41,7 +41,7 @@ class MermaCause(TimestampedModel, table=True):
     __table_args__ = (UniqueConstraint("stage", "code", name="uq_merma_causes_stage_code"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    stage: MermaStage
+    stage: MermaStage = Field(sa_column=enum_column(MermaStage, "mermastage"))
     code: str = Field(max_length=64)
     label: str = Field(max_length=255)
     is_active: bool = Field(default=True)
@@ -53,7 +53,7 @@ class MermaEvent(TimestampedModel, table=True):
     __tablename__ = "merma_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    stage: MermaStage
+    stage: MermaStage = Field(sa_column=enum_column(MermaStage, "mermastage"))
 
     type_id: int = Field(foreign_key="merma_types.id")
     type_code: str = Field(max_length=64)
@@ -81,7 +81,7 @@ class MermaEvent(TimestampedModel, table=True):
     detected_at: datetime = Field(default_factory=datetime.utcnow)
 
     affects_stock: bool = Field(default=True)
-    action: MermaAction = Field(default=MermaAction.NONE)
+    action: MermaAction = Field(default=MermaAction.NONE, sa_column=enum_column(MermaAction, "mermaaction"))
     stock_movement_id: int | None = Field(default=None, foreign_key="stock_movements.id")
 
     type: MermaType = Relationship(back_populates="merma_events")
