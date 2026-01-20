@@ -161,7 +161,7 @@ export type Recipe = {
   items: RecipeItem[];
 };
 
-export type OrderStatus = "draft" | "submitted" | "approved" | "prepared" | "closed";
+export type OrderStatus = "draft" | "submitted" | "approved" | "prepared" | "closed" | "cancelled";
 
 export type OrderItem = {
   id?: number;
@@ -177,9 +177,13 @@ export type Order = {
   destination: string;
   destination_deposit_id?: number | null;
   requested_for?: string | null;
+  requested_by?: string | null;
   status: OrderStatus;
   notes?: string | null;
   created_at: string;
+  cancelled_at?: string | null;
+  cancelled_by_user_id?: number | null;
+  cancelled_by_name?: string | null;
   items: OrderItem[];
 };
 
@@ -479,6 +483,7 @@ export async function createOrder(
     notes?: string | null;
     items: OrderItem[];
     requested_for?: string | null;
+    requested_by?: string | null;
   }
 ): Promise<Order> {
   return apiRequest("/orders", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el pedido");

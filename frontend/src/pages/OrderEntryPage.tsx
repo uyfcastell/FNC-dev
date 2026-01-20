@@ -49,7 +49,11 @@ export function OrderEntryPage() {
   const [pinValidated, setPinValidated] = useState<boolean>(fromMenu);
   const [blocked, setBlocked] = useState(false);
 
-  const [header, setHeader] = useState<{ destination_deposit_id: string; notes: string }>({ destination_deposit_id: "", notes: "" });
+  const [header, setHeader] = useState<{ destination_deposit_id: string; notes: string; requested_by: string }>({
+    destination_deposit_id: "",
+    notes: "",
+    requested_by: "",
+  });
   const [lines, setLines] = useState<Record<SectionKey, OrderLine[]>>({
     pt: [initialLine],
     consumibles: [initialLine],
@@ -222,6 +226,10 @@ export function OrderEntryPage() {
       setError("Selecciona un destino (local)");
       return;
     }
+    if (!header.requested_by.trim()) {
+      setError("Indica quién está ingresando el pedido");
+      return;
+    }
     const items = buildItemsPayload();
     if (!items.length) {
       setError("Agrega al menos un ítem en cualquiera de las secciones");
@@ -231,11 +239,12 @@ export function OrderEntryPage() {
       await createOrder({
         destination_deposit_id: Number(header.destination_deposit_id),
         notes: header.notes || undefined,
+        requested_by: header.requested_by.trim() || undefined,
         items,
       });
       setSuccess("Pedido enviado");
       setError(null);
-      setHeader({ destination_deposit_id: "", notes: "" });
+      setHeader({ destination_deposit_id: "", notes: "", requested_by: "" });
       setLines({ pt: [initialLine], consumibles: [initialLine], papeleria: [initialLine], limpieza: [initialLine] });
     } catch (err) {
       console.error(err);
@@ -307,6 +316,15 @@ export function OrderEntryPage() {
                   </MenuItem>
                 ))}
               </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                required
+                label="Ingresado por"
+                value={header.requested_by}
+                onChange={(e) => setHeader((prev) => ({ ...prev, requested_by: e.target.value }))}
+              />
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField

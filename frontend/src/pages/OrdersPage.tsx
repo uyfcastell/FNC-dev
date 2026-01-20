@@ -24,7 +24,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   createOrder,
-  deleteOrder,
   fetchDeposits,
   fetchOrders,
   fetchSkus,
@@ -50,6 +49,7 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   approved: "Aprobado",
   prepared: "Preparación",
   closed: "Cerrado",
+  cancelled: "Cancelado",
 };
 
 const REMITO_STATUS_LABELS: Record<RemitoStatus, string> = {
@@ -83,7 +83,11 @@ export function OrdersPage() {
   const [remitoActionId, setRemitoActionId] = useState<number | null>(null);
   const [creatingFromOrderId, setCreatingFromOrderId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [header, setHeader] = useState<{ destination_deposit_id: string; notes: string }>({ destination_deposit_id: "", notes: "" });
+  const [header, setHeader] = useState<{ destination_deposit_id: string; notes: string; requested_by: string }>({
+    destination_deposit_id: "",
+    notes: "",
+    requested_by: "",
+  });
   const [lines, setLines] = useState<Record<SectionKey, OrderLine[]>>({
     pt: [initialLine],
     consumibles: [initialLine],
@@ -189,7 +193,7 @@ export function OrdersPage() {
 
   const resetForm = () => {
     setEditingId(null);
-    setHeader({ destination_deposit_id: "", notes: "" });
+    setHeader({ destination_deposit_id: "", notes: "", requested_by: "" });
     setLines({ pt: [initialLine], consumibles: [initialLine], papeleria: [initialLine], limpieza: [initialLine] });
   };
 
@@ -197,6 +201,10 @@ export function OrdersPage() {
     event.preventDefault();
     if (!header.destination_deposit_id) {
       setError("Selecciona un destino (local)");
+      return;
+    }
+    if (!header.requested_by.trim()) {
+      setError("Indica quién está ingresando el pedido");
       return;
     }
     const items = buildItemsPayload();
@@ -208,6 +216,7 @@ export function OrdersPage() {
       const payload = {
         destination_deposit_id: Number(header.destination_deposit_id),
         notes: header.notes || undefined,
+        requested_by: header.requested_by.trim() || undefined,
         items,
       };
       if (editingId) {
@@ -308,7 +317,11 @@ export function OrdersPage() {
     };
 
     setEditingId(order.id);
-    setHeader({ destination_deposit_id: order.destination_deposit_id ? String(order.destination_deposit_id) : "", notes: order.notes || "" });
+    setHeader({
+      destination_deposit_id: order.destination_deposit_id ? String(order.destination_deposit_id) : "",
+      notes: order.notes || "",
+      requested_by: order.requested_by || "",
+    });
     setLines(filledLines);
   };
 
@@ -323,15 +336,15 @@ export function OrdersPage() {
     }
   };
 
-  const handleDelete = async (orderId: number) => {
-    if (!window.confirm("¿Eliminar el pedido?")) return;
+  const handleCancelOrder = async (orderId: number) => {
+    if (!window.confirm("¿Cancelar el pedido?")) return;
     try {
-      await deleteOrder(orderId);
+      await updateOrderStatus(orderId, "cancelled");
       await loadData();
-      setSuccess("Pedido eliminado");
+      setSuccess("Pedido cancelado");
     } catch (err) {
       console.error(err);
-      setError("No pudimos eliminar el pedido");
+      setError("No pudimos cancelar el pedido");
     }
   };
 
@@ -440,6 +453,15 @@ export function OrdersPage() {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
+                required
+                label="Ingresado por"
+                value={header.requested_by}
+                onChange={(e) => setHeader((prev) => ({ ...prev, requested_by: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
                 label="Notas"
                 value={header.notes}
                 onChange={(e) => setHeader((prev) => ({ ...prev, notes: e.target.value }))}
@@ -470,57 +492,62 @@ export function OrdersPage() {
         <Divider />
         <CardContent>
           <Stack spacing={1}>
-            {orders.map((order) => (
-              <Card key={order.id} variant="outlined">
-                <CardContent>
-                  <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
-                    <Box>
-                      <Typography fontWeight={700}>Pedido #{order.id}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
-                      </Typography>
-                      <Stack spacing={0.5} sx={{ mt: 1 }}>
-                        {order.items.map((item) => (
-                          <Typography key={item.id} variant="body2">
-                            {skuLabel(item.sku_id)} — {item.quantity}
-                            {item.current_stock != null && ` (stock: ${item.current_stock})`}
-                          </Typography>
-                        ))}
+            {orders.map((order) => {
+              const isCancelled = order.status === "cancelled";
+              return (
+                <Card key={order.id} variant="outlined">
+                  <CardContent>
+                    <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
+                      <Box>
+                        <Typography fontWeight={700}>Pedido #{order.id}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
+                          {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
+                        </Typography>
+                        <Stack spacing={0.5} sx={{ mt: 1 }}>
+                          {order.items.map((item) => (
+                            <Typography key={item.id} variant="body2">
+                              {skuLabel(item.sku_id)} — {item.quantity}
+                              {item.current_stock != null && ` (stock: ${item.current_stock})`}
+                            </Typography>
+                          ))}
+                        </Stack>
+                      </Box>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Button
+                          variant="outlined"
+                          startIcon={<LocalShippingIcon />}
+                          onClick={() => handleCreateRemito(order.id)}
+                          disabled={creatingFromOrderId === order.id || isCancelled}
+                        >
+                          {creatingFromOrderId === order.id ? "Generando..." : "Generar remito"}
+                        </Button>
+                        <TextField
+                          select
+                          size="small"
+                          label="Estado"
+                          value={order.status}
+                          onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                          disabled={isCancelled}
+                        >
+                          {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
+                            <MenuItem key={status} value={status}>
+                              {label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                        <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled}>
+                          Editar
+                        </Button>
+                        <Button color="error" onClick={() => handleCancelOrder(order.id)} disabled={isCancelled}>
+                          Cancelar
+                        </Button>
                       </Stack>
-                    </Box>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Button
-                        variant="outlined"
-                        startIcon={<LocalShippingIcon />}
-                        onClick={() => handleCreateRemito(order.id)}
-                        disabled={creatingFromOrderId === order.id}
-                      >
-                        {creatingFromOrderId === order.id ? "Generando..." : "Generar remito"}
-                      </Button>
-                      <TextField
-                        select
-                        size="small"
-                        label="Estado"
-                        value={order.status}
-                        onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                      >
-                        {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
-                          <MenuItem key={status} value={status}>
-                            {label}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                      <Button variant="outlined" onClick={() => startEdit(order)}>
-                        Editar
-                      </Button>
-                      <Button color="error" onClick={() => handleDelete(order.id)}>
-                        Eliminar
-                      </Button>
                     </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </Stack>
         </CardContent>
       </Card>
