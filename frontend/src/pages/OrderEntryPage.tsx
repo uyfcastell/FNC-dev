@@ -93,17 +93,17 @@ export function OrderEntryPage() {
     {
       key: "consumibles",
       title: "Consumibles (depósito)",
-      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "consumible" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "CON" && sku.is_active,
     },
     {
       key: "papeleria",
       title: "Papelería",
-      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "papeleria" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "PAP" && sku.is_active,
     },
     {
       key: "limpieza",
       title: "Limpieza",
-      filter: (sku) => sku.sku_type_code === "CON" && sku.family === "limpieza" && sku.is_active,
+      filter: (sku) => sku.sku_type_code === "LIM" && sku.is_active,
     },
   ];
 
