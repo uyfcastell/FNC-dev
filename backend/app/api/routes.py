@@ -32,7 +32,7 @@ from ..models import (
     StockMovementType,
     User,
 )
-from ..models.common import OrderStatus, RemitoStatus, SKUFamily, UnitOfMeasure
+from ..models.common import OrderStatus, RemitoStatus, UnitOfMeasure
 from ..schemas import (
     DepositCreate,
     DepositRead,
@@ -349,7 +349,6 @@ def _map_sku(sku: SKU, session: Session) -> SKURead:
         secondary_unit=secondary_unit,
         units_per_kg=units_per_kg,
         notes=sku.notes,
-        family=sku.family,
         is_active=sku.is_active,
     )
 
@@ -853,7 +852,6 @@ def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -
 def list_skus(
     sku_type_ids: list[int] | None = Query(None),
     tags: list[str] | None = Query(None, description="Alias para sku_type_code"),
-    families: list[SKUFamily] | None = Query(None),
     include_inactive: bool = False,
     search: str | None = None,
     session: Session = Depends(get_session),
@@ -865,8 +863,6 @@ def list_skus(
     if tags:
         normalized_tags = [tag.upper() for tag in tags]
         statement = statement.where(SKUType.code.in_(normalized_tags))
-    if families:
-        statement = statement.where(SKU.family.in_(families))
     if not include_inactive:
         statement = statement.where(SKU.is_active.is_(True), SKUType.is_active.is_(True))
     if search:
@@ -896,7 +892,6 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
     if not sku_type.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El tipo de SKU está inactivo")
 
-    family = payload.family if sku_type.code == SKU_CONSUMABLE_CODE else None
     units_per_kg = payload.units_per_kg or 1
     unit = payload.unit
     if sku_type.code == SKU_SEMI_CODE:
@@ -910,7 +905,6 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
         sku_type_id=payload.sku_type_id,
         unit=unit,
         notes=payload.notes,
-        family=family,
         is_active=payload.is_active,
     )
     session.add(sku)
@@ -944,7 +938,7 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
         update_data["unit"] = UnitOfMeasure.KG
     if units_per_kg is None and sku_type.code == SKU_SEMI_CODE:
         units_per_kg = _get_semi_units_per_kg(session, sku_id)
-        
+
     for field, value in update_data.items():
         setattr(sku, field, value)
     sku.updated_at = datetime.utcnow()

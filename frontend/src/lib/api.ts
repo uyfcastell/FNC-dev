@@ -35,7 +35,6 @@ async function apiRequest<T>(path: string, options: RequestInit, defaultError: s
   return response.json() as Promise<T>;
 }
 
-export type SKUFamily = "consumible" | "papeleria" | "limpieza";
 export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
 
 export type MermaStage = "production" | "empaque" | "stock" | "transito_post_remito" | "administrativa";
@@ -66,7 +65,6 @@ export type SKU = {
   secondary_unit?: UnitOfMeasure | null;
   units_per_kg?: number | null;
   notes?: string | null;
-  family?: SKUFamily | null;
   is_active: boolean;
 };
 
@@ -77,7 +75,6 @@ export type SkuPayload = {
   unit: UnitOfMeasure;
   units_per_kg?: number | null;
   notes?: string | null;
-  family?: SKUFamily | null;
   is_active: boolean;
 };
 
@@ -344,16 +341,13 @@ export async function deleteSkuType(id: number): Promise<void> {
   await apiRequest(`/sku-types/${id}`, { method: "DELETE" }, "No se pudo eliminar el tipo de SKU");
 }
 
-export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: string[]; families?: SKUFamily[]; include_inactive?: boolean; search?: string }): Promise<SKU[]> {
+export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: string[]; include_inactive?: boolean; search?: string }): Promise<SKU[]> {
   const query = new URLSearchParams();
   if (params?.sku_type_ids?.length) {
     params.sku_type_ids.forEach((typeId) => query.append("sku_type_ids", typeId.toString()));
   }
   if (params?.tags?.length) {
     params.tags.forEach((tag) => query.append("tags", tag));
-  }
-  if (params?.families?.length) {
-    params.families.forEach((family) => query.append("families", family));
   }
   if (params?.include_inactive) {
     query.append("include_inactive", "true");

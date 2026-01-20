@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from sqlmodel import SQLModel
 
-from .models.common import MermaAction, MermaStage, OrderStatus, RemitoStatus, SKUFamily, UnitOfMeasure
+from .models.common import MermaAction, MermaStage, OrderStatus, RemitoStatus, UnitOfMeasure
 
 class SKUTypeBase(SQLModel):
     code: str
@@ -29,7 +29,6 @@ class SKUBase(SQLModel):
     sku_type_id: int
     unit: UnitOfMeasure = UnitOfMeasure.UNIT
     notes: str | None = None
-    family: SKUFamily | None = None
     is_active: bool = True
     units_per_kg: float | None = None  # Solo aplica a SEMI; base kg
 
@@ -43,7 +42,6 @@ class SKUUpdate(SQLModel):
     sku_type_id: int | None = None
     unit: UnitOfMeasure | None = None
     notes: str | None = None
-    family: SKUFamily | None = None
     is_active: bool | None = None
     units_per_kg: float | None = None
 

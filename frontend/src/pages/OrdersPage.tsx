@@ -295,8 +295,8 @@ export function OrdersPage() {
       const sku = skus.find((s) => s.id === item.sku_id);
       let section: SectionKey = "consumibles";
       if (sku?.sku_type_code === "PT") section = "pt";
-      else if (sku?.sku_type_code === "CON" && sku.family === "papeleria") section = "papeleria";
-      else if (sku?.sku_type_code === "CON" && sku.family === "limpieza") section = "limpieza";
+      else if (sku?.sku_type_code === "PAP") section = "papeleria";
+      else if (sku?.sku_type_code === "LIM") section = "limpieza";
       else if (sku?.sku_type_code === "CON") section = "consumibles";
       nextLines[section].push({ sku_id: String(item.sku_id), quantity: String(item.quantity), current_stock: item.current_stock != null ? String(item.current_stock) : "" });
     });

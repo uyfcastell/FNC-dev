@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 from sqlmodel import Field, Relationship
 from sqlalchemy import UniqueConstraint
 
-from .common import SKUFamily, TimestampedModel, UnitOfMeasure
+from .common import TimestampedModel, UnitOfMeasure
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import StockLevel
@@ -32,7 +32,6 @@ class SKU(TimestampedModel, table=True):
     sku_type_id: int = Field(foreign_key="sku_types.id", description="Tipo de SKU administrable")
     unit: UnitOfMeasure = Field(default=UnitOfMeasure.UNIT, description="Unidad de medida controlada")
     notes: str | None = Field(default=None, max_length=255)
-    family: SKUFamily | None = Field(default=None, description="Subtipo para consumibles")
     is_active: bool = Field(default=True)
 
     stock_levels: list["StockLevel"] = Relationship(back_populates="sku")

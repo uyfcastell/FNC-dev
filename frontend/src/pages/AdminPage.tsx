@@ -58,7 +58,6 @@ import {
   fetchUnits,
   fetchUsers,
   Recipe,
-  SKUFamily,
   SKU,
   MermaCause,
   MermaStage,
@@ -117,7 +116,7 @@ export function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
 
-  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; sku_type_id: number | ""; unit: UnitOfMeasure; units_per_kg?: number | ""; notes: string; family: SKUFamily | ""; is_active: boolean }>(
+  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; sku_type_id: number | ""; unit: UnitOfMeasure; units_per_kg?: number | ""; notes: string; is_active: boolean }>(
     {
       code: "",
       name: "",
@@ -125,7 +124,6 @@ export function AdminPage() {
       unit: "unit",
       units_per_kg: "",
       notes: "",
-      family: "",
       is_active: true,
     }
   );
@@ -300,7 +298,6 @@ export function AdminPage() {
         units_per_kg: unitsPerKgValue,
         sku_type_id: selectedType.id,
         notes: skuForm.notes || null,
-        family: selectedType.code === "CON" ? (skuForm.family || null) : null,
         is_active: skuForm.is_active,
       };
       if (skuForm.id) {
@@ -318,7 +315,6 @@ export function AdminPage() {
         unit: "unit",
         units_per_kg: "",
         notes: "",
-        family: "",
         is_active: true,
       });
       await loadData();
@@ -431,7 +427,6 @@ export function AdminPage() {
       unit: sku.unit,
       units_per_kg: sku.units_per_kg ?? "",
       notes: sku.notes ?? "",
-      family: sku.family ?? "",
       is_active: sku.is_active,
     });
   const startEditDeposit = (deposit: Deposit) =>
@@ -666,7 +661,6 @@ export function AdminPage() {
                     sku_type_id: typeId,
                     unit: type?.code === "SEMI" ? "kg" : prev.unit,
                     units_per_kg: type?.code === "SEMI" ? prev.units_per_kg || 1 : "",
-                    family: type?.code === "CON" ? prev.family : "",
                   }));
                 }}
                 helperText="Tipos administrables"
@@ -678,19 +672,6 @@ export function AdminPage() {
                   </MenuItem>
                 ))}
               </TextField>
-              {selectedSkuType?.code === "CON" && (
-                <TextField
-                  select
-                  label="Familia (consumibles)"
-                  value={skuForm.family}
-                  onChange={(e) => setSkuForm((prev) => ({ ...prev, family: e.target.value as SKUFamily }))}
-                  required
-                >
-                  <MenuItem value="consumible">Consumible</MenuItem>
-                  <MenuItem value="papeleria">Papelería</MenuItem>
-                  <MenuItem value="limpieza">Limpieza</MenuItem>
-                </TextField>
-              )}
               <TextField
                 select
                 label="Unidad"
@@ -743,7 +724,6 @@ export function AdminPage() {
                         unit: "unit",
                         units_per_kg: "",
                         notes: "",
-                        family: "",
                         is_active: true,
                       });
                     }}
@@ -784,7 +764,6 @@ export function AdminPage() {
                   <TableCell>Código</TableCell>
                   <TableCell>Nombre</TableCell>
                   <TableCell>Tipo</TableCell>
-                  <TableCell>Familia</TableCell>
                   <TableCell>Unidad</TableCell>
                   <TableCell>Conv. SEMI</TableCell>
                   <TableCell>Estado</TableCell>
@@ -797,7 +776,6 @@ export function AdminPage() {
                     <TableCell>{sku.code}</TableCell>
                     <TableCell>{sku.name}</TableCell>
                     <TableCell>{`${sku.sku_type_code} — ${sku.sku_type_label}`}</TableCell>
-                    <TableCell>{sku.sku_type_code === "CON" ? sku.family || "—" : "—"}</TableCell>
                     <TableCell>{unitLabel(sku.unit)}</TableCell>
                     <TableCell>
                       {sku.sku_type_code === "SEMI" ? `${sku.units_per_kg ?? 1} un = 1 kg` : "—"}
