@@ -266,6 +266,7 @@ class OrderItemPayload(SQLModel):
 class OrderCreate(SQLModel):
     destination_deposit_id: int
     requested_for: date | None = None
+    requested_by: str | None = None
     status: OrderStatus = OrderStatus.SUBMITTED
     notes: str | None = None
     items: list[OrderItemPayload]
@@ -274,6 +275,7 @@ class OrderCreate(SQLModel):
 class OrderUpdate(SQLModel):
     destination_deposit_id: int | None = None
     requested_for: date | None = None
+    requested_by: str | None = None
     status: OrderStatus | None = None
     notes: str | None = None
     items: list[OrderItemPayload] | None = None
@@ -294,9 +296,13 @@ class OrderRead(SQLModel):
     destination: str
     destination_deposit_id: int | None = None
     requested_for: date | None = None
+    requested_by: str | None = None
     status: OrderStatus
     notes: str | None = None
     created_at: datetime
+    cancelled_at: datetime | None = None
+    cancelled_by_user_id: int | None = None
+    cancelled_by_name: str | None = None
     items: list[OrderItemRead]
 
 

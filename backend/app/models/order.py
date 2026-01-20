@@ -8,6 +8,7 @@ from .common import OrderStatus, RemitoStatus, TimestampedModel, enum_column
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import Deposit
     from .merma import MermaEvent
+    from .user import User
 
 
 class Order(TimestampedModel, table=True):
@@ -18,11 +19,16 @@ class Order(TimestampedModel, table=True):
     destination_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
     status: OrderStatus = Field(default=OrderStatus.DRAFT, sa_column=enum_column(OrderStatus, "orderstatus"))
     requested_for: date | None = None
+    requested_by: str | None = Field(default=None, max_length=255)
     notes: str | None = Field(default=None, max_length=255)
+    cancelled_at: datetime | None = Field(default=None)
+    cancelled_by_user_id: int | None = Field(default=None, foreign_key="users.id")
+    cancelled_by_name: str | None = Field(default=None, max_length=255)
 
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
     destination_deposit: Optional["Deposit"] = Relationship()
+    cancelled_by_user: Optional["User"] = Relationship()
     merma_events: list["MermaEvent"] = Relationship(back_populates="order")
 
 

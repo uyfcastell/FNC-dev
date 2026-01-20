@@ -13,7 +13,16 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 
-import { fetchOrders, Order } from "../lib/api";
+import { fetchOrders, Order, OrderStatus } from "../lib/api";
+
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  draft: "Borrador",
+  submitted: "Enviado",
+  approved: "Aprobado",
+  prepared: "Preparación",
+  closed: "Cerrado",
+  cancelled: "Cancelado",
+};
 
 export function MobileOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -39,6 +48,13 @@ export function MobileOrdersPage() {
     return `${first.sku_name ?? "SKU"} (${first.sku_code ?? first.sku_id})`;
   };
 
+  const statusColor = (status: OrderStatus) => {
+    if (status === "approved") return "success";
+    if (status === "prepared") return "warning";
+    if (status === "cancelled") return "error";
+    return "info";
+  };
+
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ fontWeight: 800 }}>
@@ -56,7 +72,7 @@ export function MobileOrdersPage() {
                 <CardContent>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Typography sx={{ fontSize: 16, fontWeight: 700 }}>Pedido #{order.id}</Typography>
-                    <Chip label={order.status} color={order.status === "approved" ? "success" : order.status === "prepared" ? "warning" : "info"} />
+                    <Chip label={ORDER_STATUS_LABELS[order.status]} color={statusColor(order.status)} />
                   </Stack>
                   <Typography sx={{ fontSize: 15, mt: 0.5 }}>{order.destination}</Typography>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>

@@ -43,6 +43,7 @@ class OrderStatus(str, Enum):
     APPROVED = "approved"
     PREPARED = "prepared"
     CLOSED = "closed"
+    CANCELLED = "cancelled"
 
 
 class RemitoStatus(str, Enum):

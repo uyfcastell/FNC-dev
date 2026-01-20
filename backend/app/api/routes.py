@@ -445,9 +445,13 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         destination=order.destination,
         destination_deposit_id=order.destination_deposit_id,
         requested_for=order.requested_for,
+        requested_by=order.requested_by,
         status=order.status,
         notes=order.notes,
         created_at=order.created_at,
+        cancelled_at=order.cancelled_at,
+        cancelled_by_user_id=order.cancelled_by_user_id,
+        cancelled_by_name=order.cancelled_by_name,
         items=items,
     )
 
@@ -1216,6 +1220,8 @@ def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRe
 def create_order(payload: OrderCreate, session: Session = Depends(get_session)) -> OrderRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
+    if not payload.requested_by or not payload.requested_by.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Indica quién ingresa el pedido")
     destination = _ensure_store_destination(session, payload.destination_deposit_id)
 
     items_payload = [item.model_dump() for item in payload.items]
@@ -1225,6 +1231,7 @@ def create_order(payload: OrderCreate, session: Session = Depends(get_session)) 
         destination=destination.name,
         destination_deposit_id=destination.id,
         requested_for=payload.requested_for,
+        requested_by=payload.requested_by.strip() if payload.requested_by else None,
         status=OrderStatus.SUBMITTED,
         notes=payload.notes,
     )
@@ -1252,13 +1259,20 @@ def create_order(payload: OrderCreate, session: Session = Depends(get_session)) 
     response_model=OrderRead,
     dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
 )
-def update_order(order_id: int, payload: OrderUpdate, session: Session = Depends(get_session)) -> OrderRead:
+def update_order(
+    order_id: int,
+    payload: OrderUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
 
     if payload.items is not None and not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
+    if payload.requested_by is not None and not payload.requested_by.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Indica quién ingresa el pedido")
 
     destination = None
     if payload.destination_deposit_id is not None:
@@ -1271,8 +1285,14 @@ def update_order(order_id: int, payload: OrderUpdate, session: Session = Depends
     update_data = payload.model_dump(exclude_unset=True)
     items = update_data.pop("items", None)
     update_data.pop("destination_deposit_id", None)
+    if "requested_by" in update_data and isinstance(update_data["requested_by"], str):
+        update_data["requested_by"] = update_data["requested_by"].strip()
     for field, value in update_data.items():
         setattr(order, field, value)
+    if update_data.get("status") == OrderStatus.CANCELLED:
+        order.cancelled_at = datetime.utcnow()
+        order.cancelled_by_user_id = current_user.id
+        order.cancelled_by_name = current_user.full_name
     if destination:
         order.destination = destination.name
         order.destination_deposit_id = destination.id
@@ -1306,11 +1326,20 @@ def update_order(order_id: int, payload: OrderUpdate, session: Session = Depends
     response_model=OrderRead,
     dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
 )
-def update_order_status(order_id: int, payload: OrderStatusUpdate, session: Session = Depends(get_session)) -> OrderRead:
+def update_order_status(
+    order_id: int,
+    payload: OrderStatusUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
     order.status = payload.status
+    if payload.status == OrderStatus.CANCELLED:
+        order.cancelled_at = datetime.utcnow()
+        order.cancelled_by_user_id = current_user.id
+        order.cancelled_by_name = current_user.full_name
     order.updated_at = datetime.utcnow()
     session.add(order)
     session.commit()
