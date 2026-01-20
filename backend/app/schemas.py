@@ -31,6 +31,9 @@ class SKUBase(SQLModel):
     notes: str | None = None
     is_active: bool = True
     units_per_kg: float | None = None  # Solo aplica a SEMI; base kg
+    alert_green_min: float | None = None
+    alert_yellow_min: float | None = None
+    alert_red_max: float | None = None
 
 
 class SKUCreate(SKUBase):
@@ -44,6 +47,9 @@ class SKUUpdate(SQLModel):
     notes: str | None = None
     is_active: bool | None = None
     units_per_kg: float | None = None
+    alert_green_min: float | None = None
+    alert_yellow_min: float | None = None
+    alert_red_max: float | None = None
 
 
 class SKURead(SKUBase):
@@ -147,6 +153,32 @@ class StockLevelRead(SQLModel):
     sku_code: str
     sku_name: str
     quantity: float
+    alert_status: str | None = None
+    alert_green_min: float | None = None
+    alert_yellow_min: float | None = None
+    alert_red_max: float | None = None
+
+
+class StockAlertRead(SQLModel):
+    deposit_id: int
+    deposit_name: str
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    sku_type_id: int
+    sku_type_code: str
+    sku_type_label: str
+    unit: UnitOfMeasure
+    quantity: float
+    alert_status: str
+    alert_green_min: float | None = None
+    alert_yellow_min: float | None = None
+    alert_red_max: float | None = None
+
+
+class StockAlertReport(SQLModel):
+    total: int
+    items: list[StockAlertRead]
 
 
 class StockMovementRead(SQLModel):

@@ -197,6 +197,23 @@ export function StockPage() {
   };
 
   const getUnit = (skuCode: string) => skus?.find((s) => s.code === skuCode)?.unit ?? "";
+  const alertStatusConfig: Record<
+    string,
+    { label: string; color: "success" | "warning" | "error" | "default" }
+  > = {
+    green: { label: "En rango", color: "success" },
+    yellow: { label: "Atención", color: "warning" },
+    red: { label: "Crítico", color: "error" },
+    none: { label: "Sin alerta", color: "default" },
+  };
+  const alertDetail = (row: StockLevel) => {
+    const parts = [
+      row.alert_green_min != null ? `Verde >= ${row.alert_green_min}` : null,
+      row.alert_yellow_min != null ? `Amarillo >= ${row.alert_yellow_min}` : null,
+      row.alert_red_max != null ? `Rojo <= ${row.alert_red_max}` : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" · ") : "Sin umbrales configurados";
+  };
 
   const handleCreateSku = async (event: FormEvent) => {
     event.preventDefault();
@@ -515,9 +532,10 @@ export function StockPage() {
                     <TableCell>
                       <Chip
                         size="small"
-                        label={row.quantity > 0 ? "En rango" : "Sin stock"}
-                        color={row.quantity > 0 ? "success" : "warning"}
+                        label={(alertStatusConfig[row.alert_status ?? "none"] ?? alertStatusConfig.none).label}
+                        color={(alertStatusConfig[row.alert_status ?? "none"] ?? alertStatusConfig.none).color}
                         variant="outlined"
+                        title={alertDetail(row)}
                       />
                     </TableCell>
                   </TableRow>
