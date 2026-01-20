@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship
 
-from .common import OrderStatus, RemitoStatus, TimestampedModel
+from .common import OrderStatus, RemitoStatus, TimestampedModel, enum_column
 
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import Deposit
@@ -16,7 +16,7 @@ class Order(TimestampedModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     destination: str = Field(max_length=255)
     destination_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
-    status: OrderStatus = Field(default=OrderStatus.DRAFT)
+    status: OrderStatus = Field(default=OrderStatus.DRAFT, sa_column=enum_column(OrderStatus, "orderstatus"))
     requested_for: date | None = None
     notes: str | None = Field(default=None, max_length=255)
 
@@ -43,7 +43,7 @@ class Remito(TimestampedModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     order_id: int = Field(foreign_key="orders.id")
-    status: RemitoStatus = Field(default=RemitoStatus.PENDING)
+    status: RemitoStatus = Field(default=RemitoStatus.PENDING, sa_column=enum_column(RemitoStatus, "remitostatus"))
     destination: str = Field(max_length=255)
     source_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
     destination_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
