@@ -23,15 +23,12 @@ class UnitOfMeasure(str, Enum):
     M = "m"
     CM = "cm"
 
-
-
 class MermaStage(str, Enum):
-    PRODUCTION = "production"
-    EMPAQUE = "empaque"
-    STOCK = "stock"
-    TRANSITO_POST_REMITO = "transito_post_remito"
-    ADMINISTRATIVA = "administrativa"
-
+    PRODUCTION = "PRODUCTION"
+    EMPAQUE = "EMPAQUE"
+    STOCK = "STOCK"
+    TRANSITO_POST_REMITO = "TRANSITO_POST_REMITO"
+    ADMINISTRATIVA = "ADMINISTRATIVA"
 
 class MermaAction(str, Enum):
     DISCARDED = "discarded"
