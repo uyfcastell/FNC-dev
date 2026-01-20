@@ -22,11 +22,6 @@ class UnitOfMeasure(str, Enum):
     CM = "cm"
 
 
-class SKUFamily(str, Enum):
-    CONSUMIBLE = "consumible"
-    PAPELERIA = "papeleria"
-    LIMPIEZA = "limpieza"
-
 
 class MermaStage(str, Enum):
     PRODUCTION = "production"
