@@ -66,6 +66,9 @@ export type SKU = {
   units_per_kg?: number | null;
   notes?: string | null;
   is_active: boolean;
+  alert_green_min?: number | null;
+  alert_yellow_min?: number | null;
+  alert_red_max?: number | null;
 };
 
 export type SkuPayload = {
@@ -76,6 +79,9 @@ export type SkuPayload = {
   units_per_kg?: number | null;
   notes?: string | null;
   is_active: boolean;
+  alert_green_min?: number | null;
+  alert_yellow_min?: number | null;
+  alert_red_max?: number | null;
 };
 
 export type Deposit = {
@@ -93,6 +99,34 @@ export type StockLevel = {
   sku_code: string;
   sku_name: string;
   quantity: number;
+  alert_status?: StockAlertStatus | null;
+  alert_green_min?: number | null;
+  alert_yellow_min?: number | null;
+  alert_red_max?: number | null;
+};
+
+export type StockAlertStatus = "green" | "yellow" | "red" | "none";
+
+export type StockAlertRow = {
+  deposit_id: number;
+  deposit_name: string;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  sku_type_id: number;
+  sku_type_code: string;
+  sku_type_label: string;
+  unit: UnitOfMeasure;
+  quantity: number;
+  alert_status: StockAlertStatus;
+  alert_green_min?: number | null;
+  alert_yellow_min?: number | null;
+  alert_red_max?: number | null;
+};
+
+export type StockAlertReport = {
+  total: number;
+  items: StockAlertRow[];
 };
 
 export type StockMovement = {
@@ -471,6 +505,48 @@ export async function deleteRecipe(id: number): Promise<void> {
 
 export async function fetchStockReport(): Promise<StockReport> {
   return apiRequest("/reports/stock-summary", {}, "No se pudo obtener el reporte de stock");
+}
+
+export async function fetchStockAlertReport(params?: {
+  sku_type_ids?: number[];
+  deposit_ids?: number[];
+  alert_status?: StockAlertStatus[];
+  search?: string;
+  min_quantity?: number;
+  max_quantity?: number;
+  only_configured?: boolean;
+  include_inactive?: boolean;
+}): Promise<StockAlertReport> {
+  const query = new URLSearchParams();
+  if (params?.sku_type_ids?.length) {
+    params.sku_type_ids.forEach((id) => query.append("sku_type_ids", id.toString()));
+  }
+  if (params?.deposit_ids?.length) {
+    params.deposit_ids.forEach((id) => query.append("deposit_ids", id.toString()));
+  }
+  if (params?.alert_status?.length) {
+    params.alert_status.forEach((status) => query.append("alert_status", status));
+  }
+  if (params?.search) {
+    query.append("search", params.search);
+  }
+  if (params?.min_quantity !== undefined) {
+    query.append("min_quantity", params.min_quantity.toString());
+  }
+  if (params?.max_quantity !== undefined) {
+    query.append("max_quantity", params.max_quantity.toString());
+  }
+  if (params?.only_configured) {
+    query.append("only_configured", "true");
+  }
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  return apiRequest(
+    `/reports/stock-alerts${query.toString() ? `?${query.toString()}` : ""}`,
+    {},
+    "No se pudo obtener el reporte de alertas de stock",
+  );
 }
 
 export async function fetchOrders(): Promise<Order[]> {

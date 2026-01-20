@@ -116,7 +116,19 @@ export function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
 
-  const [skuForm, setSkuForm] = useState<{ id?: number; code: string; name: string; sku_type_id: number | ""; unit: UnitOfMeasure; units_per_kg?: number | ""; notes: string; is_active: boolean }>(
+  const [skuForm, setSkuForm] = useState<{
+    id?: number;
+    code: string;
+    name: string;
+    sku_type_id: number | "";
+    unit: UnitOfMeasure;
+    units_per_kg?: number | "";
+    notes: string;
+    is_active: boolean;
+    alert_green_min?: number | "";
+    alert_yellow_min?: number | "";
+    alert_red_max?: number | "";
+  }>(
     {
       code: "",
       name: "",
@@ -125,6 +137,9 @@ export function AdminPage() {
       units_per_kg: "",
       notes: "",
       is_active: true,
+      alert_green_min: "",
+      alert_yellow_min: "",
+      alert_red_max: "",
     }
   );
   const [depositForm, setDepositForm] = useState<{ id?: number; name: string; location: string; controls_lot: boolean; is_store: boolean }>(
@@ -291,7 +306,26 @@ export function AdminPage() {
         setError("Configura las unidades por kg para SEMI");
         return;
       }
-      const { id, units_per_kg, ...rest } = skuForm;
+      const alertGreen = skuForm.alert_green_min === "" ? null : Number(skuForm.alert_green_min);
+      const alertYellow = skuForm.alert_yellow_min === "" ? null : Number(skuForm.alert_yellow_min);
+      const alertRed = skuForm.alert_red_max === "" ? null : Number(skuForm.alert_red_max);
+      if ([alertGreen, alertYellow, alertRed].some((value) => value !== null && Number.isNaN(value))) {
+        setError("Los umbrales de alerta deben ser numéricos");
+        return;
+      }
+      if ([alertGreen, alertYellow, alertRed].some((value) => value !== null && value < 0)) {
+        setError("Los umbrales de alerta no pueden ser negativos");
+        return;
+      }
+      if (alertGreen !== null && alertYellow !== null && alertYellow >= alertGreen) {
+        setError("El umbral amarillo debe ser menor al verde");
+        return;
+      }
+      if (alertRed !== null && alertYellow !== null && alertRed > alertYellow) {
+        setError("El umbral rojo debe ser menor o igual al amarillo");
+        return;
+      }
+      const { id, units_per_kg, alert_green_min, alert_yellow_min, alert_red_max, ...rest } = skuForm;
       const payload = {
         ...rest,
         unit: isSemi ? "kg" : skuForm.unit,
@@ -299,6 +333,9 @@ export function AdminPage() {
         sku_type_id: selectedType.id,
         notes: skuForm.notes || null,
         is_active: skuForm.is_active,
+        alert_green_min: alertGreen,
+        alert_yellow_min: alertYellow,
+        alert_red_max: alertRed,
       };
       if (skuForm.id) {
         await updateSku(skuForm.id, payload);
@@ -316,6 +353,9 @@ export function AdminPage() {
         units_per_kg: "",
         notes: "",
         is_active: true,
+        alert_green_min: "",
+        alert_yellow_min: "",
+        alert_red_max: "",
       });
       await loadData();
     } catch (err) {
@@ -428,6 +468,9 @@ export function AdminPage() {
       units_per_kg: sku.units_per_kg ?? "",
       notes: sku.notes ?? "",
       is_active: sku.is_active,
+      alert_green_min: sku.alert_green_min ?? "",
+      alert_yellow_min: sku.alert_yellow_min ?? "",
+      alert_red_max: sku.alert_red_max ?? "",
     });
   const startEditDeposit = (deposit: Deposit) =>
     setDepositForm({
@@ -449,6 +492,13 @@ export function AdminPage() {
 
   const skuLabel = (sku: SKU) => `${sku.name} (${sku.code})`;
   const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label || unitCode || "";
+  const skuAlertSummary = (sku: SKU) => {
+    const parts: string[] = [];
+    if (sku.alert_green_min != null) parts.push(`Verde >= ${sku.alert_green_min}`);
+    if (sku.alert_yellow_min != null) parts.push(`Amarillo >= ${sku.alert_yellow_min}`);
+    if (sku.alert_red_max != null) parts.push(`Rojo <= ${sku.alert_red_max}`);
+    return parts.length ? parts.join(" · ") : "Sin alerta";
+  };
 
   const recipeItemUnit = (componentId: string) => {
     if (!componentId) return "";
@@ -704,6 +754,33 @@ export function AdminPage() {
                 multiline
                 minRows={2}
               />
+              <Stack spacing={1}>
+                <Typography variant="subtitle2">Alertas de stock (semaforo)</Typography>
+                <TextField
+                  label="Umbral verde (>=)"
+                  type="number"
+                  inputProps={{ min: "0", step: "0.01" }}
+                  value={skuForm.alert_green_min}
+                  onChange={(e) => setSkuForm((prev) => ({ ...prev, alert_green_min: e.target.value === "" ? "" : Number(e.target.value) }))}
+                  helperText="Opcional. Ej: 100"
+                />
+                <TextField
+                  label="Umbral amarillo (>=)"
+                  type="number"
+                  inputProps={{ min: "0", step: "0.01" }}
+                  value={skuForm.alert_yellow_min}
+                  onChange={(e) => setSkuForm((prev) => ({ ...prev, alert_yellow_min: e.target.value === "" ? "" : Number(e.target.value) }))}
+                  helperText="Opcional. Ej: 20"
+                />
+                <TextField
+                  label="Umbral rojo (<=)"
+                  type="number"
+                  inputProps={{ min: "0", step: "0.01" }}
+                  value={skuForm.alert_red_max}
+                  onChange={(e) => setSkuForm((prev) => ({ ...prev, alert_red_max: e.target.value === "" ? "" : Number(e.target.value) }))}
+                  helperText="Opcional. Si se define amarillo, rojo suele coincidir con ese valor."
+                />
+              </Stack>
               <FormControlLabel
                 control={<Switch checked={skuForm.is_active} onChange={(e) => setSkuForm((prev) => ({ ...prev, is_active: e.target.checked }))} />}
                 label="Activo (visible por defecto en los combos)"
@@ -725,6 +802,9 @@ export function AdminPage() {
                         units_per_kg: "",
                         notes: "",
                         is_active: true,
+                        alert_green_min: "",
+                        alert_yellow_min: "",
+                        alert_red_max: "",
                       });
                     }}
                   >
@@ -766,6 +846,7 @@ export function AdminPage() {
                   <TableCell>Tipo</TableCell>
                   <TableCell>Unidad</TableCell>
                   <TableCell>Conv. SEMI</TableCell>
+                  <TableCell>Alertas</TableCell>
                   <TableCell>Estado</TableCell>
                   <TableCell align="right">Acciones</TableCell>
                 </TableRow>
@@ -780,6 +861,7 @@ export function AdminPage() {
                     <TableCell>
                       {sku.sku_type_code === "SEMI" ? `${sku.units_per_kg ?? 1} un = 1 kg` : "—"}
                     </TableCell>
+                    <TableCell>{skuAlertSummary(sku)}</TableCell>
                     <TableCell>{sku.is_active ? "Activo" : "Inactivo"}</TableCell>
                     <TableCell align="right">
                       <Tooltip title="Editar">

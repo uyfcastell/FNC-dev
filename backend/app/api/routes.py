@@ -53,6 +53,8 @@ from ..schemas import (
     StockMovementTypeRead,
     StockMovementTypeUpdate,
     StockLevelRead,
+    StockAlertRead,
+    StockAlertReport,
     StockReportRead,
     StockSummaryRow,
     MovementSummary,
@@ -350,6 +352,39 @@ def _map_sku(sku: SKU, session: Session) -> SKURead:
         units_per_kg=units_per_kg,
         notes=sku.notes,
         is_active=sku.is_active,
+        alert_green_min=sku.alert_green_min,
+        alert_yellow_min=sku.alert_yellow_min,
+        alert_red_max=sku.alert_red_max,
+    )
+
+
+def _has_alert_thresholds(sku: SKU) -> bool:
+    return any(value is not None for value in (sku.alert_green_min, sku.alert_yellow_min, sku.alert_red_max))
+
+
+def _get_stock_alert_status(quantity: float, sku: SKU) -> str:
+    if sku.alert_green_min is not None and quantity >= sku.alert_green_min:
+        return "green"
+    if sku.alert_yellow_min is not None and quantity >= sku.alert_yellow_min:
+        return "yellow"
+    if sku.alert_red_max is not None and quantity <= sku.alert_red_max:
+        return "red"
+    return "none"
+
+
+def _map_stock_level(level: StockLevel, session: Session) -> StockLevelRead:
+    session.refresh(level, attribute_names=["sku", "deposit"])
+    return StockLevelRead(
+        deposit_id=level.deposit_id,
+        deposit_name=level.deposit.name,
+        sku_id=level.sku_id,
+        sku_code=level.sku.code,
+        sku_name=level.sku.name,
+        quantity=level.quantity,
+        alert_status=_get_stock_alert_status(level.quantity, level.sku),
+        alert_green_min=level.sku.alert_green_min,
+        alert_yellow_min=level.sku.alert_yellow_min,
+        alert_red_max=level.sku.alert_red_max,
     )
 
 
@@ -910,6 +945,9 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
         unit=unit,
         notes=payload.notes,
         is_active=payload.is_active,
+        alert_green_min=payload.alert_green_min,
+        alert_yellow_min=payload.alert_yellow_min,
+        alert_red_max=payload.alert_red_max,
     )
     session.add(sku)
     session.commit()
@@ -1943,20 +1981,7 @@ def _map_merma_event(event: MermaEvent, session: Session) -> MermaEventRead:
 @router.get("/stock-levels", tags=["stock"], response_model=list[StockLevelRead])
 def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLevelRead]:
     stock_levels = session.exec(select(StockLevel)).all()
-    result: list[StockLevelRead] = []
-    for level in stock_levels:
-        session.refresh(level, attribute_names=["sku", "deposit"])
-        result.append(
-            StockLevelRead(
-                deposit_id=level.deposit_id,
-                deposit_name=level.deposit.name,
-                sku_id=level.sku_id,
-                sku_code=level.sku.code,
-                sku_name=level.sku.name,
-                quantity=level.quantity,
-            )
-        )
-    return result
+    return [_map_stock_level(level, session) for level in stock_levels]
 
 
 @router.post(
@@ -1970,15 +1995,7 @@ def register_stock_movement(payload: StockMovementCreate, session: Session = Dep
     stock_level, _ = _apply_stock_movement(session, payload)
     session.commit()
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
-
-    return StockLevelRead(
-        deposit_id=stock_level.deposit_id,
-        deposit_name=stock_level.deposit.name,
-        sku_id=stock_level.sku_id,
-        sku_code=stock_level.sku.code,
-        sku_name=stock_level.sku.name,
-        quantity=stock_level.quantity,
-    )
+    return _map_stock_level(stock_level, session)
 
 
 @router.get("/stock/movements", tags=["stock"], response_model=StockMovementList)
@@ -2268,6 +2285,65 @@ def stock_summary(session: Session = Depends(get_session)) -> StockReportRead:
             for code, data in movement_totals.items()
         ],
     )
+
+
+@router.get("/reports/stock-alerts", tags=["reports"], response_model=StockAlertReport)
+def stock_alerts_report(
+    sku_type_ids: list[int] | None = Query(None),
+    deposit_ids: list[int] | None = Query(None),
+    alert_status: list[str] | None = Query(None),
+    search: str | None = None,
+    min_quantity: float | None = None,
+    max_quantity: float | None = None,
+    only_configured: bool = False,
+    include_inactive: bool = False,
+    session: Session = Depends(get_session),
+) -> StockAlertReport:
+    statement = select(StockLevel).join(SKU).join(SKUType).join(Deposit)
+    if sku_type_ids:
+        statement = statement.where(SKU.sku_type_id.in_(sku_type_ids))
+    if deposit_ids:
+        statement = statement.where(StockLevel.deposit_id.in_(deposit_ids))
+    if not include_inactive:
+        statement = statement.where(SKU.is_active.is_(True), SKUType.is_active.is_(True))
+    if search:
+        like = f"%{search.lower()}%"
+        statement = statement.where((SKU.name.ilike(like)) | (SKU.code.ilike(like)))
+    if min_quantity is not None:
+        statement = statement.where(StockLevel.quantity >= min_quantity)
+    if max_quantity is not None:
+        statement = statement.where(StockLevel.quantity <= max_quantity)
+
+    levels = session.exec(statement.order_by(StockLevel.quantity.asc(), StockLevel.id.asc())).all()
+    items: list[StockAlertRead] = []
+    for level in levels:
+        session.refresh(level, attribute_names=["sku", "deposit"])
+        session.refresh(level.sku, attribute_names=["sku_type"])
+        status = _get_stock_alert_status(level.quantity, level.sku)
+        if only_configured and not _has_alert_thresholds(level.sku):
+            continue
+        if alert_status and status not in alert_status:
+            continue
+        items.append(
+            StockAlertRead(
+                deposit_id=level.deposit_id,
+                deposit_name=level.deposit.name,
+                sku_id=level.sku_id,
+                sku_code=level.sku.code,
+                sku_name=level.sku.name,
+                sku_type_id=level.sku.sku_type_id,
+                sku_type_code=level.sku.sku_type.code if level.sku.sku_type else "",
+                sku_type_label=level.sku.sku_type.label if level.sku.sku_type else "",
+                unit=level.sku.unit,
+                quantity=level.quantity,
+                alert_status=status,
+                alert_green_min=level.sku.alert_green_min,
+                alert_yellow_min=level.sku.alert_yellow_min,
+                alert_red_max=level.sku.alert_red_max,
+            )
+        )
+
+    return StockAlertReport(total=len(items), items=items)
 
 
 api_router.include_router(public_router)

@@ -33,6 +33,9 @@ class SKU(TimestampedModel, table=True):
     unit: UnitOfMeasure = Field(default=UnitOfMeasure.UNIT, description="Unidad de medida controlada")
     notes: str | None = Field(default=None, max_length=255)
     is_active: bool = Field(default=True)
+    alert_green_min: float | None = Field(default=None, ge=0, description="Umbral mínimo para estado verde")
+    alert_yellow_min: float | None = Field(default=None, ge=0, description="Umbral mínimo para estado amarillo")
+    alert_red_max: float | None = Field(default=None, ge=0, description="Umbral máximo para estado rojo")
 
     stock_levels: list["StockLevel"] = Relationship(back_populates="sku")
     recipes: list["Recipe"] = Relationship(back_populates="product")
