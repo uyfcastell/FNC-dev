@@ -31,7 +31,7 @@ def test_register_production_merma_affects_stock(client):
     line_id = _get_production_line_id(client)
 
     payload = {
-        "stage": "production",
+        "stage": "PRODUCTION",
         "sku_id": sku_id,
         "deposit_id": 1,
         "production_line_id": line_id,
@@ -57,7 +57,7 @@ def test_merma_without_stock_not_affecting_balance(client):
     line_id = _get_production_line_id(client)
 
     payload = {
-        "stage": "production",
+        "stage": "PRODUCTION",
         "sku_id": sku_id,
         "production_line_id": line_id,
         "deposit_id": 1,      # 👉 obligatorio según reglas de negocio
