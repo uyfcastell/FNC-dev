@@ -1289,9 +1289,9 @@ def update_order(order_id: int, payload: OrderUpdate, session: Session = Depends
             session.add(
                 OrderItem(
                     order_id=order.id,
-                    sku_id=item.sku_id,
-                    quantity=item.quantity,
-                    current_stock=item.current_stock,
+                    sku_id=item["sku_id"],
+                    quantity=item["quantity"],
+                    current_stock=item.get("current_stock"),
                 )
             )
 
