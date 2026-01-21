@@ -92,7 +92,9 @@ class StockMovement(TimestampedModel, table=True):
     merma_event: Optional["MermaEvent"] = Relationship(sa_relationship_kwargs={"uselist": False})
     production_lot: Optional["ProductionLot"] = Relationship(back_populates="movements")
     movement_type: StockMovementType = Relationship(back_populates="movements")
-    created_by_user: Optional["User"] = Relationship()
+    created_by_user: Optional["User"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[StockMovement.created_by_user_id]"}
+    )
 
 
 class InventoryCount(TimestampedModel, table=True):

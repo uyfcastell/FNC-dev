@@ -30,7 +30,9 @@ class Order(TimestampedModel, table=True):
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
     destination_deposit: Optional["Deposit"] = Relationship()
-    cancelled_by_user: Optional["User"] = Relationship()
+    cancelled_by_user: Optional["User"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[Order.cancelled_by_user_id]"}
+    )
     created_by_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Order.created_by_user_id]"})
     updated_by_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Order.updated_by_user_id]"})
     merma_events: list["MermaEvent"] = Relationship(back_populates="order")

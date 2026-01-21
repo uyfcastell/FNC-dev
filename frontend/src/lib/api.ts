@@ -575,7 +575,7 @@ export async function fetchProductionLots(params?: {
   if (params?.lot_code) query.set("lot_code", params.lot_code);
   if (params?.available_only) query.set("available_only", "true");
   if (params?.include_blocked) query.set("include_blocked", "true");
-  const path = query.toString() ? `/api/production/lots?${query.toString()}` : "/api/production/lots";
+  const path = query.toString() ? `/production/lots?${query.toString()}` : "/production/lots";
   return apiRequest<ProductionLot[]>(path, {}, "No pudimos obtener los lotes");
 }
 
@@ -590,40 +590,40 @@ export async function fetchInventoryCounts(params?: {
   if (params?.deposit_id) query.set("deposit_id", String(params.deposit_id));
   if (params?.date_from) query.set("date_from", params.date_from);
   if (params?.date_to) query.set("date_to", params.date_to);
-  const path = query.toString() ? `/api/inventory-counts?${query.toString()}` : "/api/inventory-counts";
+  const path = query.toString() ? `/inventory-counts?${query.toString()}` : "/inventory-counts";
   return apiRequest<InventoryCount[]>(path, {}, "No pudimos obtener los conteos");
 }
 
 export async function fetchInventoryCount(countId: number): Promise<InventoryCount> {
-  return apiRequest<InventoryCount>(`/api/inventory-counts/${countId}`, {}, "No pudimos obtener el conteo");
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}`, {}, "No pudimos obtener el conteo");
 }
 
 export async function createInventoryCount(payload: InventoryCountPayload): Promise<InventoryCount> {
-  return apiRequest<InventoryCount>("/api/inventory-counts", { method: "POST", body: JSON.stringify(payload) }, "No pudimos crear el conteo");
+  return apiRequest<InventoryCount>("/inventory-counts", { method: "POST", body: JSON.stringify(payload) }, "No pudimos crear el conteo");
 }
 
 export async function updateInventoryCount(countId: number, payload: Partial<InventoryCountPayload>): Promise<InventoryCount> {
   return apiRequest<InventoryCount>(
-    `/api/inventory-counts/${countId}`,
+    `/inventory-counts/${countId}`,
     { method: "PUT", body: JSON.stringify(payload) },
     "No pudimos actualizar el conteo"
   );
 }
 
 export async function submitInventoryCount(countId: number): Promise<InventoryCount> {
-  return apiRequest<InventoryCount>(`/api/inventory-counts/${countId}/submit`, { method: "POST" }, "No pudimos enviar el conteo");
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/submit`, { method: "POST" }, "No pudimos enviar el conteo");
 }
 
 export async function approveInventoryCount(countId: number): Promise<InventoryCount> {
-  return apiRequest<InventoryCount>(`/api/inventory-counts/${countId}/approve`, { method: "POST" }, "No pudimos aprobar el conteo");
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/approve`, { method: "POST" }, "No pudimos aprobar el conteo");
 }
 
 export async function closeInventoryCount(countId: number): Promise<InventoryCount> {
-  return apiRequest<InventoryCount>(`/api/inventory-counts/${countId}/close`, { method: "POST" }, "No pudimos cerrar el conteo");
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/close`, { method: "POST" }, "No pudimos cerrar el conteo");
 }
 
 export async function cancelInventoryCount(countId: number): Promise<InventoryCount> {
-  return apiRequest<InventoryCount>(`/api/inventory-counts/${countId}/cancel`, { method: "POST" }, "No pudimos cancelar el conteo");
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/cancel`, { method: "POST" }, "No pudimos cancelar el conteo");
 }
 
 export async function fetchAuditLogs(params?: {
@@ -641,7 +641,7 @@ export async function fetchAuditLogs(params?: {
   if (params?.date_from) query.set("date_from", params.date_from);
   if (params?.date_to) query.set("date_to", params.date_to);
   if (params?.limit) query.set("limit", String(params.limit));
-  const path = query.toString() ? `/api/audit/logs?${query.toString()}` : "/api/audit/logs";
+  const path = query.toString() ? `/audit/logs?${query.toString()}` : "/audit/logs";
   return apiRequest<AuditLog[]>(path, {}, "No pudimos obtener la auditoría");
 }
 

@@ -20,4 +20,7 @@ class AuditLog(TimestampedModel, table=True):
     user_id: int | None = Field(default=None, foreign_key="users.id")
     ip_address: str | None = Field(default=None, max_length=64)
 
-    user: Optional["User"] = Relationship(back_populates="audit_logs")
+    user: Optional["User"] = Relationship(
+        back_populates="audit_logs",
+        sa_relationship_kwargs={"foreign_keys": "[AuditLog.user_id]"},
+    )
