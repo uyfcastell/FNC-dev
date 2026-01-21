@@ -24,11 +24,15 @@ class Order(TimestampedModel, table=True):
     cancelled_at: datetime | None = Field(default=None)
     cancelled_by_user_id: int | None = Field(default=None, foreign_key="users.id")
     cancelled_by_name: str | None = Field(default=None, max_length=255)
+    created_by_user_id: int | None = Field(default=None, foreign_key="users.id")
+    updated_by_user_id: int | None = Field(default=None, foreign_key="users.id")
 
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
     destination_deposit: Optional["Deposit"] = Relationship()
     cancelled_by_user: Optional["User"] = Relationship()
+    created_by_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Order.created_by_user_id]"})
+    updated_by_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Order.updated_by_user_id]"})
     merma_events: list["MermaEvent"] = Relationship(back_populates="order")
 
 
@@ -57,6 +61,8 @@ class Remito(TimestampedModel, table=True):
     received_at: datetime | None = Field(default=None)
     cancelled_at: datetime | None = Field(default=None)
     issue_date: date = Field(default_factory=date.today)
+    created_by_user_id: int | None = Field(default=None, foreign_key="users.id")
+    updated_by_user_id: int | None = Field(default=None, foreign_key="users.id")
 
     order: Order = Relationship(back_populates="remitos")
     items: list["RemitoItem"] = Relationship(back_populates="remito")
@@ -65,6 +71,8 @@ class Remito(TimestampedModel, table=True):
         sa_relationship_kwargs={"foreign_keys": "[Remito.destination_deposit_id]"}
     )
     merma_events: list["MermaEvent"] = Relationship(back_populates="remito")
+    created_by_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Remito.created_by_user_id]"})
+    updated_by_user: Optional["User"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Remito.updated_by_user_id]"})
 
 
 class RemitoItem(TimestampedModel, table=True):
