@@ -35,6 +35,7 @@ def override_current_user():
     class FakeUser:
         id = 1
         username = "test-admin"
+        full_name = "Test Admin"
         is_active = True
 
         # lo que espera require_role

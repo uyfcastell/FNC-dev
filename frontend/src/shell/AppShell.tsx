@@ -28,10 +28,12 @@ const defaultNavItems: NavItem[] = [
   { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion" },
   { label: "Stock", icon: <InventoryIcon />, to: "/stock" },
   { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos" },
+  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios" },
   { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas" },
   { label: "Pedidos y remitos", icon: <ListAltIcon />, to: "/pedidos" },
   { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },
   { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion" },
+  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria" },
   { label: "Reportes", icon: <ListAltIcon />, to: "/reportes" },
 ];
 

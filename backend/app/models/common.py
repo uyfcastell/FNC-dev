@@ -55,6 +55,23 @@ class RemitoStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class InventoryCountStatus(str, Enum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class AuditAction(str, Enum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    STATUS = "status"
+    APPROVE = "approve"
+    CANCEL = "cancel"
+
+
 class BaseUUIDModel(SQLModel):
     id: Optional[int] = Field(default=None, primary_key=True)
 

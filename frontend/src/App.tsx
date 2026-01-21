@@ -17,6 +17,8 @@ import { AdminPage } from "./pages/AdminPage";
 import { OrderEntryPage } from "./pages/OrderEntryPage";
 import { MermasPage } from "./pages/MermasPage";
 import { StockMovementsPage } from "./pages/StockMovementsPage";
+import { InventoryCountsPage } from "./pages/InventoryCountsPage";
+import { AuditPage } from "./pages/AuditPage";
 import { RequireAuth } from "./lib/auth";
 
 function MobileRoutes() {
@@ -45,10 +47,12 @@ function DesktopRoutes() {
         <Route path="/produccion" element={<ProductionPage />} />
         <Route path="/stock" element={<StockPage />} />
         <Route path="/stock/movimientos" element={<StockMovementsPage />} />
+        <Route path="/stock/inventarios" element={<InventoryCountsPage />} />
         <Route path="/mermas" element={<MermasPage />} />
         <Route path="/pedidos" element={<OrdersPage />} />
         <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
         <Route path="/administracion" element={<AdminPage />} />
+        <Route path="/auditoria" element={<AuditPage />} />
         <Route path="/reportes" element={<ReportsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

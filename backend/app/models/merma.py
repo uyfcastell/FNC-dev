@@ -93,4 +93,7 @@ class MermaEvent(TimestampedModel, table=True):
     order: Optional["Order"] = Relationship(back_populates="merma_events")
     production_line: Optional["ProductionLine"] = Relationship(back_populates="merma_events")
     stock_movement: Optional["StockMovement"] = Relationship(back_populates="merma_event")
-    reported_by_user: Optional["User"] = Relationship(back_populates="reported_mermas")
+    reported_by_user: Optional["User"] = Relationship(
+        back_populates="reported_mermas",
+        sa_relationship_kwargs={"foreign_keys": "[MermaEvent.reported_by_user_id]"},
+    )
