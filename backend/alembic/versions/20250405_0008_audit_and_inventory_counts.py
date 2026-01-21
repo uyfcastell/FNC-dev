@@ -3,8 +3,8 @@
 Revision ID: 20250405_0008
 Revises: e3c5240f41de
 Create Date: 2025-04-05 00:00:00.000000
-"""
 
+"""
 from typing import Sequence, Union
 
 from alembic import op
@@ -282,7 +282,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("inventory_count_items")
     op.drop_table("inventory_counts")
-
     op.drop_index("ix_audit_logs_entity_type", table_name="audit_logs")
     op.drop_index("ix_audit_logs_entity_id", table_name="audit_logs")
     op.drop_table("audit_logs")
