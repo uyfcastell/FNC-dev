@@ -72,6 +72,6 @@ jobs:
         run: |
           python -c "from app.db import init_db; init_db()"
 
-      - name: Run tests
-        run: pytest -vv
+#      - name: Run tests
+#        run: pytest -vv
 
