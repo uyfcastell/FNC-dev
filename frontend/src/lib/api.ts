@@ -151,6 +151,8 @@ export type StockMovement = {
   movement_date: string;
   created_at: string;
   current_balance?: number | null;
+  created_by_user_id?: number | null;
+  created_by_name?: string | null;
 };
 
 export type StockMovementList = {
@@ -172,6 +174,7 @@ export type StockMovementPayload = {
   lot_code?: string;
   production_line_id?: number | null;
   movement_date?: string;
+  created_by_user_id?: number | null;
 };
 
 export type Role = {
@@ -218,6 +221,10 @@ export type Order = {
   cancelled_at?: string | null;
   cancelled_by_user_id?: number | null;
   cancelled_by_name?: string | null;
+  created_by_user_id?: number | null;
+  created_by_name?: string | null;
+  updated_by_user_id?: number | null;
+  updated_by_name?: string | null;
   items: OrderItem[];
 };
 
@@ -247,7 +254,92 @@ export type Remito = {
   received_at?: string | null;
   cancelled_at?: string | null;
   created_at: string;
+  created_by_user_id?: number | null;
+  created_by_name?: string | null;
+  updated_by_user_id?: number | null;
+  updated_by_name?: string | null;
   items: RemitoItem[];
+};
+
+export type ProductionLot = {
+  id: number;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  deposit_id: number;
+  deposit_name: string;
+  production_line_id?: number | null;
+  production_line_name?: string | null;
+  produced_quantity: number;
+  remaining_quantity: number;
+  lot_code: string;
+  produced_at: string;
+  is_blocked: boolean;
+  notes?: string | null;
+};
+
+export type InventoryCountStatus = "draft" | "submitted" | "approved" | "closed" | "cancelled";
+
+export type InventoryCountItemPayload = {
+  sku_id: number;
+  counted_quantity: number;
+  production_lot_id?: number | null;
+};
+
+export type InventoryCountPayload = {
+  deposit_id: number;
+  count_date?: string | null;
+  notes?: string | null;
+  items: InventoryCountItemPayload[];
+};
+
+export type InventoryCountItem = {
+  id: number;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  production_lot_id?: number | null;
+  lot_code?: string | null;
+  counted_quantity: number;
+  system_quantity: number;
+  difference: number;
+  unit: UnitOfMeasure;
+  stock_movement_id?: number | null;
+};
+
+export type InventoryCount = {
+  id: number;
+  deposit_id: number;
+  deposit_name: string;
+  status: InventoryCountStatus;
+  count_date: string;
+  notes?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  closed_at?: string | null;
+  cancelled_at?: string | null;
+  created_at: string;
+  created_by_user_id?: number | null;
+  created_by_name?: string | null;
+  updated_by_user_id?: number | null;
+  updated_by_name?: string | null;
+  approved_by_user_id?: number | null;
+  approved_by_name?: string | null;
+  items: InventoryCountItem[];
+};
+
+export type AuditAction = "create" | "update" | "delete" | "status" | "approve" | "cancel";
+
+export type AuditLog = {
+  id: number;
+  entity_type: string;
+  entity_id?: number | null;
+  action: AuditAction;
+  changes?: Record<string, unknown> | null;
+  user_id?: number | null;
+  user_name?: string | null;
+  ip_address?: string | null;
+  created_at: string;
 };
 
 export type LoginResponse = {
@@ -466,6 +558,91 @@ export async function fetchStockMovementTypes(params?: { include_inactive?: bool
     query.append("include_inactive", "true");
   }
   return apiRequest(`/stock/movement-types${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener los tipos de movimiento de stock");
+}
+
+export async function fetchProductionLots(params?: {
+  deposit_id?: number;
+  sku_id?: number;
+  production_line_id?: number;
+  lot_code?: string;
+  available_only?: boolean;
+  include_blocked?: boolean;
+}): Promise<ProductionLot[]> {
+  const query = new URLSearchParams();
+  if (params?.deposit_id) query.set("deposit_id", String(params.deposit_id));
+  if (params?.sku_id) query.set("sku_id", String(params.sku_id));
+  if (params?.production_line_id) query.set("production_line_id", String(params.production_line_id));
+  if (params?.lot_code) query.set("lot_code", params.lot_code);
+  if (params?.available_only) query.set("available_only", "true");
+  if (params?.include_blocked) query.set("include_blocked", "true");
+  const path = query.toString() ? `/production/lots?${query.toString()}` : "/production/lots";
+  return apiRequest<ProductionLot[]>(path, {}, "No pudimos obtener los lotes");
+}
+
+export async function fetchInventoryCounts(params?: {
+  status?: InventoryCountStatus;
+  deposit_id?: number;
+  date_from?: string;
+  date_to?: string;
+}): Promise<InventoryCount[]> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status_filter", params.status);
+  if (params?.deposit_id) query.set("deposit_id", String(params.deposit_id));
+  if (params?.date_from) query.set("date_from", params.date_from);
+  if (params?.date_to) query.set("date_to", params.date_to);
+  const path = query.toString() ? `/inventory-counts?${query.toString()}` : "/inventory-counts";
+  return apiRequest<InventoryCount[]>(path, {}, "No pudimos obtener los conteos");
+}
+
+export async function fetchInventoryCount(countId: number): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}`, {}, "No pudimos obtener el conteo");
+}
+
+export async function createInventoryCount(payload: InventoryCountPayload): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>("/inventory-counts", { method: "POST", body: JSON.stringify(payload) }, "No pudimos crear el conteo");
+}
+
+export async function updateInventoryCount(countId: number, payload: Partial<InventoryCountPayload>): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>(
+    `/inventory-counts/${countId}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+    "No pudimos actualizar el conteo"
+  );
+}
+
+export async function submitInventoryCount(countId: number): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/submit`, { method: "POST" }, "No pudimos enviar el conteo");
+}
+
+export async function approveInventoryCount(countId: number): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/approve`, { method: "POST" }, "No pudimos aprobar el conteo");
+}
+
+export async function closeInventoryCount(countId: number): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/close`, { method: "POST" }, "No pudimos cerrar el conteo");
+}
+
+export async function cancelInventoryCount(countId: number): Promise<InventoryCount> {
+  return apiRequest<InventoryCount>(`/inventory-counts/${countId}/cancel`, { method: "POST" }, "No pudimos cancelar el conteo");
+}
+
+export async function fetchAuditLogs(params?: {
+  entity_type?: string;
+  entity_id?: number;
+  user_id?: number;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+}): Promise<AuditLog[]> {
+  const query = new URLSearchParams();
+  if (params?.entity_type) query.set("entity_type", params.entity_type);
+  if (params?.entity_id) query.set("entity_id", String(params.entity_id));
+  if (params?.user_id) query.set("user_id", String(params.user_id));
+  if (params?.date_from) query.set("date_from", params.date_from);
+  if (params?.date_to) query.set("date_to", params.date_to);
+  if (params?.limit) query.set("limit", String(params.limit));
+  const path = query.toString() ? `/audit/logs?${query.toString()}` : "/audit/logs";
+  return apiRequest<AuditLog[]>(path, {}, "No pudimos obtener la auditoría");
 }
 
 export async function createStockMovementType(payload: Omit<StockMovementType, "id">): Promise<StockMovementType> {

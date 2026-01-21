@@ -6,6 +6,9 @@ from .common import TimestampedModel
 
 if TYPE_CHECKING:  # pragma: no cover
     from .merma import MermaEvent
+    from .audit import AuditLog
+    from .inventory import InventoryCount, StockMovement
+    from .order import Order, Remito
 
 
 class Role(TimestampedModel, table=True):
@@ -29,4 +32,11 @@ class User(TimestampedModel, table=True):
     role_id: int | None = Field(default=None, foreign_key="roles.id")
 
     role: Role | None = Relationship(back_populates="users")
-    reported_mermas: list["MermaEvent"] = Relationship(back_populates="reported_by_user")
+    reported_mermas: list["MermaEvent"] = Relationship(
+        back_populates="reported_by_user",
+        sa_relationship_kwargs={"foreign_keys": "[MermaEvent.reported_by_user_id]"},
+    )
+    audit_logs: list["AuditLog"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"foreign_keys": "[AuditLog.user_id]"},
+    )

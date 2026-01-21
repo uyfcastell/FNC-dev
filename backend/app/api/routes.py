@@ -2,6 +2,7 @@ import re
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -10,7 +11,12 @@ from ..db import get_session
 from ..core.security import create_access_token, hash_password, is_legacy_hash, needs_rehash, verify_password
 from .deps import get_current_user, require_active_user, require_roles
 from ..models import (
+    AuditLog,
+    AuditAction,
     Deposit,
+    InventoryCount,
+    InventoryCountItem,
+    InventoryCountStatus,
     Recipe,
     RecipeItem,
     Role,
@@ -85,6 +91,11 @@ from ..schemas import (
     ProductionLineCreate,
     ProductionLineRead,
     ProductionLineUpdate,
+    InventoryCountCreate,
+    InventoryCountRead,
+    InventoryCountUpdate,
+    InventoryCountItemRead,
+    AuditLogRead,
 )
 
 public_router = APIRouter()
@@ -99,6 +110,32 @@ INCOMING_MOVEMENTS = {"PRODUCTION", "PURCHASE", "ADJUSTMENT", "TRANSFER"}
 LOT_CODE_SEQUENCE_LENGTH = 3
 
 settings = get_settings()
+
+
+def _encode_changes(payload: dict | list | None) -> dict | None:
+    if payload is None:
+        return None
+    encoded = jsonable_encoder(payload, exclude_none=True)
+    return encoded if isinstance(encoded, dict) else {"items": encoded}
+
+
+def _log_audit(
+    session: Session,
+    entity_type: str,
+    entity_id: int | None,
+    action: AuditAction,
+    user_id: int | None = None,
+    changes: dict | list | None = None,
+) -> None:
+    session.add(
+        AuditLog(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action=action,
+            user_id=user_id,
+            changes=_encode_changes(changes),
+        )
+    )
 
 
 def _map_user(user: User, session: Session) -> UserRead:
@@ -298,6 +335,7 @@ def _consume_recipe_components(
     produced_quantity: float,
     reference: str | None,
     movement_date: date,
+    created_by_user_id: int | None,
 ) -> None:
     if produced_quantity <= 0:
         return
@@ -330,6 +368,7 @@ def _consume_recipe_components(
                 lot_code=lot.lot_code if lot else None,
                 production_lot_id=lot.id if lot else None,
                 movement_date=movement_date,
+                created_by_user_id=created_by_user_id,
             )
             _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
 
@@ -475,6 +514,15 @@ def _map_order(order: Order, session: Session) -> OrderRead:
             }
         )
 
+    created_by_name = None
+    updated_by_name = None
+    if order.created_by_user_id:
+        user = session.get(User, order.created_by_user_id)
+        created_by_name = user.full_name if user else None
+    if order.updated_by_user_id:
+        user = session.get(User, order.updated_by_user_id)
+        updated_by_name = user.full_name if user else None
+
     return OrderRead(
         id=order.id,
         destination=order.destination,
@@ -487,6 +535,10 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         cancelled_at=order.cancelled_at,
         cancelled_by_user_id=order.cancelled_by_user_id,
         cancelled_by_name=order.cancelled_by_name,
+        created_by_user_id=order.created_by_user_id,
+        created_by_name=created_by_name,
+        updated_by_user_id=order.updated_by_user_id,
+        updated_by_name=updated_by_name,
         items=items,
     )
 
@@ -528,6 +580,15 @@ def _map_remito(remito: Remito, session: Session) -> RemitoRead:
                 lot_code=item.lot_code,
             )
         )
+    created_by_name = None
+    updated_by_name = None
+    if remito.created_by_user_id:
+        user = session.get(User, remito.created_by_user_id)
+        created_by_name = user.full_name if user else None
+    if remito.updated_by_user_id:
+        user = session.get(User, remito.updated_by_user_id)
+        updated_by_name = user.full_name if user else None
+
     return RemitoRead(
         id=remito.id,
         order_id=remito.order_id,
@@ -542,6 +603,10 @@ def _map_remito(remito: Remito, session: Session) -> RemitoRead:
         received_at=remito.received_at,
         cancelled_at=remito.cancelled_at,
         created_at=remito.created_at,
+        created_by_user_id=remito.created_by_user_id,
+        created_by_name=created_by_name,
+        updated_by_user_id=remito.updated_by_user_id,
+        updated_by_name=updated_by_name,
         items=items,
     )
 
@@ -646,6 +711,8 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
         if not role:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rol inexistente")
 
+    audit_changes = payload.model_dump(exclude_unset=True)
+    audit_changes = payload.model_dump(exclude_unset=True)
     update_data = payload.model_dump(exclude_unset=True)
     password = update_data.pop("password", None)
     for field, value in update_data.items():
@@ -1255,7 +1322,11 @@ def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRe
     response_model=OrderRead,
     dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
 )
-def create_order(payload: OrderCreate, session: Session = Depends(get_session)) -> OrderRead:
+def create_order(
+    payload: OrderCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> OrderRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
     if not payload.requested_by or not payload.requested_by.strip():
@@ -1272,6 +1343,8 @@ def create_order(payload: OrderCreate, session: Session = Depends(get_session)) 
         requested_by=payload.requested_by.strip() if payload.requested_by else None,
         status=OrderStatus.SUBMITTED,
         notes=payload.notes,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
     )
     session.add(order)
     session.flush()
@@ -1286,6 +1359,7 @@ def create_order(payload: OrderCreate, session: Session = Depends(get_session)) 
             )
         )
 
+    _log_audit(session, "orders", order.id, AuditAction.CREATE, current_user.id, payload.model_dump())
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -1335,6 +1409,7 @@ def update_order(
         order.destination = destination.name
         order.destination_deposit_id = destination.id
     order.updated_at = datetime.utcnow()
+    order.updated_by_user_id = current_user.id
     session.add(order)
     session.flush()
 
@@ -1353,6 +1428,7 @@ def update_order(
                 )
             )
 
+    _log_audit(session, "orders", order.id, AuditAction.UPDATE, current_user.id, audit_changes)
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -1379,7 +1455,9 @@ def update_order_status(
         order.cancelled_by_user_id = current_user.id
         order.cancelled_by_name = current_user.full_name
     order.updated_at = datetime.utcnow()
+    order.updated_by_user_id = current_user.id
     session.add(order)
+    _log_audit(session, "orders", order.id, AuditAction.STATUS, current_user.id, {"status": payload.status})
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -1391,7 +1469,11 @@ def update_order_status(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
 )
-def delete_order(order_id: int, session: Session = Depends(get_session)) -> None:
+def delete_order(
+    order_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
@@ -1399,6 +1481,7 @@ def delete_order(order_id: int, session: Session = Depends(get_session)) -> None
     for item in items:
         session.delete(item)
     session.delete(order)
+    _log_audit(session, "orders", order_id, AuditAction.DELETE, current_user.id, {"deleted": True})
     session.commit()
 
 
@@ -1447,6 +1530,7 @@ def create_remito_from_order(
     order_id: int,
     payload: RemitoFromOrderRequest | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> RemitoRead:
     order = session.get(Order, order_id)
     if not order:
@@ -1472,6 +1556,8 @@ def create_remito_from_order(
         issue_date=date.today(),
         source_deposit_id=source_deposit.id,
         destination_deposit_id=destination_deposit.id,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
     )
     session.add(remito)
     session.flush()
@@ -1479,6 +1565,7 @@ def create_remito_from_order(
     for item in order.items:
         session.add(RemitoItem(remito_id=remito.id, sku_id=item.sku_id, quantity=item.quantity))
 
+    _log_audit(session, "remitos", remito.id, AuditAction.CREATE, current_user.id, {"order_id": order.id})
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -1494,6 +1581,7 @@ def dispatch_remito(
     remito_id: int,
     payload: RemitoDispatchRequest | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
@@ -1518,17 +1606,18 @@ def dispatch_remito(
             for lot, quantity in consumptions:
                 movement_payload = StockMovementCreate(
                     sku_id=item.sku_id,
-                deposit_id=source_deposit.id,
-                movement_type_id=movement_type.id,
-                quantity=quantity,
-                is_outgoing=True,
-                reference_type="REMITO",
-                reference_id=remito.id,
-                reference_item_id=item.id,
+                    deposit_id=source_deposit.id,
+                    movement_type_id=movement_type.id,
+                    quantity=quantity,
+                    is_outgoing=True,
+                    reference_type="REMITO",
+                    reference_id=remito.id,
+                    reference_item_id=item.id,
                     reference=reference,
                     lot_code=lot.lot_code if lot else None,
                     production_lot_id=lot.id if lot else None,
                     movement_date=movement_date,
+                    created_by_user_id=current_user.id,
                 )
                 _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
         else:
@@ -1543,6 +1632,7 @@ def dispatch_remito(
                 reference_item_id=item.id,
                 reference=reference,
                 movement_date=movement_date,
+                created_by_user_id=current_user.id,
             )
             _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
 
@@ -1550,7 +1640,9 @@ def dispatch_remito(
     remito.dispatched_at = datetime.utcnow()
     remito.source_deposit_id = source_deposit.id
     remito.updated_at = datetime.utcnow()
+    remito.updated_by_user_id = current_user.id
     session.add(remito)
+    _log_audit(session, "remitos", remito.id, AuditAction.STATUS, current_user.id, {"status": RemitoStatus.DISPATCHED})
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -1566,6 +1658,7 @@ def receive_remito(
     remito_id: int,
     payload: RemitoReceiveRequest | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
@@ -1595,6 +1688,7 @@ def receive_remito(
             reference_item_id=item.id,
             reference=f"{reference}-RECIBIDO",
             movement_date=movement_date,
+            created_by_user_id=current_user.id,
         )
         _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
 
@@ -1602,7 +1696,9 @@ def receive_remito(
     remito.received_at = datetime.utcnow()
     remito.destination_deposit_id = destination_deposit.id
     remito.updated_at = datetime.utcnow()
+    remito.updated_by_user_id = current_user.id
     session.add(remito)
+    _log_audit(session, "remitos", remito.id, AuditAction.STATUS, current_user.id, {"status": RemitoStatus.RECEIVED})
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -1614,14 +1710,20 @@ def receive_remito(
     response_model=RemitoRead,
     dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
 )
-def cancel_remito(remito_id: int, session: Session = Depends(get_session)) -> RemitoRead:
+def cancel_remito(
+    remito_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar un remito procesado")
     remito.status = RemitoStatus.CANCELLED
     remito.cancelled_at = datetime.utcnow()
     remito.updated_at = datetime.utcnow()
+    remito.updated_by_user_id = current_user.id
     session.add(remito)
+    _log_audit(session, "remitos", remito.id, AuditAction.CANCEL, current_user.id, {"status": RemitoStatus.CANCELLED})
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -1871,6 +1973,7 @@ def _apply_stock_movement(
         lot_code=lot_code,
         production_lot_id=production_lot.id if production_lot else None,
         movement_date=payload.movement_date or date.today(),
+        created_by_user_id=payload.created_by_user_id,
     )
     session.add(stock_level)
     session.add(movement)
@@ -1887,6 +1990,7 @@ def _apply_stock_movement(
             base_quantity,
             payload.reference,
             movement.movement_date,
+            payload.created_by_user_id,
         )
     return stock_level, movement
 
@@ -1905,6 +2009,11 @@ def _map_stock_movement(movement: StockMovement, session: Session) -> StockMovem
         select(StockLevel).where(StockLevel.deposit_id == movement.deposit_id, StockLevel.sku_id == movement.sku_id)
     ).first()
     current_balance = stock_level.quantity if stock_level else 0
+    created_by_name = None
+    if movement.created_by_user_id:
+        user = session.get(User, movement.created_by_user_id)
+        created_by_name = user.full_name if user else None
+
     return StockMovementRead(
         id=movement.id,
         sku_id=movement.sku_id,
@@ -1927,6 +2036,84 @@ def _map_stock_movement(movement: StockMovement, session: Session) -> StockMovem
         movement_date=movement.movement_date,
         created_at=movement.created_at,
         current_balance=current_balance,
+        created_by_user_id=movement.created_by_user_id,
+        created_by_name=created_by_name,
+    )
+
+
+def _map_inventory_count_item(item: InventoryCountItem, session: Session) -> InventoryCountItemRead:
+    sku = session.get(SKU, item.sku_id)
+    lot_code = item.lot_code
+    if item.production_lot_id:
+        lot = session.get(ProductionLot, item.production_lot_id)
+        lot_code = lot.lot_code if lot else lot_code
+    return InventoryCountItemRead(
+        id=item.id,
+        sku_id=item.sku_id,
+        sku_code=sku.code if sku else str(item.sku_id),
+        sku_name=sku.name if sku else f"SKU {item.sku_id}",
+        production_lot_id=item.production_lot_id,
+        lot_code=lot_code,
+        counted_quantity=item.counted_quantity,
+        system_quantity=item.system_quantity,
+        difference=item.difference,
+        unit=item.unit,
+        stock_movement_id=item.stock_movement_id,
+    )
+
+
+def _map_inventory_count(count: InventoryCount, session: Session) -> InventoryCountRead:
+    session.refresh(count, attribute_names=["items", "deposit"])
+    created_by_name = None
+    updated_by_name = None
+    approved_by_name = None
+    if count.created_by_user_id:
+        user = session.get(User, count.created_by_user_id)
+        created_by_name = user.full_name if user else None
+    if count.updated_by_user_id:
+        user = session.get(User, count.updated_by_user_id)
+        updated_by_name = user.full_name if user else None
+    if count.approved_by_user_id:
+        user = session.get(User, count.approved_by_user_id)
+        approved_by_name = user.full_name if user else None
+
+    return InventoryCountRead(
+        id=count.id,
+        deposit_id=count.deposit_id,
+        deposit_name=count.deposit.name if count.deposit else "",
+        status=count.status,
+        count_date=count.count_date,
+        notes=count.notes,
+        submitted_at=count.submitted_at,
+        approved_at=count.approved_at,
+        closed_at=count.closed_at,
+        cancelled_at=count.cancelled_at,
+        created_at=count.created_at,
+        created_by_user_id=count.created_by_user_id,
+        created_by_name=created_by_name,
+        updated_by_user_id=count.updated_by_user_id,
+        updated_by_name=updated_by_name,
+        approved_by_user_id=count.approved_by_user_id,
+        approved_by_name=approved_by_name,
+        items=[_map_inventory_count_item(item, session) for item in count.items],
+    )
+
+
+def _map_audit_log(record: AuditLog, session: Session) -> AuditLogRead:
+    user_name = None
+    if record.user_id:
+        user = session.get(User, record.user_id)
+        user_name = user.full_name if user else None
+    return AuditLogRead(
+        id=record.id,
+        entity_type=record.entity_type,
+        entity_id=record.entity_id,
+        action=record.action,
+        changes=record.changes,
+        user_id=record.user_id,
+        user_name=user_name,
+        ip_address=record.ip_address,
+        created_at=record.created_at,
     )
 
 
@@ -1991,8 +2178,14 @@ def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLeve
     response_model=StockLevelRead,
     dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "PRODUCTION"))],
 )
-def register_stock_movement(payload: StockMovementCreate, session: Session = Depends(get_session)) -> StockLevelRead:
-    stock_level, _ = _apply_stock_movement(session, payload)
+def register_stock_movement(
+    payload: StockMovementCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> StockLevelRead:
+    payload.created_by_user_id = payload.created_by_user_id or current_user.id
+    stock_level, movement = _apply_stock_movement(session, payload)
+    _log_audit(session, "stock_movements", movement.id, AuditAction.CREATE, payload.created_by_user_id, payload.model_dump())
     session.commit()
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
     return _map_stock_level(stock_level, session)
@@ -2055,6 +2248,354 @@ def list_stock_movements(
     return StockMovementList(total=total or 0, items=[_map_stock_movement(item, session) for item in records])
 
 
+def _resolve_system_quantity(
+    session: Session,
+    deposit: Deposit,
+    sku: SKU,
+    production_lot_id: int | None,
+) -> tuple[float, ProductionLot | None]:
+    if deposit.controls_lot:
+        if not production_lot_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El depósito requiere lote")
+        lot = session.get(ProductionLot, production_lot_id)
+        if not lot:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lote no encontrado")
+        if lot.deposit_id != deposit.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote pertenece a otro depósito")
+        if lot.sku_id != sku.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no corresponde al SKU indicado")
+        return float(lot.remaining_quantity), lot
+
+    stock_level = session.exec(
+        select(StockLevel).where(StockLevel.deposit_id == deposit.id, StockLevel.sku_id == sku.id)
+    ).first()
+    return float(stock_level.quantity) if stock_level else 0.0, None
+
+
+def _replace_inventory_count_items(
+    session: Session,
+    count: InventoryCount,
+    items: list[dict],
+    deposit: Deposit,
+) -> None:
+    existing_items = session.exec(select(InventoryCountItem).where(InventoryCountItem.inventory_count_id == count.id)).all()
+    for item in existing_items:
+        session.delete(item)
+    session.flush()
+
+    for payload in items:
+        sku = session.get(SKU, payload["sku_id"])
+        if not sku:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
+        system_quantity, lot = _resolve_system_quantity(session, deposit, sku, payload.get("production_lot_id"))
+        counted = float(payload["counted_quantity"])
+        difference = counted - system_quantity
+        session.add(
+            InventoryCountItem(
+                inventory_count_id=count.id,
+                sku_id=sku.id,
+                production_lot_id=payload.get("production_lot_id"),
+                lot_code=lot.lot_code if lot else None,
+                counted_quantity=counted,
+                system_quantity=system_quantity,
+                difference=difference,
+                unit=sku.unit,
+            )
+        )
+
+
+@router.get(
+    "/inventory-counts",
+    tags=["inventory"],
+    response_model=list[InventoryCountRead],
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "AUDIT"))],
+)
+def list_inventory_counts(
+    status_filter: InventoryCountStatus | None = None,
+    deposit_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    session: Session = Depends(get_session),
+) -> list[InventoryCountRead]:
+    statement = select(InventoryCount)
+    if status_filter:
+        statement = statement.where(InventoryCount.status == status_filter)
+    if deposit_id:
+        statement = statement.where(InventoryCount.deposit_id == deposit_id)
+    if date_from:
+        statement = statement.where(InventoryCount.count_date >= date_from)
+    if date_to:
+        statement = statement.where(InventoryCount.count_date <= date_to)
+    counts = session.exec(statement.order_by(InventoryCount.count_date.desc(), InventoryCount.id.desc())).all()
+    return [_map_inventory_count(count, session) for count in counts]
+
+
+@router.get(
+    "/inventory-counts/{count_id}",
+    tags=["inventory"],
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "AUDIT"))],
+)
+def get_inventory_count(count_id: int, session: Session = Depends(get_session)) -> InventoryCountRead:
+    count = session.get(InventoryCount, count_id)
+    if not count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
+    return _map_inventory_count(count, session)
+
+
+@router.post(
+    "/inventory-counts",
+    tags=["inventory"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def create_inventory_count(
+    payload: InventoryCountCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InventoryCountRead:
+    if not payload.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debes cargar al menos un ítem")
+    deposit = _get_deposit_or_404(session, payload.deposit_id)
+
+    count = InventoryCount(
+        deposit_id=deposit.id,
+        status=InventoryCountStatus.DRAFT,
+        count_date=payload.count_date or date.today(),
+        notes=payload.notes,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    session.add(count)
+    session.flush()
+
+    items_payload = [item.model_dump() for item in payload.items]
+    _replace_inventory_count_items(session, count, items_payload, deposit)
+    _log_audit(session, "inventory_counts", count.id, AuditAction.CREATE, current_user.id, payload.model_dump())
+    session.commit()
+    session.refresh(count)
+    return _map_inventory_count(count, session)
+
+
+@router.put(
+    "/inventory-counts/{count_id}",
+    tags=["inventory"],
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def update_inventory_count(
+    count_id: int,
+    payload: InventoryCountUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InventoryCountRead:
+    count = session.get(InventoryCount, count_id)
+    if not count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
+    if count.status != InventoryCountStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar conteos en borrador")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    items = update_data.pop("items", None)
+    for field, value in update_data.items():
+        setattr(count, field, value)
+    count.updated_at = datetime.utcnow()
+    count.updated_by_user_id = current_user.id
+    session.add(count)
+    session.flush()
+
+    if items is not None:
+        deposit = _get_deposit_or_404(session, count.deposit_id)
+        items_payload = [item.model_dump() for item in items]
+        _replace_inventory_count_items(session, count, items_payload, deposit)
+
+    _log_audit(session, "inventory_counts", count.id, AuditAction.UPDATE, current_user.id, update_data)
+    session.commit()
+    session.refresh(count)
+    return _map_inventory_count(count, session)
+
+
+@router.post(
+    "/inventory-counts/{count_id}/submit",
+    tags=["inventory"],
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def submit_inventory_count(
+    count_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InventoryCountRead:
+    count = session.get(InventoryCount, count_id)
+    if not count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
+    if count.status != InventoryCountStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El conteo ya fue enviado")
+
+    count.status = InventoryCountStatus.SUBMITTED
+    count.submitted_at = datetime.utcnow()
+    count.updated_at = datetime.utcnow()
+    count.updated_by_user_id = current_user.id
+    session.add(count)
+    _log_audit(session, "inventory_counts", count.id, AuditAction.STATUS, current_user.id, {"status": count.status})
+    session.commit()
+    session.refresh(count)
+    return _map_inventory_count(count, session)
+
+
+@router.post(
+    "/inventory-counts/{count_id}/approve",
+    tags=["inventory"],
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def approve_inventory_count(
+    count_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InventoryCountRead:
+    count = session.get(InventoryCount, count_id)
+    if not count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
+    if count.status != InventoryCountStatus.SUBMITTED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El conteo debe estar enviado para aprobarse")
+
+    session.refresh(count, attribute_names=["items"])
+    deposit = _get_deposit_or_404(session, count.deposit_id)
+    movement_type = _get_movement_type_by_code(session, "ADJUSTMENT")
+    reference = f"INVENTARIO-{count.id}"
+
+    for item in count.items:
+        if item.difference == 0:
+            continue
+        if deposit.controls_lot and not item.production_lot_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Falta lote en depósito con control de lotes")
+
+        lot_code = item.lot_code
+        if item.production_lot_id:
+            lot = session.get(ProductionLot, item.production_lot_id)
+            lot_code = lot.lot_code if lot else lot_code
+
+        movement_payload = StockMovementCreate(
+            sku_id=item.sku_id,
+            deposit_id=deposit.id,
+            movement_type_id=movement_type.id,
+            quantity=abs(item.difference),
+            is_outgoing=item.difference < 0,
+            reference_type="INVENTORY_COUNT",
+            reference_id=count.id,
+            reference_item_id=item.id,
+            reference=reference,
+            lot_code=lot_code,
+            production_lot_id=item.production_lot_id,
+            movement_date=date.today(),
+            created_by_user_id=current_user.id,
+        )
+        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
+        item.stock_movement_id = movement.id
+        item.updated_at = datetime.utcnow()
+        session.add(item)
+
+    count.status = InventoryCountStatus.APPROVED
+    count.approved_at = datetime.utcnow()
+    count.approved_by_user_id = current_user.id
+    count.updated_at = datetime.utcnow()
+    count.updated_by_user_id = current_user.id
+    session.add(count)
+    _log_audit(session, "inventory_counts", count.id, AuditAction.APPROVE, current_user.id, {"status": count.status})
+    session.commit()
+    session.refresh(count)
+    return _map_inventory_count(count, session)
+
+
+@router.post(
+    "/inventory-counts/{count_id}/close",
+    tags=["inventory"],
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def close_inventory_count(
+    count_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InventoryCountRead:
+    count = session.get(InventoryCount, count_id)
+    if not count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
+    if count.status != InventoryCountStatus.APPROVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden cerrar conteos aprobados")
+
+    count.status = InventoryCountStatus.CLOSED
+    count.closed_at = datetime.utcnow()
+    count.updated_at = datetime.utcnow()
+    count.updated_by_user_id = current_user.id
+    session.add(count)
+    _log_audit(session, "inventory_counts", count.id, AuditAction.STATUS, current_user.id, {"status": count.status})
+    session.commit()
+    session.refresh(count)
+    return _map_inventory_count(count, session)
+
+
+@router.post(
+    "/inventory-counts/{count_id}/cancel",
+    tags=["inventory"],
+    response_model=InventoryCountRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def cancel_inventory_count(
+    count_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InventoryCountRead:
+    count = session.get(InventoryCount, count_id)
+    if not count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
+    if count.status not in {InventoryCountStatus.DRAFT, InventoryCountStatus.SUBMITTED}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar el conteo")
+
+    count.status = InventoryCountStatus.CANCELLED
+    count.cancelled_at = datetime.utcnow()
+    count.updated_at = datetime.utcnow()
+    count.updated_by_user_id = current_user.id
+    session.add(count)
+    _log_audit(session, "inventory_counts", count.id, AuditAction.CANCEL, current_user.id, {"status": count.status})
+    session.commit()
+    session.refresh(count)
+    return _map_inventory_count(count, session)
+
+
+@router.get(
+    "/audit/logs",
+    tags=["audit"],
+    response_model=list[AuditLogRead],
+    dependencies=[Depends(require_roles("ADMIN", "AUDIT"))],
+)
+def list_audit_logs(
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    user_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = 200,
+    session: Session = Depends(get_session),
+) -> list[AuditLogRead]:
+    statement = select(AuditLog)
+    if entity_type:
+        statement = statement.where(AuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        statement = statement.where(AuditLog.entity_id == entity_id)
+    if user_id:
+        statement = statement.where(AuditLog.user_id == user_id)
+    if date_from:
+        statement = statement.where(AuditLog.created_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        statement = statement.where(AuditLog.created_at <= datetime.combine(date_to, datetime.max.time()))
+    safe_limit = max(1, min(limit, 500))
+    records = session.exec(statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(safe_limit)).all()
+    return [_map_audit_log(record, session) for record in records]
+
+
 @router.get("/production/lots", tags=["production"], response_model=list[ProductionLotRead])
 def list_production_lots(
     deposit_id: int | None = None,
@@ -2091,7 +2632,11 @@ def get_production_lot(lot_id: int, session: Session = Depends(get_session)) -> 
 
 
 @router.post("/mermas", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaEventRead)
-def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get_session)) -> MermaEventRead:
+def create_merma_event(
+    payload: MermaEventCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> MermaEventRead:
     merma_type = session.get(MermaType, payload.type_id)
     cause = session.get(MermaCause, payload.cause_id)
     sku = session.get(SKU, payload.sku_id)
@@ -2154,8 +2699,14 @@ def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
     if payload.affects_stock and not deposit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede ajustar stock sin depósito")
-    if payload.reported_by_user_id:
-        user = session.get(User, payload.reported_by_user_id)
+    reported_by_user_id = payload.reported_by_user_id or current_user.id
+    reported_by_role = payload.reported_by_role
+    if not reported_by_role and current_user.role_id:
+        role = session.get(Role, current_user.role_id)
+        reported_by_role = role.name if role else None
+
+    if reported_by_user_id:
+        user = session.get(User, reported_by_user_id)
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario informante no encontrado")
 
@@ -2171,6 +2722,7 @@ def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get
             reference=f"MERMA-{merma_type.code}",
             lot_code=payload.lot_code,
             movement_date=detected_at.date(),
+            created_by_user_id=reported_by_user_id,
         )
         _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
         stock_movement_id = movement.id
@@ -2191,8 +2743,8 @@ def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get
         remito_id=payload.remito_id,
         order_id=payload.order_id,
         production_line_id=payload.production_line_id,
-        reported_by_user_id=payload.reported_by_user_id,
-        reported_by_role=payload.reported_by_role,
+        reported_by_user_id=reported_by_user_id,
+        reported_by_role=reported_by_role,
         notes=payload.notes,
         detected_at=detected_at,
         affects_stock=payload.affects_stock,
@@ -2201,6 +2753,8 @@ def create_merma_event(payload: MermaEventCreate, session: Session = Depends(get
     )
 
     session.add(event)
+    session.flush()
+    _log_audit(session, "mermas", event.id, AuditAction.CREATE, reported_by_user_id, payload.model_dump())
     session.commit()
     session.refresh(event)
     return _map_merma_event(event, session)

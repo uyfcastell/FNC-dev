@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from sqlmodel import SQLModel
 
-from .models.common import MermaAction, MermaStage, OrderStatus, RemitoStatus, UnitOfMeasure
+from .models.common import AuditAction, InventoryCountStatus, MermaAction, MermaStage, OrderStatus, RemitoStatus, UnitOfMeasure
 
 class SKUTypeBase(SQLModel):
     code: str
@@ -124,6 +124,7 @@ class StockMovementCreate(SQLModel):
     production_lot_id: int | None = None
     production_line_id: int | None = None
     movement_date: date | None = None
+    created_by_user_id: int | None = None
 
 
 class ProductionLotBase(SQLModel):
@@ -203,6 +204,8 @@ class StockMovementRead(SQLModel):
     movement_date: date
     created_at: datetime
     current_balance: float | None = None
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
 
 
 class StockMovementList(SQLModel):
@@ -335,6 +338,10 @@ class OrderRead(SQLModel):
     cancelled_at: datetime | None = None
     cancelled_by_user_id: int | None = None
     cancelled_by_name: str | None = None
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
+    updated_by_user_id: int | None = None
+    updated_by_name: str | None = None
     items: list[OrderItemRead]
 
 
@@ -362,6 +369,10 @@ class RemitoRead(SQLModel):
     received_at: datetime | None = None
     cancelled_at: datetime | None = None
     created_at: datetime
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
+    updated_by_user_id: int | None = None
+    updated_by_name: str | None = None
     items: list[RemitoItemRead]
 
 
@@ -488,3 +499,69 @@ class MermaEventRead(SQLModel):
     affects_stock: bool
     action: MermaAction
     stock_movement_id: int | None = None
+
+
+class InventoryCountItemCreate(SQLModel):
+    sku_id: int
+    counted_quantity: float
+    production_lot_id: int | None = None
+
+
+class InventoryCountCreate(SQLModel):
+    deposit_id: int
+    count_date: date | None = None
+    notes: str | None = None
+    items: list[InventoryCountItemCreate]
+
+
+class InventoryCountUpdate(SQLModel):
+    count_date: date | None = None
+    notes: str | None = None
+    items: list[InventoryCountItemCreate] | None = None
+
+
+class InventoryCountItemRead(SQLModel):
+    id: int
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    production_lot_id: int | None = None
+    lot_code: str | None = None
+    counted_quantity: float
+    system_quantity: float
+    difference: float
+    unit: UnitOfMeasure
+    stock_movement_id: int | None = None
+
+
+class InventoryCountRead(SQLModel):
+    id: int
+    deposit_id: int
+    deposit_name: str
+    status: InventoryCountStatus
+    count_date: date
+    notes: str | None = None
+    submitted_at: datetime | None = None
+    approved_at: datetime | None = None
+    closed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    created_at: datetime
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
+    updated_by_user_id: int | None = None
+    updated_by_name: str | None = None
+    approved_by_user_id: int | None = None
+    approved_by_name: str | None = None
+    items: list[InventoryCountItemRead]
+
+
+class AuditLogRead(SQLModel):
+    id: int
+    entity_type: str
+    entity_id: int | None = None
+    action: AuditAction
+    changes: dict | None = None
+    user_id: int | None = None
+    user_name: str | None = None
+    ip_address: str | None = None
+    created_at: datetime
