@@ -712,7 +712,6 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rol inexistente")
 
     audit_changes = payload.model_dump(exclude_unset=True)
-    audit_changes = payload.model_dump(exclude_unset=True)
     update_data = payload.model_dump(exclude_unset=True)
     password = update_data.pop("password", None)
     for field, value in update_data.items():
