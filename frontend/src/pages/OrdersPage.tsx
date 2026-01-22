@@ -77,10 +77,18 @@ export function OrdersPage() {
   const [remitoActionId, setRemitoActionId] = useState<number | null>(null);
   const [creatingFromOrderId, setCreatingFromOrderId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [header, setHeader] = useState<{ destination_deposit_id: string; notes: string; requested_by: string }>({
+  const [header, setHeader] = useState<{
+    destination_deposit_id: string;
+    notes: string;
+    requested_by: string;
+    required_delivery_date: string;
+    plant_internal_note: string;
+  }>({
     destination_deposit_id: "",
     notes: "",
     requested_by: "",
+    required_delivery_date: "",
+    plant_internal_note: "",
   });
   const [lines, setLines] = useState<Record<OrderSectionKey, OrderLine[]>>({
     pt: [initialLine],
@@ -95,6 +103,18 @@ export function OrdersPage() {
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
+  const today = useMemo(() => {
+    const current = new Date();
+    current.setHours(0, 0, 0, 0);
+    return current;
+  }, []);
+  const maxDeliveryDate = useMemo(() => {
+    const max = new Date(today);
+    max.setDate(max.getDate() + 60);
+    return max;
+  }, [today]);
+  const minDeliveryDateValue = today.toISOString().split("T")[0];
+  const maxDeliveryDateValue = maxDeliveryDate.toISOString().split("T")[0];
 
   const remitoChipColor = (status: RemitoStatus): ChipProps["color"] => {
     if (status === "received" || status === "delivered") return "success";
@@ -177,7 +197,7 @@ export function OrdersPage() {
 
   const resetForm = () => {
     setEditingId(null);
-    setHeader({ destination_deposit_id: "", notes: "", requested_by: "" });
+    setHeader({ destination_deposit_id: "", notes: "", requested_by: "", required_delivery_date: "", plant_internal_note: "" });
     setLines({ pt: [initialLine], consumibles: [initialLine], papeleria: [initialLine], limpieza: [initialLine] });
   };
 
@@ -190,6 +210,13 @@ export function OrdersPage() {
     if (!header.requested_by.trim()) {
       setError("Indica quién está ingresando el pedido");
       return;
+    }
+    if (header.required_delivery_date) {
+      const selected = new Date(`${header.required_delivery_date}T00:00:00`);
+      if (selected < today || selected > maxDeliveryDate) {
+        setError("La fecha requerida debe estar entre hoy y los próximos 60 días");
+        return;
+      }
     }
     const items = buildItemsPayload();
     if (!items.length) {
@@ -213,6 +240,8 @@ export function OrdersPage() {
         destination_deposit_id: Number(header.destination_deposit_id),
         notes: header.notes || undefined,
         requested_by: header.requested_by.trim() || undefined,
+        required_delivery_date: header.required_delivery_date || undefined,
+        plant_internal_note: header.plant_internal_note || undefined,
         items,
       };
       if (editingId) {
@@ -317,6 +346,8 @@ export function OrdersPage() {
       destination_deposit_id: order.destination_deposit_id ? String(order.destination_deposit_id) : "",
       notes: order.notes || "",
       requested_by: order.requested_by || "",
+      required_delivery_date: order.required_delivery_date || "",
+      plant_internal_note: order.plant_internal_note || "",
     });
     setLines(filledLines);
   };
@@ -459,9 +490,29 @@ export function OrdersPage() {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
+                type="date"
+                label="Fecha requerida de entrega"
+                value={header.required_delivery_date}
+                onChange={(e) => setHeader((prev) => ({ ...prev, required_delivery_date: e.target.value }))}
+                inputProps={{ min: minDeliveryDateValue, max: maxDeliveryDateValue }}
+                helperText="Opcional. Debe estar entre hoy y los próximos 60 días."
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
                 label="Notas"
                 value={header.notes}
                 onChange={(e) => setHeader((prev) => ({ ...prev, notes: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Nota interna de planta"
+                value={header.plant_internal_note}
+                onChange={(e) => setHeader((prev) => ({ ...prev, plant_internal_note: e.target.value }))}
               />
             </Grid>
           </Grid>
@@ -500,6 +551,7 @@ export function OrdersPage() {
                         <Typography variant="body2" color="text.secondary">
                           Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
                           {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
+                          {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
                         </Typography>
                         <Stack spacing={0.5} sx={{ mt: 1 }}>
                           {order.items.map((item) => (

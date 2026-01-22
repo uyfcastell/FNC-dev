@@ -83,6 +83,7 @@ export function MobileOrdersPage() {
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [requestedBy, setRequestedBy] = useState("");
   const [notes, setNotes] = useState("");
+  const [requiredDeliveryDate, setRequiredDeliveryDate] = useState("");
   const [lines, setLines] = useState<Record<OrderSectionKey, OrderLine[]>>({
     pt: [emptyLine],
     consumibles: [emptyLine],
@@ -160,12 +161,25 @@ export function MobileOrdersPage() {
   }, [orders, statusFilter]);
 
   const totalUnits = (order: Order) => order.items.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
+  const today = useMemo(() => {
+    const current = new Date();
+    current.setHours(0, 0, 0, 0);
+    return current;
+  }, []);
+  const maxDeliveryDate = useMemo(() => {
+    const max = new Date(today);
+    max.setDate(max.getDate() + 60);
+    return max;
+  }, [today]);
+  const minDeliveryDateValue = today.toISOString().split("T")[0];
+  const maxDeliveryDateValue = maxDeliveryDate.toISOString().split("T")[0];
 
   const resetEditor = () => {
     setEditingOrderId(null);
     setActiveOrder(null);
     setRequestedBy("");
     setNotes("");
+    setRequiredDeliveryDate("");
     setLines({ pt: [emptyLine], consumibles: [emptyLine], papeleria: [emptyLine], limpieza: [emptyLine] });
   };
 
@@ -195,6 +209,7 @@ export function MobileOrdersPage() {
     setActiveOrder(order);
     setRequestedBy(order.requested_by ?? "");
     setNotes(order.notes ?? "");
+    setRequiredDeliveryDate(order.required_delivery_date ?? "");
     setLines(filledLines);
   };
 
@@ -253,6 +268,13 @@ export function MobileOrdersPage() {
       setError("Indica quién ingresa el pedido.");
       return null;
     }
+    if (requiredDeliveryDate) {
+      const selected = new Date(`${requiredDeliveryDate}T00:00:00`);
+      if (selected < today || selected > maxDeliveryDate) {
+        setError("La fecha requerida debe estar entre hoy y los próximos 60 días.");
+        return null;
+      }
+    }
     const items = buildItemsPayload();
     if (!validateLines(items)) return null;
     try {
@@ -261,6 +283,7 @@ export function MobileOrdersPage() {
           destination_deposit_id: selectedDepositId,
           requested_by: requestedBy.trim(),
           notes: notes.trim() || null,
+          required_delivery_date: requiredDeliveryDate || null,
           items,
         });
         return editingOrderId;
@@ -269,6 +292,7 @@ export function MobileOrdersPage() {
           destination_deposit_id: selectedDepositId,
           requested_by: requestedBy.trim(),
           notes: notes.trim() || null,
+          required_delivery_date: requiredDeliveryDate || null,
           status: "draft",
           items,
         });
@@ -525,6 +549,11 @@ export function MobileOrdersPage() {
                     Fecha: {formatDate(activeOrder.created_at)} · Local: {selectedDeposit?.name}
                   </Typography>
                   <Typography variant="body2">Ingresado por: {activeOrder.requested_by || "Sin nombre"}</Typography>
+                  {activeOrder.required_delivery_date && (
+                    <Typography variant="body2">
+                      Fecha requerida: {formatDate(activeOrder.required_delivery_date)}
+                    </Typography>
+                  )}
                   {activeOrder.notes && <Typography variant="body2">Notas: {activeOrder.notes}</Typography>}
                   <Stack spacing={1}>
                     {activeOrder.items.map((item) => (
@@ -599,6 +628,15 @@ export function MobileOrdersPage() {
                       value={requestedBy}
                       onChange={(e) => setRequestedBy(e.target.value)}
                       required
+                    />
+                    <TextField
+                      type="date"
+                      label="Fecha requerida de entrega"
+                      value={requiredDeliveryDate}
+                      onChange={(e) => setRequiredDeliveryDate(e.target.value)}
+                      inputProps={{ min: minDeliveryDateValue, max: maxDeliveryDateValue }}
+                      helperText="Opcional. Debe estar entre hoy y los próximos 60 días."
+                      InputLabelProps={{ shrink: true }}
                     />
                     <TextField
                       label="Notas (opcional)"

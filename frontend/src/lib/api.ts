@@ -216,9 +216,11 @@ export type Order = {
   destination: string;
   destination_deposit_id?: number | null;
   requested_for?: string | null;
+  required_delivery_date?: string | null;
   requested_by?: string | null;
   status: OrderStatus;
   notes?: string | null;
+  plant_internal_note?: string | null;
   created_at: string;
   cancelled_at?: string | null;
   cancelled_by_user_id?: number | null;
@@ -742,8 +744,10 @@ export async function createOrder(
     notes?: string | null;
     items: OrderItem[];
     requested_for?: string | null;
+    required_delivery_date?: string | null;
     requested_by?: string | null;
     status?: OrderStatus;
+    plant_internal_note?: string | null;
   }
 ): Promise<Order> {
   return apiRequest("/orders", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el pedido");
