@@ -13,6 +13,8 @@ import {
   IconButton,
   MenuItem,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
@@ -41,6 +43,7 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   cancelled: "Cancelado",
 };
 
+type OrdersTabKey = "bandeja" | "ingreso";
 type OrderLine = { sku_id: string; quantity: string; current_stock: string };
 
 const initialLine: OrderLine = { sku_id: "", quantity: "", current_stock: "" };
@@ -52,6 +55,12 @@ export function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [tab, setTab] = useState<OrdersTabKey>("bandeja");
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "all">("all");
+  const [destinationFilter, setDestinationFilter] = useState("");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
+  const [requestedByFilter, setRequestedByFilter] = useState("");
   const [header, setHeader] = useState<{
     destination_deposit_id: string;
     notes: string;
@@ -150,6 +159,32 @@ export function OrdersPage() {
     setHeader({ destination_deposit_id: "", notes: "", requested_by: "", required_delivery_date: "", plant_internal_note: "" });
     setLines({ pt: [initialLine], consumibles: [initialLine], papeleria: [initialLine], limpieza: [initialLine] });
   };
+
+  const filteredOrders = useMemo(() => {
+    const requestedByQuery = requestedByFilter.trim().toLowerCase();
+    const start = dateFromFilter ? new Date(`${dateFromFilter}T00:00:00`) : null;
+    const end = dateToFilter ? new Date(`${dateToFilter}T23:59:59`) : null;
+
+    return orders.filter((order) => {
+      if (statusFilter !== "all" && order.status !== statusFilter) {
+        return false;
+      }
+      if (destinationFilter && String(order.destination_deposit_id ?? "") !== destinationFilter) {
+        return false;
+      }
+      if (requestedByQuery && !(order.requested_by ?? "").toLowerCase().includes(requestedByQuery)) {
+        return false;
+      }
+      const createdAt = new Date(order.created_at);
+      if (start && createdAt < start) {
+        return false;
+      }
+      if (end && createdAt > end) {
+        return false;
+      }
+      return true;
+    });
+  }, [orders, statusFilter, destinationFilter, dateFromFilter, dateToFilter, requestedByFilter]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -328,158 +363,220 @@ export function OrdersPage() {
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <PlaylistAddIcon color="primary" /> Pedidos
       </Typography>
+      <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ borderBottom: 1, borderColor: "divider" }}>
+        <Tab value="bandeja" label="Bandeja de pedidos" />
+        <Tab value="ingreso" label="Ingreso de pedidos" />
+      </Tabs>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
         <Alert severity="success" onClose={() => setSuccess(null)}>
           {success}
         </Alert>
       )}
-      <Card>
-        <CardHeader
-          title={editingId ? "Editar pedido" : "Nuevo pedido"}
-          subheader="Destinos solo locales definidos"
-          action={
-            <IconButton onClick={loadData}>
-              <RefreshIcon />
-            </IconButton>
-          }
-        />
-        <Divider />
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
-              <TextField
-                select
-                required
-                fullWidth
-                label="Destino (local)"
-                value={header.destination_deposit_id}
-                onChange={(e) => setHeader((prev) => ({ ...prev, destination_deposit_id: e.target.value }))}
-                helperText={!storeDeposits.length ? "Marca los locales como 'Es local' en Maestros > Depósitos" : undefined}
-              >
-                {storeDeposits.map((deposit) => (
-                  <MenuItem key={deposit.id} value={deposit.id}>
-                    {deposit.name}
-                  </MenuItem>
-                ))}
-              </TextField>
+      {tab === "ingreso" && (
+        <Card>
+          <CardHeader
+            title={editingId ? "Editar pedido" : "Nuevo pedido"}
+            subheader="Destinos solo locales definidos"
+            action={
+              <IconButton onClick={loadData}>
+                <RefreshIcon />
+              </IconButton>
+            }
+          />
+          <Divider />
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  select
+                  required
+                  fullWidth
+                  label="Destino (local)"
+                  value={header.destination_deposit_id}
+                  onChange={(e) => setHeader((prev) => ({ ...prev, destination_deposit_id: e.target.value }))}
+                  helperText={!storeDeposits.length ? "Marca los locales como 'Es local' en Maestros > Depósitos" : undefined}
+                >
+                  {storeDeposits.map((deposit) => (
+                    <MenuItem key={deposit.id} value={deposit.id}>
+                      {deposit.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  required
+                  label="Ingresado por"
+                  value={header.requested_by}
+                  onChange={(e) => setHeader((prev) => ({ ...prev, requested_by: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Fecha requerida de entrega"
+                  value={header.required_delivery_date}
+                  onChange={(e) => setHeader((prev) => ({ ...prev, required_delivery_date: e.target.value }))}
+                  inputProps={{ min: minDeliveryDateValue, max: maxDeliveryDateValue }}
+                  helperText="Opcional. Debe estar entre hoy y los próximos 60 días."
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Notas"
+                  value={header.notes}
+                  onChange={(e) => setHeader((prev) => ({ ...prev, notes: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Nota interna de planta"
+                  value={header.plant_internal_note}
+                  onChange={(e) => setHeader((prev) => ({ ...prev, plant_internal_note: e.target.value }))}
+                />
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                required
-                label="Ingresado por"
-                value={header.requested_by}
-                onChange={(e) => setHeader((prev) => ({ ...prev, requested_by: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="date"
-                label="Fecha requerida de entrega"
-                value={header.required_delivery_date}
-                onChange={(e) => setHeader((prev) => ({ ...prev, required_delivery_date: e.target.value }))}
-                inputProps={{ min: minDeliveryDateValue, max: maxDeliveryDateValue }}
-                helperText="Opcional. Debe estar entre hoy y los próximos 60 días."
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Notas"
-                value={header.notes}
-                onChange={(e) => setHeader((prev) => ({ ...prev, notes: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Nota interna de planta"
-                value={header.plant_internal_note}
-                onChange={(e) => setHeader((prev) => ({ ...prev, plant_internal_note: e.target.value }))}
-              />
-            </Grid>
-          </Grid>
-          <Divider sx={{ my: 2 }} />
-          <Stack spacing={2}>
-            {ORDER_SECTIONS.map((section) => (
-              <div key={section.key}>{renderSection(section)}</div>
-            ))}
-          </Stack>
-          <Box sx={{ mt: 2 }}>
-            <Button variant="contained" onClick={handleSubmit}>
-              {editingId ? "Actualizar" : "Crear"} pedido
-            </Button>
-            {editingId && (
-              <Button sx={{ ml: 1 }} onClick={resetForm}>
-                Cancelar
+            <Divider sx={{ my: 2 }} />
+            <Stack spacing={2}>
+              {ORDER_SECTIONS.map((section) => (
+                <div key={section.key}>{renderSection(section)}</div>
+              ))}
+            </Stack>
+            <Box sx={{ mt: 2 }}>
+              <Button variant="contained" onClick={handleSubmit}>
+                {editingId ? "Actualizar" : "Crear"} pedido
               </Button>
-            )}
-          </Box>
-        </CardContent>
-      </Card>
+              {editingId && (
+                <Button sx={{ ml: 1 }} onClick={resetForm}>
+                  Cancelar
+                </Button>
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader title={`Bandeja de pedidos (${orders.length})`} subheader="Gestión rápida" />
-        <Divider />
-        <CardContent>
-          <Stack spacing={1}>
-            {orders.map((order) => {
-              const isCancelled = order.status === "cancelled";
-              const isEditable = ["draft", "submitted", "partially_dispatched"].includes(order.status);
-              return (
-                <Card key={order.id} variant="outlined">
-                  <CardContent>
-                    <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
-                      <Box>
-                        <Typography fontWeight={700}>Pedido #{order.id}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
-                          {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
-                          {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
-                          {order.estimated_delivery_date ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}` : ""}
-                        </Typography>
-                        <Stack spacing={0.5} sx={{ mt: 1 }}>
-                          {order.items.map((item) => (
-                            <Typography key={item.id} variant="body2">
-                              {skuLabel(item.sku_id)} — {item.quantity}
-                              {item.current_stock != null && ` (stock: ${item.current_stock})`}
-                            </Typography>
-                          ))}
+      {tab === "bandeja" && (
+        <Card>
+          <CardHeader
+            title={`Bandeja de pedidos (${filteredOrders.length})`}
+            subheader={`Mostrando ${filteredOrders.length} de ${orders.length}`}
+          />
+          <Divider />
+          <CardContent>
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={12} md={3}>
+                <TextField select fullWidth label="Estado" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as OrderStatus | "all")}>
+                  <MenuItem value="all">Todos</MenuItem>
+                  {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
+                    <MenuItem key={status} value={status}>
+                      {label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField select fullWidth label="Destino (local)" value={destinationFilter} onChange={(e) => setDestinationFilter(e.target.value)}>
+                  <MenuItem value="">Todos</MenuItem>
+                  {storeDeposits.map((deposit) => (
+                    <MenuItem key={deposit.id} value={deposit.id}>
+                      {deposit.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Fecha creación desde"
+                  value={dateFromFilter}
+                  onChange={(e) => setDateFromFilter(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Fecha creación hasta"
+                  value={dateToFilter}
+                  onChange={(e) => setDateToFilter(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Ingresado por"
+                  value={requestedByFilter}
+                  onChange={(e) => setRequestedByFilter(e.target.value)}
+                  placeholder="Nombre o usuario"
+                />
+              </Grid>
+            </Grid>
+            <Stack spacing={1}>
+              {filteredOrders.map((order) => {
+                const isCancelled = order.status === "cancelled";
+                const isEditable = ["draft", "submitted", "partially_dispatched"].includes(order.status);
+                return (
+                  <Card key={order.id} variant="outlined">
+                    <CardContent>
+                      <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
+                        <Box>
+                          <Typography fontWeight={700}>Pedido #{order.id}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
+                            {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
+                            {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
+                            {order.estimated_delivery_date ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}` : ""}
+                          </Typography>
+                          <Stack spacing={0.5} sx={{ mt: 1 }}>
+                            {order.items.map((item) => (
+                              <Typography key={item.id} variant="body2">
+                                {skuLabel(item.sku_id)} — {item.quantity}
+                                {item.current_stock != null && ` (stock: ${item.current_stock})`}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        </Box>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <TextField
+                            select
+                            size="small"
+                            label="Estado"
+                            value={order.status}
+                            onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                            disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
+                          >
+                            {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
+                              <MenuItem key={status} value={status}>
+                                {label}
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                          <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
+                            Editar
+                          </Button>
+                          <Button color="error" onClick={() => handleCancelOrder(order.id)} disabled={isCancelled}>
+                            Cancelar
+                          </Button>
                         </Stack>
-                      </Box>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <TextField
-                          select
-                          size="small"
-                          label="Estado"
-                          value={order.status}
-                          onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                          disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
-                        >
-                          {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
-                            <MenuItem key={status} value={status}>
-                              {label}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                        <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
-                          Editar
-                        </Button>
-                        <Button color="error" onClick={() => handleCancelOrder(order.id)} disabled={isCancelled}>
-                          Cancelar
-                        </Button>
                       </Stack>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </Stack>
-        </CardContent>
-      </Card>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
     </Stack>
   );

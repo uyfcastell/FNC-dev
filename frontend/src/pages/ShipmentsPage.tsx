@@ -32,9 +32,15 @@ import {
   Deposit,
   Order,
   Shipment,
+  ShipmentStatus,
 } from "../lib/api";
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString("es-AR");
+const SHIPMENT_STATUS_LABELS: Record<ShipmentStatus, string> = {
+  draft: "Borrador",
+  confirmed: "Confirmado",
+  dispatched: "Despachado",
+};
 
 export function ShipmentsPage() {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -50,6 +56,11 @@ export function ShipmentsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState<ShipmentStatus | "all">("all");
+  const [shipmentDepositFilter, setShipmentDepositFilter] = useState("");
+  const [shipmentDateFrom, setShipmentDateFrom] = useState("");
+  const [shipmentDateTo, setShipmentDateTo] = useState("");
+  const [shipmentIdFilter, setShipmentIdFilter] = useState("");
 
   useEffect(() => {
     void loadCatalog();
@@ -124,6 +135,32 @@ export function ShipmentsPage() {
         .filter(({ pending }) => pending > 0),
     );
   }, [selectedOrders]);
+
+  const filteredShipments = useMemo(() => {
+    const start = shipmentDateFrom ? new Date(`${shipmentDateFrom}T00:00:00`) : null;
+    const end = shipmentDateTo ? new Date(`${shipmentDateTo}T23:59:59`) : null;
+    const idQuery = shipmentIdFilter.trim();
+
+    return shipments.filter((shipment) => {
+      if (shipmentStatusFilter !== "all" && shipment.status !== shipmentStatusFilter) {
+        return false;
+      }
+      if (shipmentDepositFilter && String(shipment.deposit_id) !== shipmentDepositFilter) {
+        return false;
+      }
+      if (idQuery && !String(shipment.id).includes(idQuery)) {
+        return false;
+      }
+      const estimatedDate = new Date(shipment.estimated_delivery_date);
+      if (start && estimatedDate < start) {
+        return false;
+      }
+      if (end && estimatedDate > end) {
+        return false;
+      }
+      return true;
+    });
+  }, [shipments, shipmentStatusFilter, shipmentDepositFilter, shipmentDateFrom, shipmentDateTo, shipmentIdFilter]);
 
   const toggleOrder = (orderId: number) => {
     setSelectedOrderIds((prev) => {
@@ -471,7 +508,7 @@ export function ShipmentsPage() {
 
       <Card>
         <CardHeader
-          title={`Envíos existentes (${shipments.length})`}
+          title={`Envíos existentes (${filteredShipments.length})`}
           action={
             <IconButton onClick={loadShipments}>
               <RefreshIcon />
@@ -480,13 +517,75 @@ export function ShipmentsPage() {
         />
         <Divider />
         <CardContent>
-          {shipments.length === 0 ? (
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            <Grid item xs={12} md={3}>
+              <TextField
+                select
+                fullWidth
+                label="Estado"
+                value={shipmentStatusFilter}
+                onChange={(e) => setShipmentStatusFilter(e.target.value as ShipmentStatus | "all")}
+              >
+                <MenuItem value="all">Todos</MenuItem>
+                {Object.entries(SHIPMENT_STATUS_LABELS).map(([status, label]) => (
+                  <MenuItem key={status} value={status}>
+                    {label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                select
+                fullWidth
+                label="Local destino"
+                value={shipmentDepositFilter}
+                onChange={(e) => setShipmentDepositFilter(e.target.value)}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {deposits.map((deposit) => (
+                  <MenuItem key={deposit.id} value={deposit.id}>
+                    {deposit.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                type="date"
+                label="Fecha estimada desde"
+                value={shipmentDateFrom}
+                onChange={(e) => setShipmentDateFrom(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                type="date"
+                label="Fecha estimada hasta"
+                value={shipmentDateTo}
+                onChange={(e) => setShipmentDateTo(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Buscar por ID de envío"
+                value={shipmentIdFilter}
+                onChange={(e) => setShipmentIdFilter(e.target.value)}
+              />
+            </Grid>
+          </Grid>
+          {filteredShipments.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
               Aún no hay envíos registrados.
             </Typography>
           ) : (
             <Stack spacing={1}>
-              {shipments.map((shipment) => (
+              {filteredShipments.map((shipment) => (
                 <Box
                   key={shipment.id}
                   sx={{
