@@ -40,9 +40,8 @@ class MermaAction(str, Enum):
 class OrderStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
-    APPROVED = "approved"
-    PREPARED = "prepared"
-    CLOSED = "closed"
+    PARTIALLY_DISPATCHED = "partially_dispatched"
+    DISPATCHED = "dispatched"
     CANCELLED = "cancelled"
 
 
@@ -53,6 +52,12 @@ class RemitoStatus(str, Enum):
     DISPATCHED = "dispatched"
     RECEIVED = "received"
     CANCELLED = "cancelled"
+
+
+class ShipmentStatus(str, Enum):
+    DRAFT = "draft"
+    CONFIRMED = "confirmed"
+    DISPATCHED = "dispatched"
 
 
 class InventoryCountStatus(str, Enum):

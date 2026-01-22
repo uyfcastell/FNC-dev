@@ -1,8 +1,12 @@
 import re
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -24,6 +28,8 @@ from ..models import (
     OrderItem,
     Remito,
     RemitoItem,
+    Shipment,
+    ShipmentItem,
     MermaCause,
     MermaEvent,
     MermaStage,
@@ -38,7 +44,7 @@ from ..models import (
     StockMovementType,
     User,
 )
-from ..models.common import OrderStatus, RemitoStatus, UnitOfMeasure
+from ..models.common import OrderStatus, RemitoStatus, ShipmentStatus, UnitOfMeasure
 from ..schemas import (
     DepositCreate,
     DepositRead,
@@ -77,9 +83,14 @@ from ..schemas import (
     OrderStatusUpdate,
     RemitoRead,
     RemitoItemRead,
-    RemitoFromOrderRequest,
     RemitoDispatchRequest,
     RemitoReceiveRequest,
+    ShipmentAddOrders,
+    ShipmentCreate,
+    ShipmentDetail,
+    ShipmentItemRead,
+    ShipmentItemUpdate,
+    ShipmentRead,
     MermaCauseCreate,
     MermaCauseRead,
     MermaCauseUpdate,
@@ -151,6 +162,13 @@ def _map_user(user: User, session: Session) -> UserRead:
         role_name=role_name,
         is_active=user.is_active,
     )
+
+
+def _get_user_role_name(session: Session, user: User) -> str | None:
+    if not user.role_id:
+        return None
+    role = session.get(Role, user.role_id)
+    return role.name if role else None
 
 
 def _get_sku_type_or_404(session: Session, sku_type_id: int) -> SKUType:
@@ -528,6 +546,11 @@ def _ensure_order_transition(order: Order, next_status: OrderStatus) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede volver a borrador")
     if next_status == OrderStatus.SUBMITTED and order.status != OrderStatus.DRAFT:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo un borrador puede enviarse")
+    if next_status in {OrderStatus.PARTIALLY_DISPATCHED, OrderStatus.DISPATCHED}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El estado de despacho solo se actualiza desde envíos",
+        )
     if next_status == OrderStatus.CANCELLED and order.status not in {OrderStatus.DRAFT, OrderStatus.SUBMITTED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no puede cancelarse en este estado")
 
@@ -573,6 +596,48 @@ def _serialize_order_item_payload(item: dict) -> dict:
     }
 
 
+def _get_dispatched_quantities(session: Session, order_item_ids: list[int]) -> dict[int, float]:
+    if not order_item_ids:
+        return {}
+    statement = (
+        select(ShipmentItem.order_item_id, func.sum(ShipmentItem.quantity))
+        .join(Shipment)
+        .where(
+            ShipmentItem.order_item_id.in_(order_item_ids),
+            Shipment.status.in_({ShipmentStatus.CONFIRMED, ShipmentStatus.DISPATCHED}),
+        )
+        .group_by(ShipmentItem.order_item_id)
+    )
+    rows = session.exec(statement).all()
+    return {row[0]: float(row[1] or 0) for row in rows}
+
+
+def _get_latest_shipment_date(session: Session, order_id: int) -> date | None:
+    statement = (
+        select(Shipment.estimated_delivery_date)
+        .join(ShipmentItem, ShipmentItem.shipment_id == Shipment.id)
+        .where(
+            ShipmentItem.order_id == order_id,
+            Shipment.status.in_({ShipmentStatus.CONFIRMED, ShipmentStatus.DISPATCHED}),
+        )
+        .order_by(Shipment.estimated_delivery_date.desc(), Shipment.id.desc())
+    )
+    return session.exec(statement).first()
+
+
+def _order_locked_by_shipment(session: Session, order_id: int) -> bool:
+    statement = (
+        select(ShipmentItem.id)
+        .join(Shipment)
+        .where(
+            ShipmentItem.order_id == order_id,
+            Shipment.status.in_({ShipmentStatus.CONFIRMED, ShipmentStatus.DISPATCHED}),
+        )
+        .limit(1)
+    )
+    return session.exec(statement).first() is not None
+
+
 def _diff_order_items(before_items: list[dict], after_items: list[dict]) -> dict:
     before_map = {item["sku_id"]: item for item in before_items}
     after_map = {item["sku_id"]: item for item in after_items}
@@ -613,6 +678,7 @@ def _diff_order_header(before: dict, after: dict) -> dict:
 
 def _map_order(order: Order, session: Session) -> OrderRead:
     session.refresh(order, attribute_names=["items"])
+    dispatched_quantities = _get_dispatched_quantities(session, [item.id for item in order.items])
     items = []
     for item in order.items:
         sku = session.get(SKU, item.sku_id)
@@ -620,6 +686,8 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         sku_name = sku.name if sku else f"SKU {item.sku_id}"
         quantity_value = float(item.quantity)
         has_legacy_decimal = not quantity_value.is_integer()
+        dispatched_quantity = dispatched_quantities.get(item.id, 0.0)
+        pending_quantity = max(quantity_value - dispatched_quantity, 0.0)
         items.append(
             {
                 "id": item.id,
@@ -628,6 +696,8 @@ def _map_order(order: Order, session: Session) -> OrderRead:
                 "sku_name": sku_name,
                 "quantity": quantity_value,
                 "current_stock": item.current_stock,
+                "dispatched_quantity": dispatched_quantity,
+                "pending_quantity": pending_quantity,
                 "has_legacy_decimal": has_legacy_decimal,
                 "quantity_raw": quantity_value if has_legacy_decimal else None,
             }
@@ -649,6 +719,7 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         requested_for=order.requested_for,
         required_delivery_date=order.required_delivery_date,
         requested_by=order.requested_by,
+        estimated_delivery_date=_get_latest_shipment_date(session, order.id),
         status=order.status,
         notes=order.notes,
         plant_internal_note=order.plant_internal_note,
@@ -685,6 +756,13 @@ def _get_remito_or_404(session: Session, remito_id: int) -> Remito:
     return remito
 
 
+def _get_shipment_or_404(session: Session, shipment_id: int) -> Shipment:
+    shipment = session.get(Shipment, shipment_id)
+    if not shipment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Envío no encontrado")
+    return shipment
+
+
 def _map_remito(remito: Remito, session: Session) -> RemitoRead:
     session.refresh(remito, attribute_names=["items", "source_deposit", "destination_deposit"])
     items: list[RemitoItemRead] = []
@@ -713,6 +791,7 @@ def _map_remito(remito: Remito, session: Session) -> RemitoRead:
     return RemitoRead(
         id=remito.id,
         order_id=remito.order_id,
+        shipment_id=remito.shipment_id,
         status=remito.status,
         destination=remito.destination,
         source_deposit_id=remito.source_deposit_id,
@@ -724,12 +803,117 @@ def _map_remito(remito: Remito, session: Session) -> RemitoRead:
         received_at=remito.received_at,
         cancelled_at=remito.cancelled_at,
         created_at=remito.created_at,
+        pdf_path=remito.pdf_path,
         created_by_user_id=remito.created_by_user_id,
         created_by_name=created_by_name,
         updated_by_user_id=remito.updated_by_user_id,
         updated_by_name=updated_by_name,
         items=items,
     )
+
+
+def _map_shipment_item(item: ShipmentItem, session: Session, dispatched_quantities: dict[int, float]) -> ShipmentItemRead:
+    order_item = session.get(OrderItem, item.order_item_id)
+    sku = session.get(SKU, order_item.sku_id) if order_item else None
+    ordered_quantity = float(order_item.quantity) if order_item else 0.0
+    dispatched_quantity = dispatched_quantities.get(item.order_item_id, 0.0)
+    remaining_quantity = max(ordered_quantity - dispatched_quantity, 0.0)
+    return ShipmentItemRead(
+        id=item.id,
+        shipment_id=item.shipment_id,
+        order_id=item.order_id,
+        order_item_id=item.order_item_id,
+        sku_id=order_item.sku_id if order_item else 0,
+        sku_code=sku.code if sku else str(order_item.sku_id) if order_item else "",
+        sku_name=sku.name if sku else f"SKU {order_item.sku_id}" if order_item else "",
+        quantity=item.quantity,
+        ordered_quantity=ordered_quantity,
+        dispatched_quantity=dispatched_quantity,
+        remaining_quantity=remaining_quantity,
+    )
+
+
+def _map_shipment(shipment: Shipment, session: Session, include_items: bool = False) -> ShipmentRead | ShipmentDetail:
+    session.refresh(shipment, attribute_names=["items", "deposit"])
+    base = ShipmentRead(
+        id=shipment.id,
+        deposit_id=shipment.deposit_id,
+        deposit_name=shipment.deposit.name if shipment.deposit else None,
+        estimated_delivery_date=shipment.estimated_delivery_date,
+        status=shipment.status,
+        created_at=shipment.created_at,
+        updated_at=shipment.updated_at,
+    )
+    if not include_items:
+        return base
+    dispatched_quantities = _get_dispatched_quantities(session, [item.order_item_id for item in shipment.items])
+    items = [_map_shipment_item(item, session, dispatched_quantities) for item in shipment.items]
+    return ShipmentDetail(**base.model_dump(), items=items)
+
+
+def _remito_storage_dir() -> Path:
+    base_dir = Path(__file__).resolve().parents[1]
+    storage_dir = base_dir / "storage" / "remitos"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    return storage_dir
+
+
+def _generate_remito_pdf(session: Session, remito: Remito, remito_items: list[RemitoItem], remito_type: str) -> str | None:
+    if not remito_items:
+        return None
+    storage_dir = _remito_storage_dir()
+    filename = f"remito_{remito.id}_{remito_type.lower()}.pdf"
+    file_path = storage_dir / filename
+
+    pdf = canvas.Canvas(str(file_path), pagesize=A4)
+    width, height = A4
+    x_margin = 20 * mm
+    y = height - 25 * mm
+
+    type_label = "Productos terminados" if remito_type == "PT" else "No-PT (consumibles y otros)"
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(x_margin, y, f"Remito #{remito.id}")
+    y -= 8 * mm
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(x_margin, y, f"Tipo: {type_label}")
+    y -= 6 * mm
+    pdf.drawString(x_margin, y, f"Fecha de emisión: {remito.issue_date.strftime('%d/%m/%Y')}")
+    y -= 6 * mm
+    pdf.drawString(x_margin, y, f"Destino: {remito.destination}")
+    y -= 6 * mm
+    source_deposit = session.get(Deposit, remito.source_deposit_id) if remito.source_deposit_id else None
+    if source_deposit:
+        pdf.drawString(x_margin, y, f"Origen: {source_deposit.name}")
+        y -= 6 * mm
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(x_margin, y, "Detalle de ítems")
+    y -= 8 * mm
+    pdf.setFont("Helvetica", 10)
+
+    header = ["Código", "Producto", "Cantidad"]
+    col_widths = [35 * mm, 100 * mm, 25 * mm]
+    pdf.drawString(x_margin, y, header[0])
+    pdf.drawString(x_margin + col_widths[0], y, header[1])
+    pdf.drawString(x_margin + col_widths[0] + col_widths[1], y, header[2])
+    y -= 5 * mm
+    pdf.line(x_margin, y, width - x_margin, y)
+    y -= 6 * mm
+
+    for item in remito_items:
+        sku = session.get(SKU, item.sku_id)
+        sku_code = sku.code if sku else str(item.sku_id)
+        sku_name = sku.name if sku else f"SKU {item.sku_id}"
+        if y < 25 * mm:
+            pdf.showPage()
+            y = height - 25 * mm
+        pdf.drawString(x_margin, y, sku_code)
+        pdf.drawString(x_margin + col_widths[0], y, sku_name)
+        pdf.drawRightString(x_margin + col_widths[0] + col_widths[1] + col_widths[2], y, str(item.quantity))
+        y -= 6 * mm
+
+    pdf.save()
+    return str(file_path)
 
 
 @public_router.post("/auth/login", tags=["auth"], response_model=TokenResponse)
@@ -1518,8 +1702,20 @@ def update_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    if order.status != OrderStatus.DRAFT:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se puede editar un pedido en borrador")
+    role_name = _get_user_role_name(session, current_user)
+    is_admin = role_name == "ADMIN"
+    allowed_statuses = {OrderStatus.DRAFT} if not is_admin else {
+        OrderStatus.DRAFT,
+        OrderStatus.SUBMITTED,
+        OrderStatus.PARTIALLY_DISPATCHED,
+    }
+    if order.status not in allowed_statuses:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede editar el pedido en este estado")
+    if _order_locked_by_shipment(session, order.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El pedido está bloqueado por un envío confirmado o despachado",
+        )
 
     if payload.items is not None and not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
@@ -1677,6 +1873,428 @@ def delete_order(
     session.commit()
 
 
+@router.post(
+    "/shipments",
+    tags=["shipments"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=ShipmentRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def create_shipment(
+    payload: ShipmentCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentRead:
+    destination = _ensure_store_destination(session, payload.deposit_id)
+    shipment = Shipment(
+        deposit_id=destination.id,
+        estimated_delivery_date=payload.estimated_delivery_date,
+        status=ShipmentStatus.DRAFT,
+    )
+    session.add(shipment)
+    session.flush()
+    audit_changes = {
+        "event": "shipment_created",
+        "shipment_id": shipment.id,
+        "deposit_id": shipment.deposit_id,
+        "estimated_delivery_date": shipment.estimated_delivery_date,
+        "status": shipment.status,
+    }
+    _log_audit(session, "shipments", shipment.id, AuditAction.CREATE, current_user.id, audit_changes)
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session)
+
+
+@router.get(
+    "/shipments",
+    tags=["shipments"],
+    response_model=list[ShipmentRead],
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def list_shipments(
+    deposit_id: int | None = None,
+    status_filter: ShipmentStatus | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    session: Session = Depends(get_session),
+) -> list[ShipmentRead]:
+    statement = select(Shipment)
+    if deposit_id:
+        statement = statement.where(Shipment.deposit_id == deposit_id)
+    if status_filter:
+        statement = statement.where(Shipment.status == status_filter)
+    if date_from:
+        statement = statement.where(Shipment.estimated_delivery_date >= date_from)
+    if date_to:
+        statement = statement.where(Shipment.estimated_delivery_date <= date_to)
+    shipments = session.exec(statement.order_by(Shipment.created_at.desc())).all()
+    return [_map_shipment(shipment, session) for shipment in shipments]
+
+
+@router.get(
+    "/shipments/{shipment_id}",
+    tags=["shipments"],
+    response_model=ShipmentDetail,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def get_shipment(shipment_id: int, session: Session = Depends(get_session)) -> ShipmentDetail:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    return _map_shipment(shipment, session, include_items=True)
+
+
+@router.post(
+    "/shipments/{shipment_id}/add-orders",
+    tags=["shipments"],
+    response_model=ShipmentDetail,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def add_orders_to_shipment(
+    shipment_id: int,
+    payload: ShipmentAddOrders,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentDetail:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar envíos en borrador")
+    if not payload.order_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selecciona al menos un pedido")
+
+    orders = session.exec(select(Order).where(Order.id.in_(payload.order_ids))).all()
+    if len(orders) != len(set(payload.order_ids)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Algún pedido no existe")
+
+    existing_items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+    existing_order_item_ids = {item.order_item_id for item in existing_items}
+
+    order_item_ids = []
+    order_items_by_order: dict[int, list[OrderItem]] = {}
+    for order in orders:
+        if order.status not in {OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_DISPATCHED}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El pedido {order.id} no está en estado Enviado o Parcialmente despachado",
+            )
+        if order.destination_deposit_id != shipment.deposit_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Los pedidos deben ser del mismo local")
+        items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+        if not items:
+            continue
+        order_items_by_order[order.id] = items
+        order_item_ids.extend([item.id for item in items])
+
+    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+    added_items = []
+    for order_id, items in order_items_by_order.items():
+        for item in items:
+            remaining = float(item.quantity) - dispatched_quantities.get(item.id, 0.0)
+            if remaining <= 0:
+                continue
+            if item.id in existing_order_item_ids:
+                continue
+            shipment_item = ShipmentItem(
+                shipment_id=shipment.id,
+                order_id=order_id,
+                order_item_id=item.id,
+                quantity=int(remaining),
+            )
+            session.add(shipment_item)
+            added_items.append({"order_item_id": item.id, "quantity": int(remaining), "order_id": order_id})
+
+    audit_changes = {
+        "event": "shipment_orders_added",
+        "shipment_id": shipment.id,
+        "deposit_id": shipment.deposit_id,
+        "order_ids": payload.order_ids,
+        "items": added_items,
+    }
+    _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session, include_items=True)
+
+
+@router.post(
+    "/shipments/{shipment_id}/items",
+    tags=["shipments"],
+    response_model=ShipmentDetail,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def update_shipment_items(
+    shipment_id: int,
+    payload: list[ShipmentItemUpdate],
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentDetail:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar envíos en borrador")
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay ítems para actualizar")
+
+    items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+    item_map = {item.order_item_id: item for item in items}
+    order_item_ids = list(item_map.keys())
+    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+
+    before_quantities = {item.order_item_id: item.quantity for item in items}
+    changes = []
+
+    for update in payload:
+        if update.order_item_id not in item_map:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ítem no pertenece al envío")
+        if update.quantity < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad no puede ser negativa")
+        order_item = session.get(OrderItem, update.order_item_id)
+        if not order_item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de pedido no encontrado")
+        remaining = float(order_item.quantity) - dispatched_quantities.get(order_item.id, 0.0)
+        if update.quantity > remaining:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La cantidad supera lo pendiente por despachar",
+            )
+        shipment_item = item_map[update.order_item_id]
+        if update.quantity == 0:
+            session.delete(shipment_item)
+            changes.append(
+                {
+                    "order_item_id": update.order_item_id,
+                    "before": shipment_item.quantity,
+                    "after": 0,
+                }
+            )
+            continue
+        if shipment_item.quantity != update.quantity:
+            changes.append(
+                {
+                    "order_item_id": update.order_item_id,
+                    "before": shipment_item.quantity,
+                    "after": update.quantity,
+                }
+            )
+        shipment_item.quantity = update.quantity
+        shipment_item.updated_at = datetime.utcnow()
+        session.add(shipment_item)
+
+    audit_changes = {
+        "event": "shipment_items_updated",
+        "shipment_id": shipment.id,
+        "deposit_id": shipment.deposit_id,
+        "changes": changes,
+        "before": before_quantities,
+    }
+    _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session, include_items=True)
+
+
+@router.post(
+    "/shipments/{shipment_id}/confirm",
+    tags=["shipments"],
+    response_model=ShipmentDetail,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def confirm_shipment(
+    shipment_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentDetail:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El envío ya fue confirmado")
+    session.refresh(shipment, attribute_names=["items"])
+    if not shipment.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El envío no tiene ítems cargados")
+
+    order_item_ids = [item.order_item_id for item in shipment.items]
+    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+
+    for item in shipment.items:
+        order_item = session.get(OrderItem, item.order_item_id)
+        if not order_item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de pedido no encontrado")
+        remaining = float(order_item.quantity) - dispatched_quantities.get(order_item.id, 0.0)
+        if item.quantity <= 0 or item.quantity > remaining:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La cantidad a despachar es inválida para algún ítem",
+            )
+
+    source_deposit = _default_source_deposit(session)
+    movement_type = _get_movement_type_by_code(session, "REMITO")
+
+    remitos_created = []
+    stock_movement_ids = []
+    remito_items_by_type: dict[str, list[ShipmentItem]] = {"PT": [], "NO_PT": []}
+    for item in shipment.items:
+        order_item = session.get(OrderItem, item.order_item_id)
+        sku = session.get(SKU, order_item.sku_id) if order_item else None
+        sku_type_code = sku.sku_type.code if sku and sku.sku_type else ""
+        key = "PT" if sku_type_code == "PT" else "NO_PT"
+        remito_items_by_type[key].append(item)
+
+    for remito_type, items in remito_items_by_type.items():
+        if not items:
+            continue
+        destination_deposit = _get_deposit_or_404(session, shipment.deposit_id)
+        remito = Remito(
+            shipment_id=shipment.id,
+            status=RemitoStatus.DISPATCHED,
+            destination=destination_deposit.name,
+            issue_date=date.today(),
+            source_deposit_id=source_deposit.id,
+            destination_deposit_id=destination_deposit.id,
+            dispatched_at=datetime.utcnow(),
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
+        )
+        session.add(remito)
+        session.flush()
+
+        remito_items = []
+        for shipment_item in items:
+            order_item = session.get(OrderItem, shipment_item.order_item_id)
+            if not order_item:
+                continue
+            remito_item = RemitoItem(
+                remito_id=remito.id,
+                sku_id=order_item.sku_id,
+                quantity=shipment_item.quantity,
+            )
+            session.add(remito_item)
+            remito_items.append(remito_item)
+        session.flush()
+
+        remito.pdf_path = _generate_remito_pdf(session, remito, remito_items, remito_type)
+        remito.updated_at = datetime.utcnow()
+        remitos_created.append(remito.id)
+        _log_audit(
+            session,
+            "remitos",
+            remito.id,
+            AuditAction.CREATE,
+            current_user.id,
+            {"event": "remito_created", "shipment_id": shipment.id, "remito_type": remito_type},
+        )
+
+    for item in shipment.items:
+        order_item = session.get(OrderItem, item.order_item_id)
+        if not order_item:
+            continue
+        movement_payload = StockMovementCreate(
+            sku_id=order_item.sku_id,
+            deposit_id=source_deposit.id,
+            movement_type_id=movement_type.id,
+            quantity=item.quantity,
+            is_outgoing=True,
+            reference_type="SHIPMENT",
+            reference_id=shipment.id,
+            reference_item_id=item.id,
+            reference=f"ENVIO-{shipment.id}",
+            created_by_user_id=current_user.id,
+        )
+        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        stock_movement_ids.append(movement.id)
+
+    shipment.status = ShipmentStatus.CONFIRMED
+    shipment.updated_at = datetime.utcnow()
+    session.add(shipment)
+    session.flush()
+
+    orders = session.exec(select(Order).where(Order.id.in_({item.order_id for item in shipment.items}))).all()
+    for order in orders:
+        order_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+        order_item_ids = [item.id for item in order_items]
+        shipped_quantities = _get_dispatched_quantities(session, order_item_ids)
+        all_dispatched = True
+        any_dispatched = False
+        for order_item in order_items:
+            dispatched = shipped_quantities.get(order_item.id, 0.0)
+            if dispatched <= 0:
+                all_dispatched = False
+            if dispatched > 0:
+                any_dispatched = True
+            if dispatched < float(order_item.quantity):
+                all_dispatched = False
+        if all_dispatched:
+            new_status = OrderStatus.DISPATCHED
+        elif any_dispatched:
+            new_status = OrderStatus.PARTIALLY_DISPATCHED
+        else:
+            new_status = order.status
+        if order.status != new_status:
+            before_status = order.status
+            order.status = new_status
+            order.updated_at = datetime.utcnow()
+            order.updated_by_user_id = current_user.id
+            session.add(order)
+            _log_audit(
+                session,
+                "orders",
+                order.id,
+                AuditAction.STATUS,
+                current_user.id,
+                {
+                    "event": "order_status_changed",
+                    "shipment_id": shipment.id,
+                    "order_id": order.id,
+                    "deposit_id": order.destination_deposit_id,
+                    "from_status": before_status,
+                    "to_status": new_status,
+                },
+            )
+
+    _log_audit(
+        session,
+        "shipments",
+        shipment.id,
+        AuditAction.STATUS,
+        current_user.id,
+        {
+            "event": "shipment_confirmed",
+            "shipment_id": shipment.id,
+            "deposit_id": shipment.deposit_id,
+            "remitos": remitos_created,
+            "stock_movements": stock_movement_ids,
+        },
+    )
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session, include_items=True)
+
+
+@router.post(
+    "/shipments/{shipment_id}/dispatch",
+    tags=["shipments"],
+    response_model=ShipmentRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def dispatch_shipment(
+    shipment_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentRead:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.CONFIRMED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden despachar envíos confirmados")
+    shipment.status = ShipmentStatus.DISPATCHED
+    shipment.updated_at = datetime.utcnow()
+    session.add(shipment)
+    _log_audit(
+        session,
+        "shipments",
+        shipment.id,
+        AuditAction.STATUS,
+        current_user.id,
+        {"event": "shipment_dispatched", "shipment_id": shipment.id, "deposit_id": shipment.deposit_id},
+    )
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session)
+
 @router.get(
     "/remitos",
     tags=["remitos"],
@@ -1720,47 +2338,12 @@ def get_remito(remito_id: int, session: Session = Depends(get_session)) -> Remit
 )
 def create_remito_from_order(
     order_id: int,
-    payload: RemitoFromOrderRequest | None = None,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
 ) -> RemitoRead:
-    order = session.get(Order, order_id)
-    if not order:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    session.refresh(order, attribute_names=["items", "destination_deposit"])
-    if not order.items:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no tiene ítems")
-
-    destination_deposit_id = (payload.destination_deposit_id if payload else None) or order.destination_deposit_id
-    if not destination_deposit_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no tiene destino definido")
-    destination_deposit = _get_deposit_or_404(session, destination_deposit_id)
-    source_deposit = (
-        _get_deposit_or_404(session, payload.source_deposit_id)
-        if payload and payload.source_deposit_id
-        else _default_source_deposit(session)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Los remitos se generan exclusivamente desde envíos confirmados",
     )
-
-    remito = Remito(
-        order_id=order.id,
-        status=RemitoStatus.PENDING,
-        destination=destination_deposit.name,
-        issue_date=date.today(),
-        source_deposit_id=source_deposit.id,
-        destination_deposit_id=destination_deposit.id,
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    session.add(remito)
-    session.flush()
-
-    for item in order.items:
-        session.add(RemitoItem(remito_id=remito.id, sku_id=item.sku_id, quantity=item.quantity))
-
-    _log_audit(session, "remitos", remito.id, AuditAction.CREATE, current_user.id, {"order_id": order.id})
-    session.commit()
-    session.refresh(remito)
-    return _map_remito(remito, session)
 
 
 @router.post(
@@ -1777,6 +2360,11 @@ def dispatch_remito(
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
+    if remito.shipment_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Los remitos de envíos confirmados no se despachan manualmente",
+        )
     if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito ya fue procesado")
     if not remito.items:
@@ -1854,6 +2442,11 @@ def receive_remito(
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
+    if remito.shipment_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Los remitos de envíos confirmados no se reciben manualmente",
+        )
     if remito.status not in {RemitoStatus.DISPATCHED, RemitoStatus.SENT}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden recibir remitos despachados")
     if not remito.items:
@@ -1908,6 +2501,11 @@ def cancel_remito(
     current_user: User = Depends(get_current_user),
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
+    if remito.shipment_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Los remitos de envíos confirmados no se pueden cancelar manualmente",
+        )
     if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar un remito procesado")
     remito.status = RemitoStatus.CANCELLED
@@ -2871,11 +3469,18 @@ def create_merma_event(
         remito = session.get(Remito, payload.remito_id)
         if not remito:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Remito no encontrado")
-        order = session.get(Order, remito.order_id) if remito.order_id else None
-        if not order or not order.destination_deposit_id:
+        if remito.order_id:
+            order = session.get(Order, remito.order_id)
+        if remito.destination_deposit_id:
+            deposit = session.get(Deposit, remito.destination_deposit_id)
+        elif remito.shipment_id:
+            shipment = session.get(Shipment, remito.shipment_id)
+            if shipment:
+                deposit = session.get(Deposit, shipment.deposit_id)
+        if not deposit:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito no tiene destino asociado")
-        deposit = session.get(Deposit, order.destination_deposit_id)
-        payload.order_id = order.id if order else payload.order_id
+        if order:
+            payload.order_id = order.id
         payload.deposit_id = deposit.id if deposit else payload.deposit_id
     elif payload.stage == MermaStage.ADMINISTRATIVA:
         if not payload.notes or not payload.notes.strip():

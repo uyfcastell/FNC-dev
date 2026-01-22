@@ -25,8 +25,8 @@ export function DashboardPage() {
         </Grid>
         <Grid item xs={12} md={6} lg={4}>
           <QuickLinkCard
-            title="Pedidos y remitos"
-            description="Aprobar pedidos y generar remitos con PDF"
+            title="Pedidos"
+            description="Crear envíos y generar remitos con PDF"
             to="/pedidos"
           />
         </Grid>

@@ -296,7 +296,7 @@ export function MobileProductionPage() {
 
       <Card sx={{ borderRadius: 3 }}>
         <CardHeader
-          title="Pedidos y remitos"
+          title="Pedidos"
           subheader="Consulta rápida para operarios"
           avatar={<ReceiptIcon color="secondary" />}
           titleTypographyProps={{ sx: { fontSize: 20, fontWeight: 700 } }}
@@ -305,7 +305,7 @@ export function MobileProductionPage() {
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} sm={8}>
               <Typography variant="body1" sx={{ fontSize: 16 }}>
-                Consulta pedidos aprobados y remitos listos para despacho directamente desde la tablet.
+                Consulta pedidos y envíos listos para despacho directamente desde la tablet.
               </Typography>
             </Grid>
             <Grid item xs={12} sm={4}>
@@ -317,7 +317,7 @@ export function MobileProductionPage() {
                 size="large"
                 sx={{ py: 1.5, fontSize: 16 }}
               >
-                Ver pedidos y remitos
+                Ver pedidos y envíos
               </Button>
             </Grid>
           </Grid>

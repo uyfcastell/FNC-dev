@@ -1,8 +1,6 @@
-import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import {
   Alert,
   Box,
@@ -10,8 +8,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  Chip,
-  ChipProps,
   Divider,
   Grid,
   IconButton,
@@ -32,13 +28,6 @@ import {
   OrderStatus,
   Deposit,
   SKU,
-  Remito,
-  RemitoStatus,
-  fetchRemitos,
-  createRemitoFromOrder,
-  dispatchRemito,
-  receiveRemito,
-  cancelRemito,
   updateOrder,
   updateOrderStatus,
 } from "../lib/api";
@@ -47,18 +36,8 @@ import { ORDER_SECTIONS, OrderSectionKey, sectionForSku } from "../lib/orderSect
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
   submitted: "Enviado",
-  approved: "Aprobado",
-  prepared: "Preparación",
-  closed: "Cerrado",
-  cancelled: "Cancelado",
-};
-
-const REMITO_STATUS_LABELS: Record<RemitoStatus, string> = {
-  pending: "Pendiente",
-  sent: "Enviado",
-  delivered: "Entregado",
+  partially_dispatched: "Parcialmente despachado",
   dispatched: "Despachado",
-  received: "Recibido",
   cancelled: "Cancelado",
 };
 
@@ -68,14 +47,10 @@ const initialLine: OrderLine = { sku_id: "", quantity: "", current_stock: "" };
 
 export function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [remitos, setRemitos] = useState<Remito[]>([]);
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [loadingRemitos, setLoadingRemitos] = useState(false);
-  const [remitoActionId, setRemitoActionId] = useState<number | null>(null);
-  const [creatingFromOrderId, setCreatingFromOrderId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [header, setHeader] = useState<{
     destination_deposit_id: string;
@@ -116,45 +91,20 @@ export function OrdersPage() {
   const minDeliveryDateValue = today.toISOString().split("T")[0];
   const maxDeliveryDateValue = maxDeliveryDate.toISOString().split("T")[0];
 
-  const remitoChipColor = (status: RemitoStatus): ChipProps["color"] => {
-    if (status === "received" || status === "delivered") return "success";
-    if (status === "dispatched" || status === "sent") return "info";
-    if (status === "cancelled") return "error";
-    return "default";
-  };
-
   const loadData = async () => {
     try {
-      setLoadingRemitos(true);
-      const [orderList, remitoList, skuList, depositList] = await Promise.all([
+      const [orderList, skuList, depositList] = await Promise.all([
         fetchOrders(),
-        fetchRemitos(),
         fetchSkus({ include_inactive: true }),
         fetchDeposits(),
       ]);
       setOrders(orderList);
-      setRemitos(remitoList);
       setSkus(skuList);
       setDeposits(depositList);
       setError(null);
     } catch (err) {
       console.error(err);
-      setError("No pudimos obtener pedidos, remitos, productos o locales");
-    } finally {
-      setLoadingRemitos(false);
-    }
-  };
-
-  const loadRemitosOnly = async () => {
-    try {
-      setLoadingRemitos(true);
-      const remitoList = await fetchRemitos();
-      setRemitos(remitoList);
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos obtener los remitos");
-    } finally {
-      setLoadingRemitos(false);
+      setError("No pudimos obtener pedidos, productos o locales");
     }
   };
 
@@ -256,70 +206,6 @@ export function OrdersPage() {
     } catch (err) {
       console.error(err);
       setError("No pudimos guardar el pedido");
-    }
-  };
-
-  const handleCreateRemito = async (orderId: number) => {
-    setError(null);
-    setSuccess(null);
-    setCreatingFromOrderId(orderId);
-    try {
-      await createRemitoFromOrder(orderId, {});
-      setSuccess("Remito creado desde pedido");
-      await loadRemitosOnly();
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos crear el remito");
-    } finally {
-      setCreatingFromOrderId(null);
-    }
-  };
-
-  const handleDispatchRemito = async (remitoId: number) => {
-    setError(null);
-    setSuccess(null);
-    setRemitoActionId(remitoId);
-    try {
-      await dispatchRemito(remitoId);
-      setSuccess("Remito despachado");
-      await loadRemitosOnly();
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos despachar el remito");
-    } finally {
-      setRemitoActionId(null);
-    }
-  };
-
-  const handleReceiveRemito = async (remitoId: number) => {
-    setError(null);
-    setSuccess(null);
-    setRemitoActionId(remitoId);
-    try {
-      await receiveRemito(remitoId);
-      setSuccess("Remito recibido");
-      await loadRemitosOnly();
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos registrar la recepción");
-    } finally {
-      setRemitoActionId(null);
-    }
-  };
-
-  const handleCancelRemito = async (remitoId: number) => {
-    setError(null);
-    setSuccess(null);
-    setRemitoActionId(remitoId);
-    try {
-      await cancelRemito(remitoId);
-      setSuccess("Remito cancelado");
-      await loadRemitosOnly();
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos cancelar el remito");
-    } finally {
-      setRemitoActionId(null);
     }
   };
 
@@ -440,7 +326,7 @@ export function OrdersPage() {
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <LocalShippingIcon color="primary" /> Pedidos y remitos
+        <PlaylistAddIcon color="primary" /> Pedidos
       </Typography>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
@@ -542,6 +428,7 @@ export function OrdersPage() {
           <Stack spacing={1}>
             {orders.map((order) => {
               const isCancelled = order.status === "cancelled";
+              const isEditable = ["draft", "submitted", "partially_dispatched"].includes(order.status);
               return (
                 <Card key={order.id} variant="outlined">
                   <CardContent>
@@ -552,6 +439,7 @@ export function OrdersPage() {
                           Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
                           {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
                           {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
+                          {order.estimated_delivery_date ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}` : ""}
                         </Typography>
                         <Stack spacing={0.5} sx={{ mt: 1 }}>
                           {order.items.map((item) => (
@@ -563,21 +451,13 @@ export function OrdersPage() {
                         </Stack>
                       </Box>
                       <Stack direction="row" spacing={1} alignItems="center">
-                        <Button
-                          variant="outlined"
-                          startIcon={<LocalShippingIcon />}
-                          onClick={() => handleCreateRemito(order.id)}
-                          disabled={creatingFromOrderId === order.id || isCancelled}
-                        >
-                          {creatingFromOrderId === order.id ? "Generando..." : "Generar remito"}
-                        </Button>
                         <TextField
                           select
                           size="small"
                           label="Estado"
                           value={order.status}
                           onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                          disabled={isCancelled}
+                          disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
                         >
                           {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
                             <MenuItem key={status} value={status}>
@@ -585,7 +465,7 @@ export function OrdersPage() {
                             </MenuItem>
                           ))}
                         </TextField>
-                        <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || order.status !== "draft"}>
+                        <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
                           Editar
                         </Button>
                         <Button color="error" onClick={() => handleCancelOrder(order.id)} disabled={isCancelled}>
@@ -601,90 +481,6 @@ export function OrdersPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader
-          title={`Remitos (${remitos.length})`}
-          subheader="Despacho y recepción"
-          action={
-            <IconButton onClick={loadRemitosOnly} disabled={loadingRemitos}>
-              <RefreshIcon />
-            </IconButton>
-          }
-        />
-        <Divider />
-        <CardContent>
-          {loadingRemitos ? (
-            <Typography variant="body2">Actualizando remitos...</Typography>
-          ) : remitos.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              Aún no hay remitos generados. Crea uno desde la bandeja de pedidos.
-            </Typography>
-          ) : (
-            <Stack spacing={1}>
-              {remitos.map((remito) => (
-                <Card key={remito.id} variant="outlined">
-                  <CardContent>
-                    <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
-                      <Box>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography fontWeight={700}>Remito #{remito.id}</Typography>
-                          <Chip label={REMITO_STATUS_LABELS[remito.status]} size="small" color={remitoChipColor(remito.status)} />
-                        </Stack>
-                        <Typography variant="body2" color="text.secondary">
-                          Pedido #{remito.order_id} · Origen: {remito.source_deposit_name ?? "-"} · Destino:{" "}
-                          {remito.destination_deposit_name ?? remito.destination}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Emitido: {new Date(remito.issue_date).toLocaleDateString()}
-                        </Typography>
-                        <Stack spacing={0.5} sx={{ mt: 1 }}>
-                          {remito.items.map((item) => (
-                            <Typography key={item.id} variant="body2">
-                              {skuLabel(item.sku_id)} — {item.quantity}
-                            </Typography>
-                          ))}
-                        </Stack>
-                      </Box>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {remito.status === "pending" && (
-                          <>
-                            <Button
-                              variant="outlined"
-                              startIcon={<LocalShippingIcon />}
-                              onClick={() => handleDispatchRemito(remito.id)}
-                              disabled={remitoActionId === remito.id}
-                            >
-                              {remitoActionId === remito.id ? "Procesando..." : "Despachar"}
-                            </Button>
-                            <Button
-                              color="error"
-                              startIcon={<RemoveCircleOutlineIcon />}
-                              onClick={() => handleCancelRemito(remito.id)}
-                              disabled={remitoActionId === remito.id}
-                            >
-                              Cancelar
-                            </Button>
-                          </>
-                        )}
-                        {["dispatched", "sent"].includes(remito.status) && (
-                          <Button
-                            variant="contained"
-                            startIcon={<CheckCircleOutlineIcon />}
-                            onClick={() => handleReceiveRemito(remito.id)}
-                            disabled={remitoActionId === remito.id}
-                          >
-                            {remitoActionId === remito.id ? "Procesando..." : "Recibir"}
-                          </Button>
-                        )}
-                      </Stack>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
     </Stack>
   );
 }

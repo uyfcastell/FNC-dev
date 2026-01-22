@@ -1,6 +1,7 @@
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import InventoryIcon from "@mui/icons-material/Inventory2";
 import ListAltIcon from "@mui/icons-material/ListAlt";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LogoutIcon from "@mui/icons-material/Logout";
 import ManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
@@ -30,7 +31,8 @@ const defaultNavItems: NavItem[] = [
   { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos" },
   { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios" },
   { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas" },
-  { label: "Pedidos y remitos", icon: <ListAltIcon />, to: "/pedidos" },
+  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos" },
+  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios" },
   { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },
   { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion" },
   { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria" },

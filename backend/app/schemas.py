@@ -2,7 +2,16 @@ from datetime import date, datetime
 
 from sqlmodel import SQLModel
 
-from .models.common import AuditAction, InventoryCountStatus, MermaAction, MermaStage, OrderStatus, RemitoStatus, UnitOfMeasure
+from .models.common import (
+    AuditAction,
+    InventoryCountStatus,
+    MermaAction,
+    MermaStage,
+    OrderStatus,
+    RemitoStatus,
+    ShipmentStatus,
+    UnitOfMeasure,
+)
 
 class SKUTypeBase(SQLModel):
     code: str
@@ -328,6 +337,8 @@ class OrderItemRead(OrderItemPayload):
     id: int
     sku_code: str
     sku_name: str
+    dispatched_quantity: float | None = None
+    pending_quantity: float | None = None
     has_legacy_decimal: bool | None = None
     quantity_raw: float | None = None
 
@@ -339,6 +350,7 @@ class OrderRead(SQLModel):
     requested_for: date | None = None
     required_delivery_date: date | None = None
     requested_by: str | None = None
+    estimated_delivery_date: date | None = None
     status: OrderStatus
     notes: str | None = None
     plant_internal_note: str | None = None
@@ -365,7 +377,8 @@ class RemitoItemRead(SQLModel):
 
 class RemitoRead(SQLModel):
     id: int
-    order_id: int
+    order_id: int | None = None
+    shipment_id: int | None = None
     status: RemitoStatus
     destination: str
     source_deposit_id: int | None = None
@@ -377,16 +390,12 @@ class RemitoRead(SQLModel):
     received_at: datetime | None = None
     cancelled_at: datetime | None = None
     created_at: datetime
+    pdf_path: str | None = None
     created_by_user_id: int | None = None
     created_by_name: str | None = None
     updated_by_user_id: int | None = None
     updated_by_name: str | None = None
     items: list[RemitoItemRead]
-
-
-class RemitoFromOrderRequest(SQLModel):
-    source_deposit_id: int | None = None
-    destination_deposit_id: int | None = None
 
 
 class RemitoDispatchRequest(SQLModel):
@@ -395,6 +404,48 @@ class RemitoDispatchRequest(SQLModel):
 
 class RemitoReceiveRequest(SQLModel):
     movement_date: date | None = None
+
+
+class ShipmentCreate(SQLModel):
+    deposit_id: int
+    estimated_delivery_date: date
+
+
+class ShipmentAddOrders(SQLModel):
+    order_ids: list[int]
+
+
+class ShipmentItemUpdate(SQLModel):
+    order_item_id: int
+    quantity: int
+
+
+class ShipmentItemRead(SQLModel):
+    id: int
+    shipment_id: int
+    order_id: int
+    order_item_id: int
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    quantity: int
+    ordered_quantity: float
+    dispatched_quantity: float
+    remaining_quantity: float
+
+
+class ShipmentRead(SQLModel):
+    id: int
+    deposit_id: int
+    deposit_name: str | None = None
+    estimated_delivery_date: date
+    status: ShipmentStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class ShipmentDetail(ShipmentRead):
+    items: list[ShipmentItemRead]
 
 
 class ProductionLineBase(SQLModel):
