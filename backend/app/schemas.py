@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlmodel import SQLModel
+from sqlmodel import Field, SQLModel
 
 from .models.common import (
     AuditAction,
@@ -365,6 +365,14 @@ class OrderRead(SQLModel):
     items: list[OrderItemRead]
 
 
+class OrderSummaryRead(SQLModel):
+    id: int
+    status: OrderStatus
+    destination: str
+    requested_for: date | None = None
+    required_delivery_date: date | None = None
+
+
 class RemitoItemRead(SQLModel):
     id: int
     remito_id: int
@@ -395,6 +403,7 @@ class RemitoRead(SQLModel):
     created_by_name: str | None = None
     updated_by_user_id: int | None = None
     updated_by_name: str | None = None
+    origin_orders: list[OrderSummaryRead] = Field(default_factory=list)
     items: list[RemitoItemRead]
 
 
@@ -450,6 +459,7 @@ class ShipmentRead(SQLModel):
 
 
 class ShipmentDetail(ShipmentRead):
+    orders: list[OrderSummaryRead] = Field(default_factory=list)
     items: list[ShipmentItemRead]
 
 
