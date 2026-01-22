@@ -183,6 +183,16 @@ export function MermasPage() {
     }
   }, [eventForm.sku_id, eventForm.unit, skus]);
 
+  const handleFilterChange = (patch: Partial<typeof filters>) => {
+    setFilters((prev) => {
+      const next = { ...prev, ...patch };
+      if (next.date_from && next.date_to && next.date_to < next.date_from) {
+        next.date_to = next.date_from;
+      }
+      return next;
+    });
+  };
+
   const loadReferenceData = async () => {
     try {
       const [skuList, depositList, lineList, typeList, causeList, unitList] = await Promise.all([
@@ -753,7 +763,7 @@ export function MermasPage() {
                     label="Desde"
                     InputLabelProps={{ shrink: true }}
                     value={filters.date_from || ""}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, date_from: e.target.value || undefined }))}
+                    onChange={(e) => handleFilterChange({ date_from: e.target.value || undefined })}
                   />
                 </Grid>
                 <Grid item xs={12} md={3}>
@@ -763,7 +773,8 @@ export function MermasPage() {
                     label="Hasta"
                     InputLabelProps={{ shrink: true }}
                     value={filters.date_to || ""}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, date_to: e.target.value || undefined }))}
+                    onChange={(e) => handleFilterChange({ date_to: e.target.value || undefined })}
+                    inputProps={{ min: filters.date_from || undefined }}
                   />
                 </Grid>
               </Grid>

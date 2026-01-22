@@ -160,6 +160,21 @@ export function OrdersPage() {
     setLines({ pt: [initialLine], consumibles: [initialLine], papeleria: [initialLine], limpieza: [initialLine] });
   };
 
+  const handleDateFromFilterChange = (value: string) => {
+    setDateFromFilter(value);
+    if (dateToFilter && value && value > dateToFilter) {
+      setDateToFilter(value);
+    }
+  };
+
+  const handleDateToFilterChange = (value: string) => {
+    if (dateFromFilter && value && value < dateFromFilter) {
+      setDateToFilter(dateFromFilter);
+      return;
+    }
+    setDateToFilter(value);
+  };
+
   const filteredOrders = useMemo(() => {
     const requestedByQuery = requestedByFilter.trim().toLowerCase();
     const start = dateFromFilter ? new Date(`${dateFromFilter}T00:00:00`) : null;
@@ -482,10 +497,16 @@ export function OrdersPage() {
                 </TextField>
               </Grid>
               <Grid item xs={12} md={3}>
-                <TextField select fullWidth label="Destino (local)" value={destinationFilter} onChange={(e) => setDestinationFilter(e.target.value)}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Destino (local)"
+                  value={destinationFilter}
+                  onChange={(e) => setDestinationFilter(String(e.target.value))}
+                >
                   <MenuItem value="">Todos</MenuItem>
                   {storeDeposits.map((deposit) => (
-                    <MenuItem key={deposit.id} value={deposit.id}>
+                    <MenuItem key={deposit.id} value={String(deposit.id)}>
                       {deposit.name}
                     </MenuItem>
                   ))}
@@ -497,7 +518,7 @@ export function OrdersPage() {
                   type="date"
                   label="Fecha creación desde"
                   value={dateFromFilter}
-                  onChange={(e) => setDateFromFilter(e.target.value)}
+                  onChange={(e) => handleDateFromFilterChange(e.target.value)}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
@@ -507,7 +528,8 @@ export function OrdersPage() {
                   type="date"
                   label="Fecha creación hasta"
                   value={dateToFilter}
-                  onChange={(e) => setDateToFilter(e.target.value)}
+                  onChange={(e) => handleDateToFilterChange(e.target.value)}
+                  inputProps={{ min: dateFromFilter || undefined }}
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>

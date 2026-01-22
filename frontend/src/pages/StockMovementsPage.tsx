@@ -141,7 +141,13 @@ export function StockMovementsPage() {
   );
 
   const handleFilterChange = (patch: Partial<typeof filters>) => {
-    setFilters((prev) => ({ ...prev, ...patch }));
+    setFilters((prev) => {
+      const next = { ...prev, ...patch };
+      if (next.date_from && next.date_to && next.date_to < next.date_from) {
+        next.date_to = next.date_from;
+      }
+      return next;
+    });
     setPage(0);
   };
 
@@ -230,6 +236,7 @@ export function StockMovementsPage() {
                 onChange={(e) => handleFilterChange({ date_to: e.target.value })}
                 fullWidth
                 size="small"
+                inputProps={{ min: filters.date_from || undefined }}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>

@@ -124,6 +124,21 @@ export function ShipmentsPage() {
 
   const selectedOrders = useMemo(() => orders.filter((order) => selectedOrderIds.has(order.id)), [orders, selectedOrderIds]);
 
+  const handleShipmentDateFromChange = (value: string) => {
+    setShipmentDateFrom(value);
+    if (shipmentDateTo && value && value > shipmentDateTo) {
+      setShipmentDateTo(value);
+    }
+  };
+
+  const handleShipmentDateToChange = (value: string) => {
+    if (shipmentDateFrom && value && value < shipmentDateFrom) {
+      setShipmentDateTo(shipmentDateFrom);
+      return;
+    }
+    setShipmentDateTo(value);
+  };
+
   const orderItems = useMemo(() => {
     return selectedOrders.flatMap((order) =>
       order.items
@@ -556,7 +571,7 @@ export function ShipmentsPage() {
                 type="date"
                 label="Fecha estimada desde"
                 value={shipmentDateFrom}
-                onChange={(e) => setShipmentDateFrom(e.target.value)}
+                onChange={(e) => handleShipmentDateFromChange(e.target.value)}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
@@ -566,7 +581,8 @@ export function ShipmentsPage() {
                 type="date"
                 label="Fecha estimada hasta"
                 value={shipmentDateTo}
-                onChange={(e) => setShipmentDateTo(e.target.value)}
+                onChange={(e) => handleShipmentDateToChange(e.target.value)}
+                inputProps={{ min: shipmentDateFrom || undefined }}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
