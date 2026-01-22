@@ -165,7 +165,7 @@ export function RemitosPage() {
       return;
     }
     newWindow.opener = null;
-    newWindow.document.title = "Remito PDF";
+    newWindow.document.title = `Remito #${remitoId}`;
     newWindow.document.body.innerHTML = "<p>Cargando PDF...</p>";
     try {
       setError(null);
