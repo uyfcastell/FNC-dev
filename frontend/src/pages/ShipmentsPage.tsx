@@ -23,6 +23,7 @@ import {
   addOrdersToShipment,
   confirmShipment,
   createShipment,
+  fetchShipment,
   fetchDeposits,
   fetchOrders,
   fetchShipments,
@@ -42,7 +43,9 @@ export function ShipmentsPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [estimatedDeliveryDate, setEstimatedDeliveryDate] = useState("");
-  const [createdShipment, setCreatedShipment] = useState<Shipment | null>(null);
+  const [activeShipment, setActiveShipment] = useState<Shipment | null>(null);
+  const [editingShipmentId, setEditingShipmentId] = useState<number | null>(null);
+  const [prefillShipment, setPrefillShipment] = useState<Shipment | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -54,15 +57,27 @@ export function ShipmentsPage() {
 
   useEffect(() => {
     if (selectedDepositId) {
+      const depositId = Number(selectedDepositId);
       setSelectedOrderIds(new Set());
       setQuantities({});
-      void loadOrders(Number(selectedDepositId));
+      void loadOrders(depositId).then(() => {
+        if (prefillShipment && prefillShipment.deposit_id === depositId) {
+          const orderIds = new Set(prefillShipment.items?.map((item) => item.order_id) ?? []);
+          const nextQuantities = (prefillShipment.items ?? []).reduce<Record<number, number>>((acc, item) => {
+            acc[item.order_item_id] = item.quantity;
+            return acc;
+          }, {});
+          setSelectedOrderIds(orderIds);
+          setQuantities(nextQuantities);
+          setPrefillShipment(null);
+        }
+      });
     } else {
       setOrders([]);
       setSelectedOrderIds(new Set());
       setQuantities({});
     }
-  }, [selectedDepositId]);
+  }, [selectedDepositId, prefillShipment]);
 
   const loadCatalog = async () => {
     try {
@@ -148,10 +163,13 @@ export function ShipmentsPage() {
     setSelectedOrderIds(new Set());
     setQuantities({});
     setEstimatedDeliveryDate("");
-    setCreatedShipment(null);
+    setActiveShipment(null);
+    setEditingShipmentId(null);
+    setPrefillShipment(null);
+    setSelectedDepositId("");
   };
 
-  const handleCreateShipment = async () => {
+  const handleSaveShipment = async () => {
     if (!selectedDepositId) {
       setError("Selecciona un local para el envío.");
       return;
@@ -164,7 +182,7 @@ export function ShipmentsPage() {
       setError("Los pedidos seleccionados no tienen cantidades pendientes para despachar.");
       return;
     }
-    if (!estimatedDeliveryDate) {
+    if (!estimatedDeliveryDate && !editingShipmentId) {
       setError("Ingresa la fecha estimada de entrega.");
       return;
     }
@@ -172,11 +190,17 @@ export function ShipmentsPage() {
     setSuccess(null);
     setLoading(true);
     try {
-      const shipment = await createShipment({
-        deposit_id: Number(selectedDepositId),
-        estimated_delivery_date: estimatedDeliveryDate,
-      });
-      await addOrdersToShipment(shipment.id, selectedOrders.map((order) => order.id));
+      let shipment: Shipment;
+      if (editingShipmentId) {
+        await addOrdersToShipment(editingShipmentId, selectedOrders.map((order) => order.id));
+        shipment = activeShipment ?? (await fetchShipment(editingShipmentId));
+      } else {
+        shipment = await createShipment({
+          deposit_id: Number(selectedDepositId),
+          estimated_delivery_date: estimatedDeliveryDate,
+        });
+        await addOrdersToShipment(shipment.id, selectedOrders.map((order) => order.id));
+      }
       const updates = orderItems
         .filter(({ item }) => item.id)
         .map(({ item }) => ({
@@ -186,33 +210,62 @@ export function ShipmentsPage() {
       const updatedShipment = updates.length ? await updateShipmentItems(shipment.id, updates) : shipment;
       const refreshedShipments = await fetchShipments();
       setShipments(refreshedShipments);
-      setCreatedShipment(updatedShipment);
-      setSuccess("Envío creado en borrador.");
+      setActiveShipment(updatedShipment);
+      setEditingShipmentId(editingShipmentId ?? null);
+      setSuccess(editingShipmentId ? "Envío actualizado en borrador." : "Envío creado en borrador.");
       void loadOrders(Number(selectedDepositId));
     } catch (err) {
       console.error(err);
-      setError("No pudimos crear el envío.");
+      setError(editingShipmentId ? "No pudimos actualizar el envío." : "No pudimos crear el envío.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConfirmShipment = async () => {
-    if (!createdShipment) return;
+  const handleConfirmShipment = async (shipmentId?: number) => {
+    const id = shipmentId ?? activeShipment?.id;
+    if (!id) return;
     setError(null);
     setSuccess(null);
     setLoading(true);
     try {
-      await confirmShipment(createdShipment.id);
+      await confirmShipment(id);
       setSuccess("Envío confirmado. Remitos generados y stock actualizado.");
       await loadShipments();
-      resetForm();
+      if (activeShipment?.id === id) {
+        resetForm();
+      }
     } catch (err) {
       console.error(err);
       setError("No pudimos confirmar el envío.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditShipment = async (shipmentId: number) => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      const shipment = await fetchShipment(shipmentId);
+      setPrefillShipment(shipment);
+      setSelectedDepositId(String(shipment.deposit_id));
+      setEstimatedDeliveryDate(shipment.estimated_delivery_date);
+      setActiveShipment(shipment);
+      setEditingShipmentId(shipment.id);
+      setSuccess(`Continuando edición del envío #${shipment.id}.`);
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos cargar el envío.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    resetForm();
+    setSuccess("Edición cancelada.");
   };
 
   return (
@@ -225,7 +278,14 @@ export function ShipmentsPage() {
       {success && <Alert severity="success">{success}</Alert>}
 
       <Card>
-        <CardHeader title="Crear envío" subheader="Selecciona local, pedidos y cantidades a despachar" />
+        <CardHeader
+          title={editingShipmentId ? `Editar envío #${editingShipmentId}` : "Crear envío"}
+          subheader={
+            editingShipmentId
+              ? "Actualiza pedidos y cantidades antes de confirmar el envío"
+              : "Selecciona local, pedidos y cantidades a despachar"
+          }
+        />
         <Divider />
         <CardContent>
           <Grid container spacing={2}>
@@ -342,7 +402,11 @@ export function ShipmentsPage() {
                     value={estimatedDeliveryDate}
                     onChange={(e) => setEstimatedDeliveryDate(e.target.value)}
                     InputLabelProps={{ shrink: true }}
-                    required
+                    required={!editingShipmentId}
+                    disabled={Boolean(editingShipmentId)}
+                    helperText={
+                      editingShipmentId ? "La fecha estimada se mantiene igual en borradores existentes." : ""
+                    }
                   />
                 </CardContent>
               </Card>
@@ -356,19 +420,26 @@ export function ShipmentsPage() {
                     <Button
                       variant="contained"
                       startIcon={<LocalShippingIcon />}
-                      onClick={handleCreateShipment}
+                      onClick={handleSaveShipment}
                       disabled={loading}
                     >
-                      {loading ? "Procesando..." : "Crear envío"}
+                      {loading
+                        ? "Procesando..."
+                        : editingShipmentId
+                          ? "Guardar cambios"
+                          : "Crear envío"}
                     </Button>
-                    {createdShipment && (
-                      <Button
-                        variant="outlined"
-                        onClick={handleConfirmShipment}
-                        disabled={loading}
-                      >
-                        Confirmar envío
-                      </Button>
+                    {activeShipment && (
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        <Button variant="outlined" onClick={() => handleConfirmShipment()} disabled={loading}>
+                          Confirmar envío
+                        </Button>
+                        {editingShipmentId && (
+                          <Button variant="text" onClick={handleCancelEdit} disabled={loading}>
+                            Cancelar edición
+                          </Button>
+                        )}
+                      </Stack>
                     )}
                   </Stack>
                 </CardContent>
@@ -417,6 +488,16 @@ export function ShipmentsPage() {
                       Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
                     </Typography>
                   </Box>
+                  {shipment.status === "draft" && (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Button size="small" variant="outlined" onClick={() => handleEditShipment(shipment.id)}>
+                        Editar borrador
+                      </Button>
+                      <Button size="small" variant="contained" onClick={() => handleConfirmShipment(shipment.id)}>
+                        Confirmar
+                      </Button>
+                    </Stack>
+                  )}
                 </Box>
               ))}
             </Stack>
