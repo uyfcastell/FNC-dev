@@ -858,6 +858,10 @@ export async function confirmShipment(id: number): Promise<Shipment> {
   return apiRequest(`/shipments/${id}/confirm`, { method: "POST" }, "No se pudo confirmar el envío");
 }
 
+export async function cancelShipment(id: number): Promise<Shipment> {
+  return apiRequest(`/shipments/${id}/cancel`, { method: "POST" }, "No se pudo cancelar el envío");
+}
+
 export async function dispatchShipment(id: number): Promise<Shipment> {
   return apiRequest(`/shipments/${id}/dispatch`, { method: "POST" }, "No se pudo despachar el envío");
 }

@@ -2092,6 +2092,37 @@ def update_shipment_items(
 
 
 @router.post(
+    "/shipments/{shipment_id}/cancel",
+    tags=["shipments"],
+    response_model=ShipmentRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def cancel_shipment(
+    shipment_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentRead:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden cancelar envíos en borrador")
+
+    shipment_payload = _map_shipment(shipment, session)
+    items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+    for item in items:
+        session.delete(item)
+
+    audit_changes = {
+        "event": "shipment_cancelled",
+        "shipment_id": shipment.id,
+        "deposit_id": shipment.deposit_id,
+    }
+    _log_audit(session, "shipments", shipment.id, AuditAction.CANCEL, current_user.id, audit_changes)
+    session.delete(shipment)
+    session.commit()
+    return shipment_payload
+
+
+@router.post(
     "/shipments/{shipment_id}/confirm",
     tags=["shipments"],
     response_model=ShipmentDetail,

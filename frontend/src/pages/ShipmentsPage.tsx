@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   addOrdersToShipment,
+  cancelShipment,
   confirmShipment,
   createShipment,
   fetchShipment,
@@ -238,6 +239,25 @@ export function ShipmentsPage() {
     } catch (err) {
       console.error(err);
       setError("No pudimos confirmar el envío.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelShipment = async (shipmentId: number) => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      await cancelShipment(shipmentId);
+      setSuccess(`Envío #${shipmentId} cancelado.`);
+      await loadShipments();
+      if (activeShipment?.id === shipmentId) {
+        resetForm();
+      }
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos cancelar el envío.");
     } finally {
       setLoading(false);
     }
@@ -491,7 +511,16 @@ export function ShipmentsPage() {
                   {shipment.status === "draft" && (
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Button size="small" variant="outlined" onClick={() => handleEditShipment(shipment.id)}>
-                        Editar borrador
+                        Editar
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="error"
+                        onClick={() => handleCancelShipment(shipment.id)}
+                        disabled={loading}
+                      >
+                        Cancelar envío
                       </Button>
                       <Button size="small" variant="contained" onClick={() => handleConfirmShipment(shipment.id)}>
                         Confirmar
