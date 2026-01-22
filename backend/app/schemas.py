@@ -411,6 +411,11 @@ class ShipmentCreate(SQLModel):
     estimated_delivery_date: date
 
 
+class ShipmentUpdate(SQLModel):
+    deposit_id: int | None = None
+    estimated_delivery_date: date | None = None
+
+
 class ShipmentAddOrders(SQLModel):
     order_ids: list[int]
 
