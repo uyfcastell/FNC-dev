@@ -80,6 +80,7 @@ from ..schemas import (
     UserUpdate,
     OrderCreate,
     OrderRead,
+    OrderSummaryRead,
     OrderUpdate,
     OrderStatusUpdate,
     RemitoRead,
@@ -765,6 +766,34 @@ def _get_shipment_or_404(session: Session, shipment_id: int) -> Shipment:
     return shipment
 
 
+def _map_order_summary(order: Order) -> OrderSummaryRead:
+    return OrderSummaryRead(
+        id=order.id,
+        status=order.status,
+        destination=order.destination,
+        requested_for=order.requested_for,
+        required_delivery_date=order.required_delivery_date,
+    )
+
+
+def _get_shipment_orders(session: Session, shipment_id: int) -> list[OrderSummaryRead]:
+    statement = (
+        select(Order)
+        .join(ShipmentItem, ShipmentItem.order_id == Order.id)
+        .where(ShipmentItem.shipment_id == shipment_id)
+        .order_by(Order.id)
+    )
+    orders = session.exec(statement).all()
+    seen: set[int] = set()
+    summaries: list[OrderSummaryRead] = []
+    for order in orders:
+        if order.id in seen:
+            continue
+        summaries.append(_map_order_summary(order))
+        seen.add(order.id)
+    return summaries
+
+
 def _map_remito(remito: Remito, session: Session) -> RemitoRead:
     session.refresh(remito, attribute_names=["items", "source_deposit", "destination_deposit"])
     items: list[RemitoItemRead] = []
@@ -789,7 +818,13 @@ def _map_remito(remito: Remito, session: Session) -> RemitoRead:
     if remito.updated_by_user_id:
         user = session.get(User, remito.updated_by_user_id)
         updated_by_name = user.full_name if user else None
-
+    origin_orders: list[OrderSummaryRead] = []
+    if remito.shipment_id:
+        origin_orders = _get_shipment_orders(session, remito.shipment_id)
+    elif remito.order_id:
+        order = session.get(Order, remito.order_id)
+        if order:
+            origin_orders = [_map_order_summary(order)]
     return RemitoRead(
         id=remito.id,
         order_id=remito.order_id,
@@ -810,6 +845,7 @@ def _map_remito(remito: Remito, session: Session) -> RemitoRead:
         created_by_name=created_by_name,
         updated_by_user_id=remito.updated_by_user_id,
         updated_by_name=updated_by_name,
+        origin_orders=origin_orders,
         items=items,
     )
 
@@ -850,7 +886,8 @@ def _map_shipment(shipment: Shipment, session: Session, include_items: bool = Fa
         return base
     dispatched_quantities = _get_dispatched_quantities(session, [item.order_item_id for item in shipment.items])
     items = [_map_shipment_item(item, session, dispatched_quantities) for item in shipment.items]
-    return ShipmentDetail(**base.model_dump(), items=items)
+    orders = _get_shipment_orders(session, shipment.id)
+    return ShipmentDetail(**base.model_dump(), items=items, orders=orders)
 
 
 def _generate_remito_pdf(session: Session, remito: Remito, remito_items: list[RemitoItem], remito_type: str) -> str | None:

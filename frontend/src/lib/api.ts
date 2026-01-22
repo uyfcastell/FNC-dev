@@ -256,6 +256,14 @@ export type RemitoItem = {
   lot_code?: string | null;
 };
 
+export type OrderSummary = {
+  id: number;
+  status: OrderStatus;
+  destination: string;
+  requested_for?: string | null;
+  required_delivery_date?: string | null;
+};
+
 export type Remito = {
   id: number;
   order_id?: number | null;
@@ -276,6 +284,7 @@ export type Remito = {
   created_by_name?: string | null;
   updated_by_user_id?: number | null;
   updated_by_name?: string | null;
+  origin_orders?: OrderSummary[];
   items: RemitoItem[];
 };
 
@@ -312,6 +321,7 @@ export type Shipment = {
   status: ShipmentStatus;
   created_at: string;
   updated_at: string;
+  orders?: OrderSummary[];
   items?: ShipmentItem[];
 };
 

@@ -28,9 +28,18 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 
-import { ApiError, Deposit, fetchDeposits, fetchRemitoPdfBlob, fetchRemitos, Remito, RemitoStatus } from "../lib/api";
+import {
+  ApiError,
+  Deposit,
+  fetchDeposits,
+  fetchRemitoPdfBlob,
+  fetchRemitos,
+  OrderStatus,
+  Remito,
+  RemitoStatus,
+} from "../lib/api";
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleDateString("es-AR") : "-");
 
@@ -40,6 +49,14 @@ const REMITO_STATUS_LABELS: Record<RemitoStatus, string> = {
   delivered: "Entregado",
   dispatched: "Despachado",
   received: "Recibido",
+  cancelled: "Cancelado",
+};
+
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  draft: "Borrador",
+  submitted: "Enviado",
+  partially_dispatched: "Parcialmente despachado",
+  dispatched: "Despachado",
   cancelled: "Cancelado",
 };
 
@@ -142,17 +159,21 @@ export function RemitosPage() {
   }, [filteredRemitos, sortField, sortDirection]);
 
   const openRemitoPdf = async (remitoId: number) => {
+    const newWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (!newWindow) {
+      setError("El navegador bloqueó la apertura del PDF en una pestaña nueva.");
+      return;
+    }
     try {
       setError(null);
       const pdfBlob = await fetchRemitoPdfBlob(remitoId);
       const blobUrl = URL.createObjectURL(pdfBlob);
-      const newWindow = window.open(blobUrl, "_blank", "noopener,noreferrer");
-      if (!newWindow) {
-        setError("El navegador bloqueó la apertura del PDF en una pestaña nueva.");
-      }
+      newWindow.location.href = blobUrl;
+      newWindow.focus();
       window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch (err) {
       console.error(err);
+      newWindow.close();
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         setError("Sesión expirada / sin permisos");
       } else {
@@ -369,19 +390,28 @@ export function RemitosPage() {
                           <Typography variant="subtitle2" gutterBottom>
                             Pedidos origen asociados
                           </Typography>
-                          {remito.order_id ? (
-                            <Typography variant="body2" color="text.secondary">
-                              Pedido #{remito.order_id}
-                            </Typography>
+                          {remito.origin_orders && remito.origin_orders.length > 0 ? (
+                            <Stack spacing={0.5}>
+                              {remito.origin_orders.map((order) => (
+                                <Typography key={order.id} variant="body2" color="text.secondary">
+                                  Pedido #{order.id} · {ORDER_STATUS_LABELS[order.status]}
+                                </Typography>
+                              ))}
+                            </Stack>
                           ) : (
                             <Typography variant="body2" color="text.secondary">
                               No hay pedidos asociados registrados.
                             </Typography>
                           )}
                           {remito.shipment_id && (
-                            <Typography variant="body2" color="text.secondary">
+                            <Link
+                              component={RouterLink}
+                              to={`/envios/${remito.shipment_id}`}
+                              underline="hover"
+                              variant="body2"
+                            >
                               Envío #{remito.shipment_id}
-                            </Typography>
+                            </Link>
                           )}
                         </Grid>
                         <Grid item xs={12}>
