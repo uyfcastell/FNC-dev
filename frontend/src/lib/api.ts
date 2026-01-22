@@ -207,6 +207,8 @@ export type OrderItem = {
   sku_name?: string;
   quantity: number;
   current_stock?: number | null;
+  has_legacy_decimal?: boolean | null;
+  quantity_raw?: number | null;
 };
 
 export type Order = {

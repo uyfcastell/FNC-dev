@@ -19,16 +19,15 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { createOrder, fetchDeposits, fetchSkus, Deposit, SKU } from "../lib/api";
+import { ORDER_SECTIONS, OrderSectionKey } from "../lib/orderSections";
 
 const ORDER_PIN = "1959";
 const MAX_PIN_ATTEMPTS = 3;
 
 type OrderLine = { sku_id: string; quantity: string; current_stock: string };
 
-type SectionKey = "pt" | "consumibles" | "papeleria" | "limpieza";
-
 type SectionConfig = {
-  key: SectionKey;
+  key: OrderSectionKey;
   title: string;
   helper?: string;
   filter: (sku: SKU) => boolean;
@@ -54,7 +53,7 @@ export function OrderEntryPage() {
     notes: "",
     requested_by: "",
   });
-  const [lines, setLines] = useState<Record<SectionKey, OrderLine[]>>({
+  const [lines, setLines] = useState<Record<OrderSectionKey, OrderLine[]>>({
     pt: [initialLine],
     consumibles: [initialLine],
     papeleria: [initialLine],
@@ -74,7 +73,7 @@ export function OrderEntryPage() {
   const loadCatalog = async () => {
     try {
       const [skuList, depositList] = await Promise.all([
-        fetchSkus({ tags: ["PT", "CON"], include_inactive: false }),
+        fetchSkus({ tags: ["PT", "CON", "PAP", "LIM"], include_inactive: false }),
         fetchDeposits(),
       ]);
       setSkus(skuList);
@@ -88,28 +87,7 @@ export function OrderEntryPage() {
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
 
-  const sections: SectionConfig[] = [
-    {
-      key: "pt",
-      title: "Productos terminados",
-      filter: (sku) => sku.sku_type_code === "PT" && sku.is_active,
-    },
-    {
-      key: "consumibles",
-      title: "Consumibles (depósito)",
-      filter: (sku) => sku.sku_type_code === "CON" && sku.is_active,
-    },
-    {
-      key: "papeleria",
-      title: "Papelería",
-      filter: (sku) => sku.sku_type_code === "PAP" && sku.is_active,
-    },
-    {
-      key: "limpieza",
-      title: "Limpieza",
-      filter: (sku) => sku.sku_type_code === "LIM" && sku.is_active,
-    },
-  ];
+  const sections: SectionConfig[] = ORDER_SECTIONS;
 
   const renderSection = (config: SectionConfig) => {
     const options = sortedSkus.filter(config.filter);
@@ -146,7 +124,8 @@ export function OrderEntryPage() {
                   sx={{ width: 180 }}
                 />
                 <TextField
-                  label="Stock en local (informativo)"
+                  required
+                  label="Stock en local"
                   type="number"
                   inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
                   value={item.current_stock}
@@ -173,7 +152,7 @@ export function OrderEntryPage() {
     );
   };
 
-  const handleLineChange = (section: SectionKey, index: number, field: keyof OrderLine, value: string) => {
+  const handleLineChange = (section: OrderSectionKey, index: number, field: keyof OrderLine, value: string) => {
     setLines((prev) => {
       const next = { ...prev };
       const updated = [...next[section]];
@@ -183,11 +162,11 @@ export function OrderEntryPage() {
     });
   };
 
-  const addLine = (section: SectionKey) => {
+  const addLine = (section: OrderSectionKey) => {
     setLines((prev) => ({ ...prev, [section]: [...prev[section], { ...initialLine }] }));
   };
 
-  const removeLine = (section: SectionKey, index: number) => {
+  const removeLine = (section: OrderSectionKey, index: number) => {
     setLines((prev) => ({ ...prev, [section]: prev[section].filter((_, idx) => idx !== index) }));
   };
 
@@ -216,7 +195,7 @@ export function OrderEntryPage() {
       .map((line) => ({
         sku_id: Number(line.sku_id),
         quantity: Number(line.quantity),
-        current_stock: line.current_stock ? Number(line.current_stock) : undefined,
+        current_stock: line.current_stock === "" ? undefined : Number(line.current_stock),
       }));
   };
 
@@ -237,6 +216,14 @@ export function OrderEntryPage() {
     }
     if (items.some((item) => !Number.isInteger(item.quantity))) {
       setError("Las cantidades deben ser números enteros");
+      return;
+    }
+    if (items.some((item) => item.current_stock === undefined || item.current_stock === null)) {
+      setError("Indica el stock actual en el local para cada ítem");
+      return;
+    }
+    if (items.some((item) => !Number.isInteger(item.current_stock))) {
+      setError("El stock actual debe ser un número entero");
       return;
     }
     try {

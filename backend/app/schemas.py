@@ -324,6 +324,8 @@ class OrderItemRead(OrderItemPayload):
     id: int
     sku_code: str
     sku_name: str
+    has_legacy_decimal: bool | None = None
+    quantity_raw: float | None = None
 
 
 class OrderRead(SQLModel):
