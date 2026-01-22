@@ -174,7 +174,23 @@ export function RemitosPage() {
       const revokeBlobUrl = () => URL.revokeObjectURL(blobUrl);
       newWindow.addEventListener("pagehide", revokeBlobUrl, { once: true });
       window.setTimeout(revokeBlobUrl, 5 * 60 * 1000);
-      newWindow.location.href = blobUrl;
+      const pdfTitle = `Remito #${remitoId}`;
+      newWindow.document.open();
+      newWindow.document.write(`<!DOCTYPE html>
+        <html lang="es">
+          <head>
+            <meta charset="utf-8" />
+            <title>${pdfTitle}</title>
+            <style>
+              html, body { margin: 0; height: 100%; }
+              iframe { border: 0; width: 100%; height: 100%; }
+            </style>
+          </head>
+          <body>
+            <iframe src="${blobUrl}" title="${pdfTitle}"></iframe>
+          </body>
+        </html>`);
+      newWindow.document.close();
       newWindow.focus();
     } catch (err) {
       console.error(err);
