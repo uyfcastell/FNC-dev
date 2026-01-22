@@ -147,7 +147,7 @@ export function RemitosPage() {
       const blobUrl = URL.createObjectURL(pdfBlob);
       const newWindow = window.open(blobUrl, "_blank", "noopener,noreferrer");
       if (!newWindow) {
-        window.location.assign(blobUrl);
+        setError("El navegador bloqueó la apertura del PDF en una pestaña nueva.");
       }
       window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch (err) {
@@ -432,7 +432,7 @@ export function RemitosPage() {
                             </Tooltip>
                             <Button
                               component={RouterLink}
-                              to="/stock/movimientos"
+                              to={`/stock/movimientos?reference_type=REMITO&reference_id=${remito.id}`}
                               variant="text"
                               endIcon={<OpenInNewIcon />}
                             >
@@ -441,7 +441,11 @@ export function RemitosPage() {
                           </Stack>
                           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
                             Los movimientos se visualizan en la bandeja general.{" "}
-                            <Link component={RouterLink} to="/stock/movimientos" underline="hover">
+                            <Link
+                              component={RouterLink}
+                              to={`/stock/movimientos?reference_type=REMITO&reference_id=${remito.id}`}
+                              underline="hover"
+                            >
                               Abrir movimientos de stock
                             </Link>
                             .

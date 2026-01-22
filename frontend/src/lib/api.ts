@@ -558,6 +558,8 @@ export async function fetchStockMovements(params?: {
   movement_type_code?: string;
   production_line_id?: number;
   lot_code?: string;
+  reference_type?: string;
+  reference_id?: number;
   date_from?: string;
   date_to?: string;
   limit?: number;
@@ -570,6 +572,8 @@ export async function fetchStockMovements(params?: {
   if (params?.movement_type_code) query.append("movement_type_code", params.movement_type_code);
   if (params?.production_line_id) query.append("production_line_id", String(params.production_line_id));
   if (params?.lot_code) query.append("lot_code", params.lot_code);
+  if (params?.reference_type) query.append("reference_type", params.reference_type);
+  if (params?.reference_id) query.append("reference_id", String(params.reference_id));
   if (params?.date_from) query.append("date_from", params.date_from);
   if (params?.date_to) query.append("date_to", params.date_to);
   if (params?.limit) query.append("limit", String(params.limit));
