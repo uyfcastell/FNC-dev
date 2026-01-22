@@ -532,13 +532,27 @@ def _ensure_order_transition(order: Order, next_status: OrderStatus) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no puede cancelarse en este estado")
 
 
+def _validate_required_delivery_date(required_delivery_date: date | None) -> None:
+    if required_delivery_date is None:
+        return
+    today = date.today()
+    max_date = today + timedelta(days=60)
+    if required_delivery_date < today or required_delivery_date > max_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha requerida debe estar entre hoy y los próximos 60 días",
+        )
+
+
 def _serialize_order_header(order: Order) -> dict:
     return {
         "destination": order.destination,
         "destination_deposit_id": order.destination_deposit_id,
         "requested_for": order.requested_for,
+        "required_delivery_date": order.required_delivery_date,
         "requested_by": order.requested_by,
         "notes": order.notes,
+        "plant_internal_note": order.plant_internal_note,
         "status": order.status,
     }
 
@@ -633,9 +647,11 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         destination=order.destination,
         destination_deposit_id=order.destination_deposit_id,
         requested_for=order.requested_for,
+        required_delivery_date=order.required_delivery_date,
         requested_by=order.requested_by,
         status=order.status,
         notes=order.notes,
+        plant_internal_note=order.plant_internal_note,
         created_at=order.created_at,
         cancelled_at=order.cancelled_at,
         cancelled_by_user_id=order.cancelled_by_user_id,
@@ -1444,6 +1460,7 @@ def create_order(
     destination = _ensure_store_destination(session, payload.destination_deposit_id)
     if payload.status not in {OrderStatus.DRAFT, OrderStatus.SUBMITTED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Estado de pedido inválido")
+    _validate_required_delivery_date(payload.required_delivery_date)
 
     items_payload = [item.model_dump() for item in payload.items]
     _validate_order_items(session, items_payload)
@@ -1452,9 +1469,11 @@ def create_order(
         destination=destination.name,
         destination_deposit_id=destination.id,
         requested_for=payload.requested_for,
+        required_delivery_date=payload.required_delivery_date,
         requested_by=payload.requested_by.strip() if payload.requested_by else None,
         status=payload.status,
         notes=payload.notes,
+        plant_internal_note=payload.plant_internal_note,
         created_by_user_id=current_user.id,
         updated_by_user_id=current_user.id,
     )
@@ -1506,6 +1525,8 @@ def update_order(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
     if payload.requested_by is not None and not payload.requested_by.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Indica quién ingresa el pedido")
+    if payload.required_delivery_date is not None:
+        _validate_required_delivery_date(payload.required_delivery_date)
 
     before_header = _serialize_order_header(order)
     existing_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()

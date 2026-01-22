@@ -48,10 +48,16 @@ export function OrderEntryPage() {
   const [pinValidated, setPinValidated] = useState<boolean>(fromMenu);
   const [blocked, setBlocked] = useState(false);
 
-  const [header, setHeader] = useState<{ destination_deposit_id: string; notes: string; requested_by: string }>({
+  const [header, setHeader] = useState<{
+    destination_deposit_id: string;
+    notes: string;
+    requested_by: string;
+    required_delivery_date: string;
+  }>({
     destination_deposit_id: "",
     notes: "",
     requested_by: "",
+    required_delivery_date: "",
   });
   const [lines, setLines] = useState<Record<OrderSectionKey, OrderLine[]>>({
     pt: [initialLine],
@@ -86,6 +92,18 @@ export function OrderEntryPage() {
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
+  const today = useMemo(() => {
+    const current = new Date();
+    current.setHours(0, 0, 0, 0);
+    return current;
+  }, []);
+  const maxDeliveryDate = useMemo(() => {
+    const max = new Date(today);
+    max.setDate(max.getDate() + 60);
+    return max;
+  }, [today]);
+  const minDeliveryDateValue = today.toISOString().split("T")[0];
+  const maxDeliveryDateValue = maxDeliveryDate.toISOString().split("T")[0];
 
   const sections: SectionConfig[] = ORDER_SECTIONS;
 
@@ -209,6 +227,13 @@ export function OrderEntryPage() {
       setError("Indica quién está ingresando el pedido");
       return;
     }
+    if (header.required_delivery_date) {
+      const selected = new Date(`${header.required_delivery_date}T00:00:00`);
+      if (selected < today || selected > maxDeliveryDate) {
+        setError("La fecha requerida debe estar entre hoy y los próximos 60 días");
+        return;
+      }
+    }
     const items = buildItemsPayload();
     if (!items.length) {
       setError("Agrega al menos un ítem en cualquiera de las secciones");
@@ -231,11 +256,12 @@ export function OrderEntryPage() {
         destination_deposit_id: Number(header.destination_deposit_id),
         notes: header.notes || undefined,
         requested_by: header.requested_by.trim() || undefined,
+        required_delivery_date: header.required_delivery_date || undefined,
         items,
       });
       setSuccess("Pedido enviado");
       setError(null);
-      setHeader({ destination_deposit_id: "", notes: "", requested_by: "" });
+      setHeader({ destination_deposit_id: "", notes: "", requested_by: "", required_delivery_date: "" });
       setLines({ pt: [initialLine], consumibles: [initialLine], papeleria: [initialLine], limpieza: [initialLine] });
     } catch (err) {
       console.error(err);
@@ -315,6 +341,18 @@ export function OrderEntryPage() {
                 label="Ingresado por"
                 value={header.requested_by}
                 onChange={(e) => setHeader((prev) => ({ ...prev, requested_by: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                type="date"
+                label="Fecha requerida de entrega"
+                value={header.required_delivery_date}
+                onChange={(e) => setHeader((prev) => ({ ...prev, required_delivery_date: e.target.value }))}
+                inputProps={{ min: minDeliveryDateValue, max: maxDeliveryDateValue }}
+                helperText="Opcional. Debe estar entre hoy y los próximos 60 días."
+                InputLabelProps={{ shrink: true }}
               />
             </Grid>
             <Grid item xs={12} md={6}>
