@@ -480,6 +480,16 @@ def _validate_order_items(session: Session, items: list[dict]) -> None:
 
     sku_map = {sku.id: sku for sku in skus}
     for item in items:
+        quantity = item.get("quantity")
+        if quantity is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cantidad requerida")
+        if isinstance(quantity, bool) or not isinstance(quantity, (int, float)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cantidad inválida")
+        if isinstance(quantity, float) and not quantity.is_integer():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser un número entero")
+        if quantity <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
+
         sku = sku_map.get(item["sku_id"])
         if not sku:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKU no encontrado")
@@ -496,6 +506,15 @@ def _validate_order_items(session: Session, items: list[dict]) -> None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún SKU está inactivo")
 
 
+def _ensure_order_transition(order: Order, next_status: OrderStatus) -> None:
+    if next_status == OrderStatus.DRAFT and order.status != OrderStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede volver a borrador")
+    if next_status == OrderStatus.SUBMITTED and order.status != OrderStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo un borrador puede enviarse")
+    if next_status == OrderStatus.CANCELLED and order.status not in {OrderStatus.DRAFT, OrderStatus.SUBMITTED}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no puede cancelarse en este estado")
+
+
 def _map_order(order: Order, session: Session) -> OrderRead:
     session.refresh(order, attribute_names=["items"])
     items = []
@@ -509,7 +528,7 @@ def _map_order(order: Order, session: Session) -> OrderRead:
                 "sku_id": item.sku_id,
                 "sku_code": sku_code,
                 "sku_name": sku_name,
-                "quantity": item.quantity,
+                "quantity": int(item.quantity),
                 "current_stock": item.current_stock,
             }
         )
@@ -1293,10 +1312,16 @@ def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> No
     response_model=list[OrderRead],
     dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
 )
-def list_orders(status_filter: OrderStatus | None = None, session: Session = Depends(get_session)) -> list[OrderRead]:
+def list_orders(
+    status_filter: OrderStatus | None = None,
+    destination_deposit_id: int | None = None,
+    session: Session = Depends(get_session),
+) -> list[OrderRead]:
     statement = select(Order)
     if status_filter:
         statement = statement.where(Order.status == status_filter)
+    if destination_deposit_id:
+        statement = statement.where(Order.destination_deposit_id == destination_deposit_id)
     orders = session.exec(statement.order_by(Order.created_at.desc())).all()
     return [_map_order(order, session) for order in orders]
 
@@ -1331,6 +1356,8 @@ def create_order(
     if not payload.requested_by or not payload.requested_by.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Indica quién ingresa el pedido")
     destination = _ensure_store_destination(session, payload.destination_deposit_id)
+    if payload.status not in {OrderStatus.DRAFT, OrderStatus.SUBMITTED}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Estado de pedido inválido")
 
     items_payload = [item.model_dump() for item in payload.items]
     _validate_order_items(session, items_payload)
@@ -1340,7 +1367,7 @@ def create_order(
         destination_deposit_id=destination.id,
         requested_for=payload.requested_for,
         requested_by=payload.requested_by.strip() if payload.requested_by else None,
-        status=OrderStatus.SUBMITTED,
+        status=payload.status,
         notes=payload.notes,
         created_by_user_id=current_user.id,
         updated_by_user_id=current_user.id,
@@ -1353,7 +1380,7 @@ def create_order(
             OrderItem(
                 order_id=order.id,
                 sku_id=item.sku_id,
-                quantity=item.quantity,
+                quantity=int(item.quantity),
                 current_stock=item.current_stock,
             )
         )
@@ -1398,6 +1425,8 @@ def update_order(
     update_data.pop("destination_deposit_id", None)
     if "requested_by" in update_data and isinstance(update_data["requested_by"], str):
         update_data["requested_by"] = update_data["requested_by"].strip()
+    if update_data.get("status"):
+        _ensure_order_transition(order, update_data["status"])
     for field, value in update_data.items():
         setattr(order, field, value)
     if update_data.get("status") == OrderStatus.CANCELLED:
@@ -1422,7 +1451,7 @@ def update_order(
                 OrderItem(
                     order_id=order.id,
                     sku_id=item["sku_id"],
-                    quantity=item["quantity"],
+                    quantity=int(item["quantity"]),
                     current_stock=item.get("current_stock"),
                 )
             )
@@ -1448,6 +1477,7 @@ def update_order_status(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    _ensure_order_transition(order, payload.status)
     order.status = payload.status
     if payload.status == OrderStatus.CANCELLED:
         order.cancelled_at = datetime.utcnow()

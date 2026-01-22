@@ -212,6 +212,10 @@ export function OrdersPage() {
       setError("Agrega al menos un ítem en cualquiera de las secciones");
       return;
     }
+    if (items.some((item) => !Number.isInteger(item.quantity))) {
+      setError("Las cantidades deben ser números enteros");
+      return;
+    }
     try {
       const payload = {
         destination_deposit_id: Number(header.destination_deposit_id),
@@ -377,7 +381,7 @@ export function OrdersPage() {
                 <TextField
                   label="Cantidad"
                   type="number"
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
                   value={item.quantity}
                   onChange={(e) => handleLineChange(section.key, index, "quantity", e.target.value)}
                   sx={{ width: 160 }}
@@ -385,7 +389,7 @@ export function OrdersPage() {
                 <TextField
                   label="Stock en local"
                   type="number"
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
                   value={item.current_stock}
                   onChange={(e) => handleLineChange(section.key, index, "current_stock", e.target.value)}
                   sx={{ width: 180 }}
