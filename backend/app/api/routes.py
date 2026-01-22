@@ -472,6 +472,14 @@ def _ensure_store_destination(session: Session, destination_id: int) -> Deposit:
     return deposit
 
 
+def _is_integer_value(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, float) and not value.is_integer():
+        return False
+    return True
+
+
 def _validate_order_items(session: Session, items: list[dict]) -> None:
     sku_ids = {item["sku_id"] for item in items}
     skus = session.exec(select(SKU).where(SKU.id.in_(sku_ids))).all()
@@ -482,13 +490,22 @@ def _validate_order_items(session: Session, items: list[dict]) -> None:
     for item in items:
         quantity = item.get("quantity")
         if quantity is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cantidad requerida")
-        if isinstance(quantity, bool) or not isinstance(quantity, (int, float)):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cantidad inválida")
-        if isinstance(quantity, float) and not quantity.is_integer():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser un número entero")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Cantidad requerida")
+        if not _is_integer_value(quantity):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La cantidad debe ser un número entero")
         if quantity <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La cantidad debe ser mayor a cero")
+
+        current_stock = item.get("current_stock")
+        if current_stock is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Stock actual requerido")
+        if not _is_integer_value(current_stock):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El stock actual debe ser un número entero",
+            )
+        if current_stock < 0:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El stock actual no puede ser negativo")
 
         sku = sku_map.get(item["sku_id"])
         if not sku:
@@ -515,6 +532,71 @@ def _ensure_order_transition(order: Order, next_status: OrderStatus) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no puede cancelarse en este estado")
 
 
+def _serialize_order_header(order: Order) -> dict:
+    return {
+        "destination": order.destination,
+        "destination_deposit_id": order.destination_deposit_id,
+        "requested_for": order.requested_for,
+        "requested_by": order.requested_by,
+        "notes": order.notes,
+        "status": order.status,
+    }
+
+
+def _serialize_order_item(item: OrderItem) -> dict:
+    return {
+        "sku_id": item.sku_id,
+        "quantity": float(item.quantity),
+        "current_stock": item.current_stock,
+    }
+
+
+def _serialize_order_item_payload(item: dict) -> dict:
+    return {
+        "sku_id": item["sku_id"],
+        "quantity": float(item["quantity"]),
+        "current_stock": item.get("current_stock"),
+    }
+
+
+def _diff_order_items(before_items: list[dict], after_items: list[dict]) -> dict:
+    before_map = {item["sku_id"]: item for item in before_items}
+    after_map = {item["sku_id"]: item for item in after_items}
+
+    added = []
+    removed = []
+    updated = []
+
+    for sku_id, item in after_map.items():
+        if sku_id not in before_map:
+            added.append({"sku_id": sku_id, "after": item})
+            continue
+        before = before_map[sku_id]
+        if before.get("quantity") != item.get("quantity") or before.get("current_stock") != item.get("current_stock"):
+            updated.append({"sku_id": sku_id, "before": before, "after": item})
+
+    for sku_id, item in before_map.items():
+        if sku_id not in after_map:
+            removed.append({"sku_id": sku_id, "before": item})
+
+    changes = {}
+    if added:
+        changes["item_added"] = added
+    if removed:
+        changes["item_removed"] = removed
+    if updated:
+        changes["item_updated"] = updated
+    return changes
+
+
+def _diff_order_header(before: dict, after: dict) -> dict:
+    changes = {}
+    for key in before.keys():
+        if before.get(key) != after.get(key):
+            changes[key] = {"from": before.get(key), "to": after.get(key)}
+    return changes
+
+
 def _map_order(order: Order, session: Session) -> OrderRead:
     session.refresh(order, attribute_names=["items"])
     items = []
@@ -522,14 +604,18 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         sku = session.get(SKU, item.sku_id)
         sku_code = sku.code if sku else str(item.sku_id)
         sku_name = sku.name if sku else f"SKU {item.sku_id}"
+        quantity_value = float(item.quantity)
+        has_legacy_decimal = not quantity_value.is_integer()
         items.append(
             {
                 "id": item.id,
                 "sku_id": item.sku_id,
                 "sku_code": sku_code,
                 "sku_name": sku_name,
-                "quantity": int(item.quantity),
+                "quantity": quantity_value,
                 "current_stock": item.current_stock,
+                "has_legacy_decimal": has_legacy_decimal,
+                "quantity_raw": quantity_value if has_legacy_decimal else None,
             }
         )
 
@@ -1381,11 +1467,18 @@ def create_order(
                 order_id=order.id,
                 sku_id=item.sku_id,
                 quantity=int(item.quantity),
-                current_stock=item.current_stock,
+                current_stock=int(item.current_stock) if item.current_stock is not None else None,
             )
         )
 
-    _log_audit(session, "orders", order.id, AuditAction.CREATE, current_user.id, payload.model_dump())
+    audit_changes = {
+        "event": "order_created",
+        "order_id": order.id,
+        "deposit_id": order.destination_deposit_id,
+        "header": _serialize_order_header(order),
+        "items": [_serialize_order_item_payload(item) for item in items_payload],
+    }
+    _log_audit(session, "orders", order.id, AuditAction.CREATE, current_user.id, audit_changes)
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -1406,11 +1499,17 @@ def update_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    if order.status != OrderStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se puede editar un pedido en borrador")
 
     if payload.items is not None and not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
     if payload.requested_by is not None and not payload.requested_by.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Indica quién ingresa el pedido")
+
+    before_header = _serialize_order_header(order)
+    existing_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+    before_items = [_serialize_order_item(item) for item in existing_items]
 
     destination = None
     if payload.destination_deposit_id is not None:
@@ -1442,7 +1541,6 @@ def update_order(
     session.flush()
 
     if items is not None:
-        existing_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
         for item in existing_items:
             session.delete(item)
         session.flush()
@@ -1452,10 +1550,23 @@ def update_order(
                     order_id=order.id,
                     sku_id=item["sku_id"],
                     quantity=int(item["quantity"]),
-                    current_stock=item.get("current_stock"),
+                    current_stock=int(item["current_stock"]) if item.get("current_stock") is not None else None,
                 )
             )
 
+    after_header = _serialize_order_header(order)
+    after_items = [_serialize_order_item_payload(item) for item in items] if items is not None else before_items
+    header_changes = _diff_order_header(before_header, after_header)
+    item_changes = _diff_order_items(before_items, after_items) if items is not None else {}
+    audit_changes = {
+        "event": "order_updated",
+        "order_id": order.id,
+        "deposit_id": order.destination_deposit_id,
+    }
+    if header_changes:
+        audit_changes["header_changes"] = header_changes
+    if item_changes:
+        audit_changes["items"] = item_changes
     _log_audit(session, "orders", order.id, AuditAction.UPDATE, current_user.id, audit_changes)
     session.commit()
     session.refresh(order)
@@ -1477,7 +1588,25 @@ def update_order_status(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    if payload.status == OrderStatus.SUBMITTED:
+        items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+        if not items:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
+        for item in items:
+            if not _is_integer_value(item.quantity):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="El pedido tiene cantidades con decimales. Corrige antes de enviar.",
+                )
+            if item.current_stock is None:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Stock actual requerido")
+            if not _is_integer_value(item.current_stock):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="El stock actual debe ser un número entero",
+                )
     _ensure_order_transition(order, payload.status)
+    before_status = order.status
     order.status = payload.status
     if payload.status == OrderStatus.CANCELLED:
         order.cancelled_at = datetime.utcnow()
@@ -1486,7 +1615,14 @@ def update_order_status(
     order.updated_at = datetime.utcnow()
     order.updated_by_user_id = current_user.id
     session.add(order)
-    _log_audit(session, "orders", order.id, AuditAction.STATUS, current_user.id, {"status": payload.status})
+    audit_changes = {
+        "event": "order_cancelled" if payload.status == OrderStatus.CANCELLED else "order_status_changed",
+        "order_id": order.id,
+        "deposit_id": order.destination_deposit_id,
+        "from_status": before_status,
+        "to_status": payload.status,
+    }
+    _log_audit(session, "orders", order.id, AuditAction.STATUS, current_user.id, audit_changes)
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -1510,7 +1646,13 @@ def delete_order(
     for item in items:
         session.delete(item)
     session.delete(order)
-    _log_audit(session, "orders", order_id, AuditAction.DELETE, current_user.id, {"deleted": True})
+    audit_changes = {
+        "event": "order_deleted",
+        "order_id": order_id,
+        "deposit_id": order.destination_deposit_id,
+        "deleted": True,
+    }
+    _log_audit(session, "orders", order_id, AuditAction.DELETE, current_user.id, audit_changes)
     session.commit()
 
 

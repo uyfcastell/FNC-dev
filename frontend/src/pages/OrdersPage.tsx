@@ -42,6 +42,7 @@ import {
   updateOrder,
   updateOrderStatus,
 } from "../lib/api";
+import { ORDER_SECTIONS, OrderSectionKey, sectionForSku } from "../lib/orderSections";
 
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
@@ -62,13 +63,6 @@ const REMITO_STATUS_LABELS: Record<RemitoStatus, string> = {
 };
 
 type OrderLine = { sku_id: string; quantity: string; current_stock: string };
-type SectionKey = "pt" | "consumibles" | "papeleria" | "limpieza";
-
-type SectionConfig = {
-  key: SectionKey;
-  title: string;
-  filter: (sku: SKU) => boolean;
-};
 
 const initialLine: OrderLine = { sku_id: "", quantity: "", current_stock: "" };
 
@@ -88,7 +82,7 @@ export function OrdersPage() {
     notes: "",
     requested_by: "",
   });
-  const [lines, setLines] = useState<Record<SectionKey, OrderLine[]>>({
+  const [lines, setLines] = useState<Record<OrderSectionKey, OrderLine[]>>({
     pt: [initialLine],
     consumibles: [initialLine],
     papeleria: [initialLine],
@@ -102,16 +96,6 @@ export function OrdersPage() {
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
 
-  const sections: SectionConfig[] = [
-    { key: "pt", title: "Productos terminados", filter: (sku) => sku.sku_type_code === "PT" },
-    {
-      key: "consumibles",
-      title: "Consumibles (depósito)",
-      filter: (sku) => sku.sku_type_code === "CON" && sku.is_active,
-    },
-    { key: "papeleria", title: "Papelería", filter: (sku) => sku.sku_type_code === "PAP" && sku.is_active },
-    { key: "limpieza", title: "Limpieza", filter: (sku) => sku.sku_type_code === "LIM" && sku.is_active },
-  ];
   const remitoChipColor = (status: RemitoStatus): ChipProps["color"] => {
     if (status === "received" || status === "delivered") return "success";
     if (status === "dispatched" || status === "sent") return "info";
@@ -160,16 +144,16 @@ export function OrdersPage() {
     return `${sku.name} (${sku.code})${!sku.is_active ? " (inactivo)" : ""}`;
   };
 
-  const optionsForSection = (section: SectionKey) => {
-    const base = sortedSkus.filter((sku) => sections.find((s) => s.key === section)?.filter(sku) && sku.is_active);
+  const optionsForSection = (section: OrderSectionKey) => {
+    const base = sortedSkus.filter((sku) => ORDER_SECTIONS.find((s) => s.key === section)?.filter(sku));
     const selectedIds = new Set(lines[section].map((l) => Number(l.sku_id)).filter(Boolean));
     const selectedSkus = sortedSkus.filter((sku) => selectedIds.has(sku.id));
     return [...base, ...selectedSkus.filter((sku) => !base.find((b) => b.id === sku.id))];
   };
 
-  const handleLineChange = (section: SectionKey, index: number, field: keyof OrderLine, value: string) => {
+  const handleLineChange = (section: OrderSectionKey, index: number, field: keyof OrderLine, value: string) => {
     setLines((prev) => {
-      const next = { ...prev } as Record<SectionKey, OrderLine[]>;
+      const next = { ...prev } as Record<OrderSectionKey, OrderLine[]>;
       const updated = [...next[section]];
       updated[index] = { ...updated[index], [field]: value };
       next[section] = updated;
@@ -177,8 +161,8 @@ export function OrdersPage() {
     });
   };
 
-  const addLine = (section: SectionKey) => setLines((prev) => ({ ...prev, [section]: [...prev[section], { ...initialLine }] }));
-  const removeLine = (section: SectionKey, index: number) => setLines((prev) => ({ ...prev, [section]: prev[section].filter((_, idx) => idx !== index) }));
+  const addLine = (section: OrderSectionKey) => setLines((prev) => ({ ...prev, [section]: [...prev[section], { ...initialLine }] }));
+  const removeLine = (section: OrderSectionKey, index: number) => setLines((prev) => ({ ...prev, [section]: prev[section].filter((_, idx) => idx !== index) }));
 
   const buildItemsPayload = () => {
     const all = Object.values(lines).flat();
@@ -187,7 +171,7 @@ export function OrdersPage() {
       .map((line) => ({
         sku_id: Number(line.sku_id),
         quantity: Number(line.quantity),
-        current_stock: line.current_stock ? Number(line.current_stock) : undefined,
+        current_stock: line.current_stock === "" ? undefined : Number(line.current_stock),
       })) as OrderItem[];
   };
 
@@ -214,6 +198,14 @@ export function OrdersPage() {
     }
     if (items.some((item) => !Number.isInteger(item.quantity))) {
       setError("Las cantidades deben ser números enteros");
+      return;
+    }
+    if (items.some((item) => item.current_stock === undefined || item.current_stock === null)) {
+      setError("Indica el stock actual en el local para cada ítem");
+      return;
+    }
+    if (items.some((item) => !Number.isInteger(item.current_stock))) {
+      setError("El stock actual debe ser un número entero");
       return;
     }
     try {
@@ -303,17 +295,17 @@ export function OrdersPage() {
   };
 
   const startEdit = (order: Order) => {
-    const nextLines: Record<SectionKey, OrderLine[]> = { pt: [], consumibles: [], papeleria: [], limpieza: [] };
+    const nextLines: Record<OrderSectionKey, OrderLine[]> = { pt: [], consumibles: [], papeleria: [], limpieza: [] };
     order.items.forEach((item) => {
       const sku = skus.find((s) => s.id === item.sku_id);
-      let section: SectionKey = "consumibles";
-      if (sku?.sku_type_code === "PT") section = "pt";
-      else if (sku?.sku_type_code === "PAP") section = "papeleria";
-      else if (sku?.sku_type_code === "LIM") section = "limpieza";
-      else if (sku?.sku_type_code === "CON") section = "consumibles";
-      nextLines[section].push({ sku_id: String(item.sku_id), quantity: String(item.quantity), current_stock: item.current_stock != null ? String(item.current_stock) : "" });
+      const section = sectionForSku(sku);
+      nextLines[section].push({
+        sku_id: String(item.sku_id),
+        quantity: String(item.quantity),
+        current_stock: item.current_stock != null ? String(item.current_stock) : "",
+      });
     });
-    const filledLines: Record<SectionKey, OrderLine[]> = {
+    const filledLines: Record<OrderSectionKey, OrderLine[]> = {
       pt: nextLines.pt.length ? nextLines.pt : [initialLine],
       consumibles: nextLines.consumibles.length ? nextLines.consumibles : [initialLine],
       papeleria: nextLines.papeleria.length ? nextLines.papeleria : [initialLine],
@@ -352,7 +344,7 @@ export function OrdersPage() {
     }
   };
 
-  const renderSection = (section: SectionConfig) => {
+  const renderSection = (section: (typeof ORDER_SECTIONS)[number]) => {
     const sectionLines = lines[section.key];
     const options = optionsForSection(section.key);
 
@@ -387,6 +379,7 @@ export function OrdersPage() {
                   sx={{ width: 160 }}
                 />
                 <TextField
+                  required
                   label="Stock en local"
                   type="number"
                   inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
@@ -474,7 +467,7 @@ export function OrdersPage() {
           </Grid>
           <Divider sx={{ my: 2 }} />
           <Stack spacing={2}>
-            {sections.map((section) => (
+            {ORDER_SECTIONS.map((section) => (
               <div key={section.key}>{renderSection(section)}</div>
             ))}
           </Stack>
@@ -540,7 +533,7 @@ export function OrdersPage() {
                             </MenuItem>
                           ))}
                         </TextField>
-                        <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled}>
+                        <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || order.status !== "draft"}>
                           Editar
                         </Button>
                         <Button color="error" onClick={() => handleCancelOrder(order.id)} disabled={isCancelled}>

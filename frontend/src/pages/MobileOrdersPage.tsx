@@ -38,8 +38,9 @@ import {
   OrderStatus,
   SKU,
 } from "../lib/api";
+import { ORDER_SECTIONS, OrderSectionKey, sectionForSku } from "../lib/orderSections";
 
-type OrderLine = { sku_id: string; quantity: string };
+type OrderLine = { sku_id: string; quantity: string; current_stock: string };
 
 const STORAGE_KEY = "mobile_orders_deposit_id";
 
@@ -70,7 +71,7 @@ const statusColor = (status: OrderStatus) => {
 
 const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString("es-AR");
 
-const emptyLine: OrderLine = { sku_id: "", quantity: "" };
+const emptyLine: OrderLine = { sku_id: "", quantity: "", current_stock: "" };
 
 export function MobileOrdersPage() {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -82,7 +83,12 @@ export function MobileOrdersPage() {
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [requestedBy, setRequestedBy] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<OrderLine[]>([emptyLine]);
+  const [lines, setLines] = useState<Record<OrderSectionKey, OrderLine[]>>({
+    pt: [emptyLine],
+    consumibles: [emptyLine],
+    papeleria: [emptyLine],
+    limpieza: [emptyLine],
+  });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -107,9 +113,9 @@ export function MobileOrdersPage() {
 
   const loadCatalog = async () => {
     try {
-      const [depositList, skuList] = await Promise.all([fetchDeposits(), fetchSkus({ include_inactive: false })]);
+      const [depositList, skuList] = await Promise.all([fetchDeposits(), fetchSkus({ include_inactive: true })]);
       setDeposits(depositList.filter((deposit) => deposit.is_store));
-      setSkus(skuList.filter((sku) => sku.is_active && !["MP", "SEMI"].includes(sku.sku_type_code)));
+      setSkus(skuList.filter((sku) => !["MP", "SEMI"].includes(sku.sku_type_code)));
       setError(null);
     } catch (err) {
       console.error(err);
@@ -139,6 +145,12 @@ export function MobileOrdersPage() {
   );
 
   const skuOptions = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
+  const optionsForSection = (section: OrderSectionKey) => {
+    const base = skuOptions.filter((sku) => ORDER_SECTIONS.find((s) => s.key === section)?.filter(sku));
+    const selectedIds = new Set(lines[section].map((line) => Number(line.sku_id)).filter(Boolean));
+    const selectedSkus = skuOptions.filter((sku) => selectedIds.has(sku.id));
+    return [...base, ...selectedSkus.filter((sku) => !base.find((candidate) => candidate.id === sku.id))];
+  };
 
   const selectedDeposit = deposits.find((deposit) => deposit.id === selectedDepositId) || null;
 
@@ -154,7 +166,7 @@ export function MobileOrdersPage() {
     setActiveOrder(null);
     setRequestedBy("");
     setNotes("");
-    setLines([emptyLine]);
+    setLines({ pt: [emptyLine], consumibles: [emptyLine], papeleria: [emptyLine], limpieza: [emptyLine] });
   };
 
   const startNewOrder = () => {
@@ -163,41 +175,70 @@ export function MobileOrdersPage() {
   };
 
   const startEditOrder = (order: Order) => {
+    const nextLines: Record<OrderSectionKey, OrderLine[]> = { pt: [], consumibles: [], papeleria: [], limpieza: [] };
+    order.items.forEach((item) => {
+      const sku = skus.find((candidate) => candidate.id === item.sku_id);
+      const section = sectionForSku(sku);
+      nextLines[section].push({
+        sku_id: String(item.sku_id),
+        quantity: String(item.quantity),
+        current_stock: item.current_stock != null ? String(item.current_stock) : "",
+      });
+    });
+    const filledLines: Record<OrderSectionKey, OrderLine[]> = {
+      pt: nextLines.pt.length ? nextLines.pt : [emptyLine],
+      consumibles: nextLines.consumibles.length ? nextLines.consumibles : [emptyLine],
+      papeleria: nextLines.papeleria.length ? nextLines.papeleria : [emptyLine],
+      limpieza: nextLines.limpieza.length ? nextLines.limpieza : [emptyLine],
+    };
     setEditingOrderId(order.id);
     setActiveOrder(order);
     setRequestedBy(order.requested_by ?? "");
     setNotes(order.notes ?? "");
-    setLines(order.items.length ? order.items.map((item) => ({ sku_id: String(item.sku_id), quantity: String(item.quantity) })) : [emptyLine]);
+    setLines(filledLines);
   };
 
-  const handleLineChange = (index: number, field: keyof OrderLine, value: string) => {
+  const handleLineChange = (section: OrderSectionKey, index: number, field: keyof OrderLine, value: string) => {
     setLines((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
+      const next = { ...prev };
+      const updated = [...next[section]];
+      updated[index] = { ...updated[index], [field]: value };
+      next[section] = updated;
       return next;
     });
   };
 
-  const addLine = () => setLines((prev) => [...prev, emptyLine]);
+  const addLine = (section: OrderSectionKey) => setLines((prev) => ({ ...prev, [section]: [...prev[section], emptyLine] }));
 
-  const removeLine = (index: number) => setLines((prev) => prev.filter((_, idx) => idx !== index));
+  const removeLine = (section: OrderSectionKey, index: number) =>
+    setLines((prev) => ({ ...prev, [section]: prev[section].filter((_, idx) => idx !== index) }));
 
   const buildItemsPayload = () =>
-    lines
+    Object.values(lines)
+      .flat()
       .filter((line) => line.sku_id && line.quantity)
       .map((line) => ({
         sku_id: Number(line.sku_id),
         quantity: Number(line.quantity),
+        current_stock: line.current_stock === "" ? undefined : Number(line.current_stock),
       }))
       .filter((line) => line.quantity > 0);
 
-  const validateLines = (items: { sku_id: number; quantity: number }[]) => {
+  const validateLines = (items: { sku_id: number; quantity: number; current_stock?: number }[]) => {
     if (!items.length) {
       setError("Agrega al menos un ítem con cantidad.");
       return false;
     }
     if (items.some((item) => !Number.isInteger(item.quantity))) {
       setError("Las cantidades deben ser números enteros.");
+      return false;
+    }
+    if (items.some((item) => item.current_stock === undefined || item.current_stock === null)) {
+      setError("Indica el stock actual en el local para cada ítem.");
+      return false;
+    }
+    if (items.some((item) => !Number.isInteger(item.current_stock))) {
+      setError("El stock actual debe ser un número entero.");
       return false;
     }
     return true;
@@ -281,6 +322,78 @@ export function MobileOrdersPage() {
       console.error(err);
       setError("No pudimos cancelar el pedido.");
     }
+  };
+
+  const renderSection = (section: (typeof ORDER_SECTIONS)[number]) => {
+    const sectionLines = lines[section.key];
+    const options = optionsForSection(section.key);
+
+    return (
+      <Card variant="outlined">
+        <CardHeader
+          title={section.title}
+          titleTypographyProps={{ sx: { fontSize: 16, fontWeight: 700 } }}
+        />
+        <Divider />
+        <CardContent>
+          <Stack spacing={1.5}>
+            {sectionLines.map((line, index) => (
+              <Card key={`${section.key}-${index}`} variant="outlined">
+                <CardContent>
+                  <Stack spacing={1.5}>
+                    <TextField
+                      select
+                      label="Producto"
+                      value={line.sku_id}
+                      onChange={(e) => handleLineChange(section.key, index, "sku_id", e.target.value)}
+                      helperText={!options.length ? "No hay productos activos en la sección" : undefined}
+                    >
+                      {options.map((sku) => (
+                        <MenuItem key={sku.id} value={sku.id}>
+                          {sku.name} ({sku.code})
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
+                      label="Cantidad"
+                      type="number"
+                      inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
+                      value={line.quantity}
+                      onChange={(e) => handleLineChange(section.key, index, "quantity", e.target.value)}
+                    />
+                    <TextField
+                      required
+                      label="Stock en local"
+                      type="number"
+                      inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
+                      value={line.current_stock}
+                      onChange={(e) => handleLineChange(section.key, index, "current_stock", e.target.value)}
+                    />
+                    <Box display="flex" justifyContent="flex-end">
+                      <Button
+                        color="error"
+                        onClick={() => removeLine(section.key, index)}
+                        disabled={sectionLines.length <= 1}
+                      >
+                        Quitar ítem
+                      </Button>
+                    </Box>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+            <Button
+              variant="outlined"
+              startIcon={<AddCircleOutlineIcon />}
+              onClick={() => addLine(section.key)}
+              disabled={!options.length}
+            >
+              Agregar ítem
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+    );
   };
 
   const showEditor = editingOrderId !== null;
@@ -424,6 +537,11 @@ export function MobileOrdersPage() {
                           <Typography variant="body2" color="text.secondary">
                             Código: {item.sku_code ?? item.sku_id}
                           </Typography>
+                          {item.current_stock != null && (
+                            <Typography variant="body2" color="text.secondary">
+                              Stock en local: {item.current_stock}
+                            </Typography>
+                          )}
                         </CardContent>
                       </Card>
                     ))}
@@ -471,61 +589,33 @@ export function MobileOrdersPage() {
           <Divider />
           <CardContent>
             <Stack spacing={2}>
-              <TextField
-                label="Ingresado por"
-                value={requestedBy}
-                onChange={(e) => setRequestedBy(e.target.value)}
-                required
-              />
-              <TextField
-                label="Notas (opcional)"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                multiline
-                minRows={2}
-              />
+              <Card variant="outlined">
+                <CardHeader title="Encabezado" titleTypographyProps={{ sx: { fontSize: 16, fontWeight: 700 } }} />
+                <Divider />
+                <CardContent>
+                  <Stack spacing={2}>
+                    <TextField
+                      label="Ingresado por"
+                      value={requestedBy}
+                      onChange={(e) => setRequestedBy(e.target.value)}
+                      required
+                    />
+                    <TextField
+                      label="Notas (opcional)"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      multiline
+                      minRows={2}
+                    />
+                  </Stack>
+                </CardContent>
+              </Card>
 
-              <Typography sx={{ fontWeight: 700 }}>Ítems del pedido</Typography>
-              <Stack spacing={1.5}>
-                {lines.map((line, index) => (
-                  <Card key={`line-${index}`} variant="outlined">
-                    <CardContent>
-                      <Stack spacing={1.5}>
-                        <TextField
-                          select
-                          label="Producto"
-                          value={line.sku_id}
-                          onChange={(e) => handleLineChange(index, "sku_id", e.target.value)}
-                        >
-                          {skuOptions.map((sku) => (
-                            <MenuItem key={sku.id} value={sku.id}>
-                              {sku.name} ({sku.code})
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                        <TextField
-                          label="Cantidad"
-                          type="number"
-                          inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
-                          value={line.quantity}
-                          onChange={(e) => handleLineChange(index, "quantity", e.target.value)}
-                        />
-                        <Box display="flex" justifyContent="flex-end">
-                          <Button
-                            color="error"
-                            onClick={() => removeLine(index)}
-                            disabled={lines.length <= 1}
-                          >
-                            Quitar ítem
-                          </Button>
-                        </Box>
-                      </Stack>
-                    </CardContent>
-                  </Card>
+              <Typography sx={{ fontWeight: 700 }}>Ítems por sección</Typography>
+              <Stack spacing={2}>
+                {ORDER_SECTIONS.map((section) => (
+                  <div key={section.key}>{renderSection(section)}</div>
                 ))}
-                <Button variant="outlined" startIcon={<AddCircleOutlineIcon />} onClick={addLine}>
-                  Agregar ítem
-                </Button>
               </Stack>
 
               <Stack spacing={1} direction="row" flexWrap="wrap">
