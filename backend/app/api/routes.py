@@ -3116,8 +3116,8 @@ def list_stock_movements(
     if lot_code:
         statement = statement.where(StockMovement.lot_code == lot_code)
     if reference_type:
-        statement = statement.where(StockMovement.reference_type == reference_type)
-    if reference_id:
+        statement = statement.where(func.upper(StockMovement.reference_type) == reference_type.strip().upper())
+    if reference_id is not None:
         statement = statement.where(StockMovement.reference_id == reference_id)
     if date_from:
         statement = statement.where(StockMovement.movement_date >= date_from)

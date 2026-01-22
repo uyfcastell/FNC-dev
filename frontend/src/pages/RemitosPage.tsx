@@ -28,7 +28,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { ApiError, Deposit, fetchDeposits, fetchRemitoPdfBlob, fetchRemitos, Remito, RemitoStatus } from "../lib/api";
 
@@ -55,6 +55,7 @@ export function RemitosPage() {
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
   const [expandedRemitoId, setExpandedRemitoId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const supportsRegeneratePdf = false;
 
@@ -162,6 +163,15 @@ export function RemitosPage() {
 
   const handleRegeneratePdf = () => {
     setError("La regeneración de PDF aún no está disponible.");
+  };
+
+  const handleViewStockMovements = (remito: Remito) => {
+    if (!remito.shipment_id) {
+      setError("El remito no tiene envío asociado para ver movimientos de stock.");
+      return;
+    }
+    setError(null);
+    navigate(`/stock/movimientos?reference_type=SHIPMENT&reference_id=${remito.shipment_id}`);
   };
 
   const clearFilters = () => {
@@ -431,10 +441,9 @@ export function RemitosPage() {
                               </span>
                             </Tooltip>
                             <Button
-                              component={RouterLink}
-                              to={`/stock/movimientos?reference_type=REMITO&reference_id=${remito.id}`}
                               variant="text"
                               endIcon={<OpenInNewIcon />}
+                              onClick={() => handleViewStockMovements(remito)}
                             >
                               Ver movimientos de stock asociados
                             </Button>
@@ -442,9 +451,9 @@ export function RemitosPage() {
                           <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
                             Los movimientos se visualizan en la bandeja general.{" "}
                             <Link
-                              component={RouterLink}
-                              to={`/stock/movimientos?reference_type=REMITO&reference_id=${remito.id}`}
+                              component="button"
                               underline="hover"
+                              onClick={() => handleViewStockMovements(remito)}
                             >
                               Abrir movimientos de stock
                             </Link>

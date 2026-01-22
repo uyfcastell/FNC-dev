@@ -189,6 +189,7 @@ export function StockMovementsPage() {
 
   const hasNextPage = (page + 1) * PAGE_SIZE < total;
   const hasPrevPage = page > 0;
+  const hasReferenceFilter = Boolean(filters.reference_type && filters.reference_id != null);
 
   return (
     <Stack spacing={2}>
@@ -341,7 +342,7 @@ export function StockMovementsPage() {
                     <TableRow>
                       <TableCell colSpan={10} align="center">
                         <Typography variant="body2" color="text.secondary">
-                          No hay movimientos que coincidan con los filtros
+                          {hasReferenceFilter ? "No hay movimientos asociados" : "No hay movimientos que coincidan con los filtros"}
                         </Typography>
                       </TableCell>
                     </TableRow>
