@@ -29,6 +29,7 @@ import {
   fetchOrders,
   fetchShipments,
   updateShipmentItems,
+  updateShipment,
   Deposit,
   Order,
   Shipment,
@@ -235,7 +236,7 @@ export function ShipmentsPage() {
       setError("Los pedidos seleccionados no tienen cantidades pendientes para despachar.");
       return;
     }
-    if (!estimatedDeliveryDate && !editingShipmentId) {
+    if (!estimatedDeliveryDate) {
       setError("Ingresa la fecha estimada de entrega.");
       return;
     }
@@ -245,8 +246,11 @@ export function ShipmentsPage() {
     try {
       let shipment: Shipment;
       if (editingShipmentId) {
+        shipment = await updateShipment(editingShipmentId, {
+          deposit_id: Number(selectedDepositId),
+          estimated_delivery_date: estimatedDeliveryDate,
+        });
         await addOrdersToShipment(editingShipmentId, selectedOrders.map((order) => order.id));
-        shipment = activeShipment ?? (await fetchShipment(editingShipmentId));
       } else {
         shipment = await createShipment({
           deposit_id: Number(selectedDepositId),
@@ -474,11 +478,7 @@ export function ShipmentsPage() {
                     value={estimatedDeliveryDate}
                     onChange={(e) => setEstimatedDeliveryDate(e.target.value)}
                     InputLabelProps={{ shrink: true }}
-                    required={!editingShipmentId}
-                    disabled={Boolean(editingShipmentId)}
-                    helperText={
-                      editingShipmentId ? "La fecha estimada se mantiene igual en borradores existentes." : ""
-                    }
+                    required
                   />
                 </CardContent>
               </Card>

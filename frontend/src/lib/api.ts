@@ -835,6 +835,13 @@ export async function createShipment(payload: { deposit_id: number; estimated_de
   return apiRequest("/shipments", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el envío");
 }
 
+export async function updateShipment(
+  id: number,
+  payload: { deposit_id?: number; estimated_delivery_date?: string },
+): Promise<Shipment> {
+  return apiRequest(`/shipments/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el envío");
+}
+
 export async function addOrdersToShipment(id: number, order_ids: number[]): Promise<Shipment> {
   return apiRequest(
     `/shipments/${id}/add-orders`,

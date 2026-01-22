@@ -8,6 +8,7 @@ import { ProductionPage } from "./pages/ProductionPage";
 import { StockPage } from "./pages/StockPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { ShipmentsPage } from "./pages/ShipmentsPage";
+import { RemitosPage } from "./pages/RemitosPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -55,6 +56,7 @@ function DesktopRoutes() {
         <Route path="/mermas" element={<MermasPage />} />
         <Route path="/pedidos" element={<OrdersPage />} />
         <Route path="/envios" element={<ShipmentsPage />} />
+        <Route path="/remitos" element={<RemitosPage />} />
         <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
         <Route path="/administracion" element={<AdminPage />} />
         <Route path="/auditoria" element={<AuditPage />} />

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
@@ -91,6 +92,7 @@ from ..schemas import (
     ShipmentItemRead,
     ShipmentItemUpdate,
     ShipmentRead,
+    ShipmentUpdate,
     MermaCauseCreate,
     MermaCauseRead,
     MermaCauseUpdate,
@@ -1943,6 +1945,66 @@ def get_shipment(shipment_id: int, session: Session = Depends(get_session)) -> S
     return _map_shipment(shipment, session, include_items=True)
 
 
+@router.put(
+    "/shipments/{shipment_id}",
+    tags=["shipments"],
+    response_model=ShipmentRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def update_shipment(
+    shipment_id: int,
+    payload: ShipmentUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentRead:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar envíos en borrador")
+
+    updates: dict[str, object] = {}
+    before: dict[str, object] = {}
+
+    if payload.deposit_id is not None:
+        destination = _ensure_store_destination(session, payload.deposit_id)
+        if shipment.deposit_id != destination.id:
+            items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+            if items:
+                order_ids = {item.order_id for item in items}
+                orders = session.exec(select(Order).where(Order.id.in_(order_ids))).all()
+                invalid_orders = [order.id for order in orders if order.destination_deposit_id != destination.id]
+                if invalid_orders:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="El envío ya tiene pedidos asociados a otro local",
+                    )
+            before["deposit_id"] = shipment.deposit_id
+            updates["deposit_id"] = destination.id
+            shipment.deposit_id = destination.id
+
+    if payload.estimated_delivery_date is not None and payload.estimated_delivery_date != shipment.estimated_delivery_date:
+        before["estimated_delivery_date"] = shipment.estimated_delivery_date
+        updates["estimated_delivery_date"] = payload.estimated_delivery_date
+        shipment.estimated_delivery_date = payload.estimated_delivery_date
+
+    if not updates:
+        return _map_shipment(shipment, session)
+
+    shipment.updated_at = datetime.utcnow()
+    shipment.updated_by_user_id = current_user.id
+    session.add(shipment)
+    _log_audit(
+        session,
+        "shipments",
+        shipment.id,
+        AuditAction.UPDATE,
+        current_user.id,
+        {"event": "shipment_updated", "shipment_id": shipment.id, "before": before, "changes": updates},
+    )
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session)
+
+
 @router.post(
     "/shipments/{shipment_id}/add-orders",
     tags=["shipments"],
@@ -2358,6 +2420,23 @@ def list_remitos(
 def get_remito(remito_id: int, session: Session = Depends(get_session)) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     return _map_remito(remito, session)
+
+
+@router.get(
+    "/remitos/{remito_id}/pdf",
+    tags=["remitos"],
+    response_class=FileResponse,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+)
+def get_remito_pdf(remito_id: int, session: Session = Depends(get_session)) -> FileResponse:
+    remito = _get_remito_or_404(session, remito_id)
+    if not remito.pdf_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El remito no tiene PDF generado")
+    storage_dir = _remito_storage_dir().resolve()
+    pdf_path = Path(remito.pdf_path).resolve()
+    if storage_dir not in pdf_path.parents or not pdf_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el PDF del remito")
+    return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
 @router.post(
