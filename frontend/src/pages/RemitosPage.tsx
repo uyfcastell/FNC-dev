@@ -1,3 +1,6 @@
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import {
@@ -8,15 +11,24 @@ import {
   CardContent,
   CardHeader,
   Chip,
+  Collapse,
   Divider,
   Grid,
   IconButton,
+  Link,
   MenuItem,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
+import { Link as RouterLink } from "react-router-dom";
 
 import { ApiError, Deposit, fetchDeposits, fetchRemitoPdfBlob, fetchRemitos, Remito, RemitoStatus } from "../lib/api";
 
@@ -39,7 +51,12 @@ export function RemitosPage() {
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [idFilter, setIdFilter] = useState("");
+  const [sortField, setSortField] = useState<"issue_date" | "id">("issue_date");
+  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
+  const [expandedRemitoId, setExpandedRemitoId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const supportsRegeneratePdf = false;
 
   useEffect(() => {
     void loadRemitos();
@@ -108,6 +125,21 @@ export function RemitosPage() {
     });
   }, [remitos, statusFilter, destinationFilter, dateFromFilter, dateToFilter, idFilter]);
 
+  const sortedRemitos = useMemo(() => {
+    const sorted = [...filteredRemitos];
+    sorted.sort((a, b) => {
+      if (sortField === "issue_date") {
+        const aDate = new Date(a.issue_date).getTime();
+        const bDate = new Date(b.issue_date).getTime();
+        return sortDirection === "asc" ? aDate - bDate : bDate - aDate;
+      }
+      const aId = a.id;
+      const bId = b.id;
+      return sortDirection === "asc" ? aId - bId : bId - aId;
+    });
+    return sorted;
+  }, [filteredRemitos, sortField, sortDirection]);
+
   const openRemitoPdf = async (remitoId: number) => {
     try {
       setError(null);
@@ -127,6 +159,25 @@ export function RemitosPage() {
       }
     }
   };
+
+  const handleRegeneratePdf = () => {
+    setError("La regeneración de PDF aún no está disponible.");
+  };
+
+  const clearFilters = () => {
+    setStatusFilter("all");
+    setDestinationFilter("");
+    setDateFromFilter("");
+    setDateToFilter("");
+    setIdFilter("");
+  };
+
+  const hasActiveFilters =
+    statusFilter !== "all" ||
+    destinationFilter !== "" ||
+    dateFromFilter !== "" ||
+    dateToFilter !== "" ||
+    idFilter.trim() !== "";
 
   return (
     <Stack spacing={3}>
@@ -205,20 +256,47 @@ export function RemitosPage() {
             <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                label="Buscar por ID"
+                label="Buscar por número de remito"
                 value={idFilter}
                 onChange={(e) => setIdFilter(e.target.value)}
                 placeholder="Ej: 1208"
               />
             </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                select
+                fullWidth
+                label="Ordenar por"
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as "issue_date" | "id")}
+              >
+                <MenuItem value="issue_date">Fecha de emisión</MenuItem>
+                <MenuItem value="id">Número de remito</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={() => setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))}
+                startIcon={sortDirection === "asc" ? <ArrowUpwardIcon /> : <ArrowDownwardIcon />}
+              >
+                {sortDirection === "asc" ? "Ascendente" : "Descendente"}
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <Button fullWidth variant="text" onClick={clearFilters} disabled={!hasActiveFilters}>
+                Limpiar filtros
+              </Button>
+            </Grid>
           </Grid>
           <Stack spacing={1}>
-            {filteredRemitos.length === 0 ? (
+            {sortedRemitos.length === 0 ? (
               <Typography variant="body2" color="text.secondary">
                 Aún no hay remitos registrados.
               </Typography>
             ) : (
-              filteredRemitos.map((remito) => (
+              sortedRemitos.map((remito) => (
                 <Card key={remito.id} variant="outlined">
                   <CardContent>
                     <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2}>
@@ -239,22 +317,138 @@ export function RemitosPage() {
                             Ver PDF
                           </Button>
                         )}
+                        <Button
+                          variant="text"
+                          onClick={() =>
+                            setExpandedRemitoId((prev) => (prev === remito.id ? null : remito.id))
+                          }
+                        >
+                          {expandedRemitoId === remito.id ? "Ocultar detalle" : "Ver detalle"}
+                        </Button>
                       </Stack>
                     </Stack>
-                    {remito.items.length > 0 && (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle2" gutterBottom>
-                          Ítems
-                        </Typography>
-                        <Stack spacing={0.5}>
-                          {remito.items.map((item) => (
-                            <Typography key={item.id} variant="body2" color="text.secondary">
-                              {item.sku_code} · {item.sku_name} · {item.quantity}
+                    <Collapse in={expandedRemitoId === remito.id} timeout="auto" unmountOnExit>
+                      <Divider sx={{ my: 2 }} />
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="subtitle2" gutterBottom>
+                            Datos del remito
+                          </Typography>
+                          <Stack spacing={0.5}>
+                            <Typography variant="body2" color="text.secondary">
+                              Número: {remito.id}
                             </Typography>
-                          ))}
-                        </Stack>
-                      </Box>
-                    )}
+                            <Typography variant="body2" color="text.secondary">
+                              Fecha: {formatDate(remito.issue_date)}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Estado: {REMITO_STATUS_LABELS[remito.status]}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Destino: {remito.destination_deposit_name ?? remito.destination}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Origen: {remito.source_deposit_name ?? "Sin dato"}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Confirmado por: {remito.updated_by_name ?? remito.created_by_name ?? "Sin dato"}
+                            </Typography>
+                          </Stack>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="subtitle2" gutterBottom>
+                            Pedidos origen asociados
+                          </Typography>
+                          {remito.order_id ? (
+                            <Typography variant="body2" color="text.secondary">
+                              Pedido #{remito.order_id}
+                            </Typography>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              No hay pedidos asociados registrados.
+                            </Typography>
+                          )}
+                          {remito.shipment_id && (
+                            <Typography variant="body2" color="text.secondary">
+                              Envío #{remito.shipment_id}
+                            </Typography>
+                          )}
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Typography variant="subtitle2" gutterBottom>
+                            Líneas del remito
+                          </Typography>
+                          {remito.items.length > 0 ? (
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell>SKU</TableCell>
+                                  <TableCell>Descripción</TableCell>
+                                  <TableCell align="right">Cantidad (unid.)</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {remito.items.map((item) => (
+                                  <TableRow key={item.id}>
+                                    <TableCell>{item.sku_code}</TableCell>
+                                    <TableCell>{item.sku_name}</TableCell>
+                                    <TableCell align="right">{item.quantity}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              No hay líneas cargadas.
+                            </Typography>
+                          )}
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Typography variant="subtitle2" gutterBottom>
+                            Acciones operativas
+                          </Typography>
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap">
+                            {remito.pdf_path && (
+                              <Button variant="outlined" onClick={() => openRemitoPdf(remito.id)}>
+                                Ver PDF
+                              </Button>
+                            )}
+                            <Tooltip
+                              title={
+                                supportsRegeneratePdf
+                                  ? "Regenerar el PDF con la última información"
+                                  : "Función disponible cuando el backend la habilite"
+                              }
+                            >
+                              <span>
+                                <Button
+                                  variant="outlined"
+                                  disabled={!supportsRegeneratePdf}
+                                  onClick={handleRegeneratePdf}
+                                >
+                                  Re-generar PDF
+                                </Button>
+                              </span>
+                            </Tooltip>
+                            <Button
+                              component={RouterLink}
+                              to="/stock/movimientos"
+                              variant="text"
+                              endIcon={<OpenInNewIcon />}
+                            >
+                              Ver movimientos de stock asociados
+                            </Button>
+                          </Stack>
+                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                            Los movimientos se visualizan en la bandeja general.{" "}
+                            <Link component={RouterLink} to="/stock/movimientos" underline="hover">
+                              Abrir movimientos de stock
+                            </Link>
+                            .
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Collapse>
                   </CardContent>
                 </Card>
               ))
