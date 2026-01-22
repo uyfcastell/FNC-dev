@@ -25,4 +25,5 @@ frontend/.env.local
 
 # Runtime artifacts (generated PDFs, uploads, etc.)
 backend/app/storage/
+backend/app/storage/**
 
