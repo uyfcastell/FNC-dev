@@ -1,6 +1,16 @@
-from .common import AuditAction, InventoryCountStatus, MermaAction, MermaStage, OrderStatus, RemitoStatus, UnitOfMeasure
+from .common import (
+    AuditAction,
+    InventoryCountStatus,
+    MermaAction,
+    MermaStage,
+    OrderStatus,
+    RemitoStatus,
+    ShipmentStatus,
+    UnitOfMeasure,
+)
 from .inventory import Deposit, InventoryCount, InventoryCountItem, ProductionLot, StockLevel, StockMovement, StockMovementType
 from .order import Order, OrderItem, Remito, RemitoItem
+from .shipment import Shipment, ShipmentItem
 from .sku import Recipe, RecipeItem, SKU, SKUType, SemiConversionRule
 from .merma import MermaCause, MermaEvent, MermaType, ProductionLine
 from .audit import AuditLog
@@ -13,6 +23,7 @@ __all__ = [
     "MermaStage",
     "OrderStatus",
     "RemitoStatus",
+    "ShipmentStatus",
     "UnitOfMeasure",
     "SKUType",
     "Deposit",
@@ -30,6 +41,8 @@ __all__ = [
     "OrderItem",
     "Remito",
     "RemitoItem",
+    "Shipment",
+    "ShipmentItem",
     "Recipe",
     "RecipeItem",
     "SKU",

@@ -8,6 +8,7 @@ from .common import OrderStatus, RemitoStatus, TimestampedModel, enum_column
 if TYPE_CHECKING:  # pragma: no cover
     from .inventory import Deposit
     from .merma import MermaEvent
+    from .shipment import Shipment
     from .user import User
 
 
@@ -56,7 +57,8 @@ class Remito(TimestampedModel, table=True):
     __tablename__ = "remitos"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    order_id: int = Field(foreign_key="orders.id")
+    order_id: int | None = Field(default=None, foreign_key="orders.id")
+    shipment_id: int | None = Field(default=None, foreign_key="shipments.id")
     status: RemitoStatus = Field(default=RemitoStatus.PENDING, sa_column=enum_column(RemitoStatus, "remitostatus"))
     destination: str = Field(max_length=255)
     source_deposit_id: int | None = Field(default=None, foreign_key="deposits.id")
@@ -65,10 +67,12 @@ class Remito(TimestampedModel, table=True):
     received_at: datetime | None = Field(default=None)
     cancelled_at: datetime | None = Field(default=None)
     issue_date: date = Field(default_factory=date.today)
+    pdf_path: str | None = Field(default=None, max_length=255)
     created_by_user_id: int | None = Field(default=None, foreign_key="users.id")
     updated_by_user_id: int | None = Field(default=None, foreign_key="users.id")
 
-    order: Order = Relationship(back_populates="remitos")
+    order: Optional[Order] = Relationship(back_populates="remitos")
+    shipment: Optional["Shipment"] = Relationship(back_populates="remitos")
     items: list["RemitoItem"] = Relationship(back_populates="remito")
     source_deposit: Optional["Deposit"] = Relationship(sa_relationship_kwargs={"foreign_keys": "[Remito.source_deposit_id]"})
     destination_deposit: Optional["Deposit"] = Relationship(

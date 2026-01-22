@@ -198,7 +198,7 @@ export type Recipe = {
   items: RecipeItem[];
 };
 
-export type OrderStatus = "draft" | "submitted" | "approved" | "prepared" | "closed" | "cancelled";
+export type OrderStatus = "draft" | "submitted" | "partially_dispatched" | "dispatched" | "cancelled";
 
 export type OrderItem = {
   id?: number;
@@ -207,6 +207,8 @@ export type OrderItem = {
   sku_name?: string;
   quantity: number;
   current_stock?: number | null;
+  dispatched_quantity?: number | null;
+  pending_quantity?: number | null;
   has_legacy_decimal?: boolean | null;
   quantity_raw?: number | null;
 };
@@ -218,6 +220,7 @@ export type Order = {
   requested_for?: string | null;
   required_delivery_date?: string | null;
   requested_by?: string | null;
+  estimated_delivery_date?: string | null;
   status: OrderStatus;
   notes?: string | null;
   plant_internal_note?: string | null;
@@ -246,7 +249,8 @@ export type RemitoItem = {
 
 export type Remito = {
   id: number;
-  order_id: number;
+  order_id?: number | null;
+  shipment_id?: number | null;
   status: RemitoStatus;
   destination: string;
   source_deposit_id?: number | null;
@@ -258,11 +262,39 @@ export type Remito = {
   received_at?: string | null;
   cancelled_at?: string | null;
   created_at: string;
+  pdf_path?: string | null;
   created_by_user_id?: number | null;
   created_by_name?: string | null;
   updated_by_user_id?: number | null;
   updated_by_name?: string | null;
   items: RemitoItem[];
+};
+
+export type ShipmentStatus = "draft" | "confirmed" | "dispatched";
+
+export type ShipmentItem = {
+  id: number;
+  shipment_id: number;
+  order_id: number;
+  order_item_id: number;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  quantity: number;
+  ordered_quantity: number;
+  dispatched_quantity: number;
+  remaining_quantity: number;
+};
+
+export type Shipment = {
+  id: number;
+  deposit_id: number;
+  deposit_name?: string | null;
+  estimated_delivery_date: string;
+  status: ShipmentStatus;
+  created_at: string;
+  updated_at: string;
+  items?: ShipmentItem[];
 };
 
 export type ProductionLot = {
@@ -769,13 +801,6 @@ export async function fetchRemitos(): Promise<Remito[]> {
   return apiRequest("/remitos", {}, "No se pudieron obtener los remitos");
 }
 
-export async function createRemitoFromOrder(
-  orderId: number,
-  payload?: { source_deposit_id?: number | null; destination_deposit_id?: number | null },
-): Promise<Remito> {
-  return apiRequest(`/remitos/from-order/${orderId}`, { method: "POST", body: JSON.stringify(payload ?? {}) }, "No se pudo crear el remito");
-}
-
 export async function dispatchRemito(remitoId: number): Promise<Remito> {
   return apiRequest(`/remitos/${remitoId}/dispatch`, { method: "POST" }, "No se pudo despachar el remito");
 }
@@ -786,6 +811,55 @@ export async function receiveRemito(remitoId: number): Promise<Remito> {
 
 export async function cancelRemito(remitoId: number): Promise<Remito> {
   return apiRequest(`/remitos/${remitoId}/cancel`, { method: "POST" }, "No se pudo cancelar el remito");
+}
+
+export async function fetchShipments(params?: {
+  deposit_id?: number;
+  status?: ShipmentStatus;
+  date_from?: string;
+  date_to?: string;
+}): Promise<Shipment[]> {
+  const query = new URLSearchParams();
+  if (params?.deposit_id) query.append("deposit_id", String(params.deposit_id));
+  if (params?.status) query.append("status_filter", params.status);
+  if (params?.date_from) query.append("date_from", params.date_from);
+  if (params?.date_to) query.append("date_to", params.date_to);
+  return apiRequest(`/shipments${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener los envíos");
+}
+
+export async function fetchShipment(id: number): Promise<Shipment> {
+  return apiRequest(`/shipments/${id}`, {}, "No se pudo obtener el envío");
+}
+
+export async function createShipment(payload: { deposit_id: number; estimated_delivery_date: string }): Promise<Shipment> {
+  return apiRequest("/shipments", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el envío");
+}
+
+export async function addOrdersToShipment(id: number, order_ids: number[]): Promise<Shipment> {
+  return apiRequest(
+    `/shipments/${id}/add-orders`,
+    { method: "POST", body: JSON.stringify({ order_ids }) },
+    "No se pudieron agregar los pedidos al envío",
+  );
+}
+
+export async function updateShipmentItems(
+  id: number,
+  items: Array<{ order_item_id: number; quantity: number }>,
+): Promise<Shipment> {
+  return apiRequest(
+    `/shipments/${id}/items`,
+    { method: "POST", body: JSON.stringify(items) },
+    "No se pudieron actualizar los ítems del envío",
+  );
+}
+
+export async function confirmShipment(id: number): Promise<Shipment> {
+  return apiRequest(`/shipments/${id}/confirm`, { method: "POST" }, "No se pudo confirmar el envío");
+}
+
+export async function dispatchShipment(id: number): Promise<Shipment> {
+  return apiRequest(`/shipments/${id}/dispatch`, { method: "POST" }, "No se pudo despachar el envío");
 }
 
 export async function fetchUsers(): Promise<User[]> {

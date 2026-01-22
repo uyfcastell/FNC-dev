@@ -47,9 +47,8 @@ const STORAGE_KEY = "mobile_orders_deposit_id";
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
   submitted: "Enviado",
-  approved: "En proceso",
-  prepared: "Despachado",
-  closed: "Cerrado",
+  partially_dispatched: "Parcialmente despachado",
+  dispatched: "Despachado",
   cancelled: "Cancelado",
 };
 
@@ -57,14 +56,14 @@ const STATUS_FILTERS: Array<{ label: string; value: OrderStatus | "all" }> = [
   { label: "Todos", value: "all" },
   { label: "Borrador", value: "draft" },
   { label: "Enviado", value: "submitted" },
-  { label: "En proceso", value: "approved" },
-  { label: "Despachado", value: "prepared" },
+  { label: "Parcialmente despachado", value: "partially_dispatched" },
+  { label: "Despachado", value: "dispatched" },
   { label: "Cancelado", value: "cancelled" },
 ];
 
 const statusColor = (status: OrderStatus) => {
-  if (status === "approved") return "success";
-  if (status === "prepared") return "warning";
+  if (status === "partially_dispatched") return "warning";
+  if (status === "dispatched") return "success";
   if (status === "cancelled") return "error";
   return "info";
 };
@@ -517,6 +516,7 @@ export function MobileOrdersPage() {
                         </Stack>
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
                           {formatDate(order.created_at)} · Ítems {order.items.length} · Unidades {totalUnits(order)}
+                          {order.estimated_delivery_date ? ` · Entrega est.: ${formatDate(order.estimated_delivery_date)}` : ""}
                         </Typography>
                       </CardContent>
                     </Card>
@@ -552,6 +552,11 @@ export function MobileOrdersPage() {
                   {activeOrder.required_delivery_date && (
                     <Typography variant="body2">
                       Fecha requerida: {formatDate(activeOrder.required_delivery_date)}
+                    </Typography>
+                  )}
+                  {activeOrder.estimated_delivery_date && (
+                    <Typography variant="body2">
+                      Entrega estimada: {formatDate(activeOrder.estimated_delivery_date)}
                     </Typography>
                   )}
                   {activeOrder.notes && <Typography variant="body2">Notas: {activeOrder.notes}</Typography>}

@@ -7,6 +7,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ProductionPage } from "./pages/ProductionPage";
 import { StockPage } from "./pages/StockPage";
 import { OrdersPage } from "./pages/OrdersPage";
+import { ShipmentsPage } from "./pages/ShipmentsPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -29,7 +30,7 @@ function MobileRoutes() {
       navItems={[
         { label: "Inicio", to: "/" },
         { label: "Producción", to: "/mobile/produccion" },
-        { label: "Pedidos y remitos", to: "/mobile/pedidos" },
+        { label: "Pedidos", to: "/mobile/pedidos" },
       ]}
     >
       <Routes>
@@ -53,6 +54,7 @@ function DesktopRoutes() {
         <Route path="/stock/inventarios" element={<InventoryCountsPage />} />
         <Route path="/mermas" element={<MermasPage />} />
         <Route path="/pedidos" element={<OrdersPage />} />
+        <Route path="/envios" element={<ShipmentsPage />} />
         <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
         <Route path="/administracion" element={<AdminPage />} />
         <Route path="/auditoria" element={<AuditPage />} />
