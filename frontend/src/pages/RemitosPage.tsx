@@ -159,18 +159,23 @@ export function RemitosPage() {
   }, [filteredRemitos, sortField, sortDirection]);
 
   const openRemitoPdf = async (remitoId: number) => {
-    const newWindow = window.open("", "_blank", "noopener,noreferrer");
+    const newWindow = window.open("", "_blank");
     if (!newWindow) {
       setError("El navegador bloqueó la apertura del PDF en una pestaña nueva.");
       return;
     }
+    newWindow.opener = null;
+    newWindow.document.title = "Remito PDF";
+    newWindow.document.body.innerHTML = "<p>Cargando PDF...</p>";
     try {
       setError(null);
       const pdfBlob = await fetchRemitoPdfBlob(remitoId);
       const blobUrl = URL.createObjectURL(pdfBlob);
+      const revokeBlobUrl = () => URL.revokeObjectURL(blobUrl);
+      newWindow.addEventListener("pagehide", revokeBlobUrl, { once: true });
+      window.setTimeout(revokeBlobUrl, 5 * 60 * 1000);
       newWindow.location.href = blobUrl;
       newWindow.focus();
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch (err) {
       console.error(err);
       newWindow.close();
