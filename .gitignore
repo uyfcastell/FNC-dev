@@ -22,3 +22,7 @@ build/
 # Local environment files
 .env.local
 frontend/.env.local
+
+# Runtime artifacts (generated PDFs, uploads, etc.)
+app/storage/
+
