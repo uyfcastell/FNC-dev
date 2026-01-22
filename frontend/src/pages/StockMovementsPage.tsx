@@ -31,6 +31,7 @@ import {
   StockMovement,
   StockMovementType,
 } from "../lib/api";
+import { useSearchParams } from "react-router-dom";
 
 const PAGE_SIZE = 50;
 
@@ -38,6 +39,7 @@ const formatDateTime = (value: string) =>
   new Date(value).toLocaleString("es-AR", { hour12: false, timeZone: "UTC" });
 
 export function StockMovementsPage() {
+  const [searchParams] = useSearchParams();
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
@@ -50,6 +52,8 @@ export function StockMovementsPage() {
     sku_id: number | null;
     deposit_id: number | null;
     movement_type_id: number | null;
+    reference_type: string | null;
+    reference_id: number | null;
     date_from: string;
     date_to: string;
     lot_code: string;
@@ -57,10 +61,26 @@ export function StockMovementsPage() {
     sku_id: null,
     deposit_id: null,
     movement_type_id: null,
+    reference_type: searchParams.get("reference_type"),
+    reference_id: Number.isNaN(Number(searchParams.get("reference_id")))
+      ? null
+      : Number(searchParams.get("reference_id")),
     date_from: "",
     date_to: "",
     lot_code: "",
   });
+
+  useEffect(() => {
+    const referenceType = searchParams.get("reference_type");
+    const referenceIdParam = searchParams.get("reference_id");
+    const referenceId = referenceIdParam && !Number.isNaN(Number(referenceIdParam)) ? Number(referenceIdParam) : null;
+    setFilters((prev) => ({
+      ...prev,
+      reference_type: referenceType,
+      reference_id: referenceId,
+    }));
+    setPage(0);
+  }, [searchParams]);
 
   useEffect(() => {
     const loadCatalogs = async () => {
@@ -89,6 +109,8 @@ export function StockMovementsPage() {
           sku_id: filters.sku_id ?? undefined,
           deposit_id: filters.deposit_id ?? undefined,
           movement_type_id: filters.movement_type_id ?? undefined,
+          reference_type: filters.reference_type ?? undefined,
+          reference_id: filters.reference_id ?? undefined,
           date_from: filters.date_from || undefined,
           date_to: filters.date_to || undefined,
           lot_code: filters.lot_code || undefined,
@@ -156,6 +178,8 @@ export function StockMovementsPage() {
       sku_id: null,
       deposit_id: null,
       movement_type_id: null,
+      reference_type: filters.reference_type,
+      reference_id: filters.reference_id,
       date_from: "",
       date_to: "",
       lot_code: "",
