@@ -2396,7 +2396,7 @@ def dispatch_remito(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Los remitos de envíos confirmados no se despachan manualmente",
         )
-    if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
+    if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito ya fue procesado")
     if not remito.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito no tiene ítems cargados")
@@ -2478,7 +2478,7 @@ def receive_remito(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Los remitos de envíos confirmados no se reciben manualmente",
         )
-    if remito.status not in {RemitoStatus.DISPATCHED, RemitoStatus.SENT}:
+    if remito.status is not RemitoStatus.DISPATCHED:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden recibir remitos despachados")
     if not remito.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El remito no tiene ítems cargados")
@@ -2537,7 +2537,7 @@ def cancel_remito(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Los remitos de envíos confirmados no se pueden cancelar manualmente",
         )
-    if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED, RemitoStatus.DELIVERED}:
+    if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar un remito procesado")
     remito.status = RemitoStatus.CANCELLED
     remito.cancelled_at = datetime.utcnow()
