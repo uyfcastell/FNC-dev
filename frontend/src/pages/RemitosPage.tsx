@@ -18,7 +18,7 @@ import {
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 
-import { API_BASE_URL, Deposit, fetchDeposits, fetchRemitos, Remito, RemitoStatus } from "../lib/api";
+import { ApiError, Deposit, fetchDeposits, fetchRemitoPdfBlob, fetchRemitos, Remito, RemitoStatus } from "../lib/api";
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleDateString("es-AR") : "-");
 
@@ -108,8 +108,24 @@ export function RemitosPage() {
     });
   }, [remitos, statusFilter, destinationFilter, dateFromFilter, dateToFilter, idFilter]);
 
-  const openRemitoPdf = (remitoId: number) => {
-    window.open(`${API_BASE_URL}/remitos/${remitoId}/pdf`, "_blank", "noopener,noreferrer");
+  const openRemitoPdf = async (remitoId: number) => {
+    try {
+      setError(null);
+      const pdfBlob = await fetchRemitoPdfBlob(remitoId);
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const newWindow = window.open(blobUrl, "_blank", "noopener,noreferrer");
+      if (!newWindow) {
+        window.location.assign(blobUrl);
+      }
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      console.error(err);
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        setError("Sesión expirada / sin permisos");
+      } else {
+        setError("No pudimos descargar el PDF.");
+      }
+    }
   };
 
   return (

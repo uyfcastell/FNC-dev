@@ -1,6 +1,5 @@
 import re
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
@@ -12,6 +11,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..core.config import get_settings
+from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..db import get_session
 from ..core.security import create_access_token, hash_password, is_legacy_hash, needs_rehash, verify_password
 from .deps import get_current_user, require_active_user, require_roles
@@ -853,17 +853,11 @@ def _map_shipment(shipment: Shipment, session: Session, include_items: bool = Fa
     return ShipmentDetail(**base.model_dump(), items=items)
 
 
-def _remito_storage_dir() -> Path:
-    base_dir = Path(__file__).resolve().parents[1]
-    storage_dir = base_dir / "storage" / "remitos"
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    return storage_dir
-
-
 def _generate_remito_pdf(session: Session, remito: Remito, remito_items: list[RemitoItem], remito_type: str) -> str | None:
     if not remito_items:
         return None
-    storage_dir = _remito_storage_dir()
+    storage_dir = get_remitos_dir_new()
+    storage_dir.mkdir(parents=True, exist_ok=True)
     filename = f"remito_{remito.id}_{remito_type.lower()}.pdf"
     file_path = storage_dir / filename
 
@@ -2432,9 +2426,8 @@ def get_remito_pdf(remito_id: int, session: Session = Depends(get_session)) -> F
     remito = _get_remito_or_404(session, remito_id)
     if not remito.pdf_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El remito no tiene PDF generado")
-    storage_dir = _remito_storage_dir().resolve()
-    pdf_path = Path(remito.pdf_path).resolve()
-    if storage_dir not in pdf_path.parents or not pdf_path.exists():
+    pdf_path = resolve_remito_pdf_path(remito.id, remito.pdf_path)
+    if not pdf_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el PDF del remito")
     return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
 

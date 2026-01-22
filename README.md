@@ -86,6 +86,11 @@ El frontend obtiene la URL base del backend desde una variable de entorno:
 VITE_API_BASE_URL=http://localhost:8000/api
 ```
 
+### Storage de PDFs (producción)
+Para guardar los PDFs de remitos fuera del repositorio, defina la variable de entorno `STORAGE_ROOT` en el backend
+(por ejemplo `/var/lib/fnc/storage`). El servicio escribirá los PDFs en `${STORAGE_ROOT}/remitos` y seguirá leyendo
+los PDFs existentes en `backend/app/storage/remitos` como fallback de compatibilidad.
+
 
 ### Observaciones iniciales
 - La pila propuesta es adecuada para una aplicación full web y responsive, con buen soporte para tablet y escritorio.

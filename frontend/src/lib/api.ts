@@ -1,6 +1,15 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const AUTH_TOKEN_KEY = "fnc_access_token";
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export function getStoredToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY);
 }
@@ -30,7 +39,7 @@ async function apiRequest<T>(path: string, options: RequestInit, defaultError: s
   const response = await apiFetch(path, options);
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || defaultError);
+    throw new ApiError(response.status, detail || defaultError);
   }
   return response.json() as Promise<T>;
 }
@@ -269,6 +278,15 @@ export type Remito = {
   updated_by_name?: string | null;
   items: RemitoItem[];
 };
+
+export async function fetchRemitoPdfBlob(remitoId: number): Promise<Blob> {
+  const response = await apiFetch(`/remitos/${remitoId}/pdf`);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ApiError(response.status, detail || "No pudimos descargar el PDF.");
+  }
+  return response.blob();
+}
 
 export type ShipmentStatus = "draft" | "confirmed" | "dispatched";
 
