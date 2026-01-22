@@ -140,7 +140,7 @@ export function OrderEntryPage() {
                 <TextField
                   label="Cantidad"
                   type="number"
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
                   value={item.quantity}
                   onChange={(e) => handleLineChange(config.key, index, "quantity", e.target.value)}
                   sx={{ width: 180 }}
@@ -148,7 +148,7 @@ export function OrderEntryPage() {
                 <TextField
                   label="Stock en local (informativo)"
                   type="number"
-                  inputProps={{ step: "0.01" }}
+                  inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
                   value={item.current_stock}
                   onChange={(e) => handleLineChange(config.key, index, "current_stock", e.target.value)}
                   sx={{ width: 220 }}
@@ -233,6 +233,10 @@ export function OrderEntryPage() {
     const items = buildItemsPayload();
     if (!items.length) {
       setError("Agrega al menos un ítem en cualquiera de las secciones");
+      return;
+    }
+    if (items.some((item) => !Number.isInteger(item.quantity))) {
+      setError("Las cantidades deben ser números enteros");
       return;
     }
     try {

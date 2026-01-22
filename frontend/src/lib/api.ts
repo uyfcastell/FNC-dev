@@ -726,8 +726,12 @@ export async function fetchStockAlertReport(params?: {
   );
 }
 
-export async function fetchOrders(): Promise<Order[]> {
-  return apiRequest("/orders", {}, "No se pudieron obtener los pedidos");
+export async function fetchOrders(params?: { status?: OrderStatus; destination_deposit_id?: number }): Promise<Order[]> {
+  const query = new URLSearchParams();
+  if (params?.status) query.append("status_filter", params.status);
+  if (params?.destination_deposit_id) query.append("destination_deposit_id", String(params.destination_deposit_id));
+  const queryString = query.toString();
+  return apiRequest(`/orders${queryString ? `?${queryString}` : ""}`, {}, "No se pudieron obtener los pedidos");
 }
 
 export async function createOrder(
@@ -737,6 +741,7 @@ export async function createOrder(
     items: OrderItem[];
     requested_for?: string | null;
     requested_by?: string | null;
+    status?: OrderStatus;
   }
 ): Promise<Order> {
   return apiRequest("/orders", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el pedido");
