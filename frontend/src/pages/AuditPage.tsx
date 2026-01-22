@@ -57,6 +57,16 @@ export function AuditPage() {
     }
   };
 
+  const handleFilterChange = (patch: Partial<typeof filters>) => {
+    setFilters((prev) => {
+      const next = { ...prev, ...patch };
+      if (next.date_from && next.date_to && next.date_to < next.date_from) {
+        next.date_to = next.date_from;
+      }
+      return next;
+    });
+  };
+
   useEffect(() => {
     void loadLogs();
   }, []);
@@ -114,7 +124,7 @@ export function AuditPage() {
                 label="Desde"
                 InputLabelProps={{ shrink: true }}
                 value={filters.date_from}
-                onChange={(e) => setFilters((prev) => ({ ...prev, date_from: e.target.value }))}
+                onChange={(e) => handleFilterChange({ date_from: e.target.value })}
               />
             </Grid>
             <Grid item xs={12} md={2.5}>
@@ -124,7 +134,8 @@ export function AuditPage() {
                 label="Hasta"
                 InputLabelProps={{ shrink: true }}
                 value={filters.date_to}
-                onChange={(e) => setFilters((prev) => ({ ...prev, date_to: e.target.value }))}
+                onChange={(e) => handleFilterChange({ date_to: e.target.value })}
+                inputProps={{ min: filters.date_from || undefined }}
               />
             </Grid>
           </Grid>
