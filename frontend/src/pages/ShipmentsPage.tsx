@@ -8,6 +8,7 @@ import {
   CardContent,
   CardHeader,
   Checkbox,
+  Collapse,
   Divider,
   FormControlLabel,
   Grid,
@@ -36,6 +37,7 @@ import {
   Deposit,
   Order,
   Shipment,
+  ShipmentItem,
   ShipmentStatus,
 } from "../lib/api";
 
@@ -66,6 +68,9 @@ export function ShipmentsPage() {
   const [shipmentDateTo, setShipmentDateTo] = useState("");
   const [shipmentIdFilter, setShipmentIdFilter] = useState("");
   const [tab, setTab] = useState<"bandeja" | "crear">("bandeja");
+  const [expandedShipmentId, setExpandedShipmentId] = useState<number | null>(null);
+  const [shipmentDetails, setShipmentDetails] = useState<Record<number, Shipment>>({});
+  const [detailLoadingIds, setDetailLoadingIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     void loadCatalog();
@@ -348,6 +353,39 @@ export function ShipmentsPage() {
     resetForm();
     setSuccess("Edición cancelada.");
   };
+
+  const handleToggleDetails = async (shipmentId: number) => {
+    setExpandedShipmentId((prev) => (prev === shipmentId ? null : shipmentId));
+    if (expandedShipmentId === shipmentId) {
+      return;
+    }
+    if (shipmentDetails[shipmentId]?.items || shipmentDetails[shipmentId]?.orders) {
+      return;
+    }
+    setDetailLoadingIds((prev) => new Set(prev).add(shipmentId));
+    try {
+      const details = await fetchShipment(shipmentId);
+      setShipmentDetails((prev) => ({ ...prev, [shipmentId]: details }));
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos cargar el detalle del envío.");
+    } finally {
+      setDetailLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(shipmentId);
+        return next;
+      });
+    }
+  };
+
+  const groupItemsByOrder = (items: ShipmentItem[]) =>
+    items.reduce<Record<number, ShipmentItem[]>>((acc, item) => {
+      if (!acc[item.order_id]) {
+        acc[item.order_id] = [];
+      }
+      acc[item.order_id].push(item);
+      return acc;
+    }, {});
 
   const getShipmentActionState = (status: ShipmentStatus) => {
     const canEdit = status === "draft";
@@ -635,6 +673,15 @@ export function ShipmentsPage() {
               <Stack spacing={1}>
                 {filteredShipments.map((shipment) => {
                   const actionState = getShipmentActionState(shipment.status);
+                  const details = shipmentDetails[shipment.id] ?? shipment;
+                  const isExpanded = expandedShipmentId === shipment.id;
+                  const isDetailLoading = detailLoadingIds.has(shipment.id);
+                  const detailOrders = details.orders ?? [];
+                  const detailItems = details.items ?? [];
+                  const itemsByOrder = groupItemsByOrder(detailItems);
+                  const fallbackOrderIds = detailOrders.length
+                    ? []
+                    : Array.from(new Set(detailItems.map((item) => item.order_id)));
                   return (
                     <Box
                       key={shipment.id}
@@ -642,60 +689,169 @@ export function ShipmentsPage() {
                         border: "1px solid #e0e0e0",
                         borderRadius: 2,
                         p: 1,
-                        display: "flex",
-                        justifyContent: "space-between",
-                        flexWrap: "wrap",
-                        gap: 1,
                       }}
                     >
-                      <Box>
-                        <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
-                        </Typography>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                          gap: 1,
+                        }}
+                      >
+                        <Box>
+                          <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => void handleToggleDetails(shipment.id)}
+                            disabled={isDetailLoading}
+                          >
+                            {isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                          </Button>
+                          <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleEditShipment(shipment.id)}
+                                disabled={!actionState.canEdit || loading}
+                              >
+                                Editar
+                              </Button>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={actionState.confirmReason} disableHoverListener={actionState.canConfirm}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                onClick={() => handleConfirmShipment(shipment.id)}
+                                disabled={!actionState.canConfirm || loading}
+                              >
+                                Confirmar
+                              </Button>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={actionState.cancelReason} disableHoverListener={actionState.canCancel}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="text"
+                                color="error"
+                                onClick={() => handleCancelShipment(shipment.id)}
+                                disabled={!actionState.canCancel || loading}
+                              >
+                                Cancelar envío
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        </Stack>
                       </Box>
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                        <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
-                          <span>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => handleEditShipment(shipment.id)}
-                              disabled={!actionState.canEdit || loading}
-                            >
-                              Editar
-                            </Button>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title={actionState.confirmReason} disableHoverListener={actionState.canConfirm}>
-                          <span>
-                            <Button
-                              size="small"
-                              variant="contained"
-                              onClick={() => handleConfirmShipment(shipment.id)}
-                              disabled={!actionState.canConfirm || loading}
-                            >
-                              Confirmar
-                            </Button>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title={actionState.cancelReason} disableHoverListener={actionState.canCancel}>
-                          <span>
-                            <Button
-                              size="small"
-                              variant="text"
-                              color="error"
-                              onClick={() => handleCancelShipment(shipment.id)}
-                              disabled={!actionState.canCancel || loading}
-                            >
-                              Cancelar envío
-                            </Button>
-                          </span>
-                        </Tooltip>
-                      </Stack>
+                      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                        <Box sx={{ mt: 1, border: "1px dashed #e0e0e0", borderRadius: 2, p: 2, bgcolor: "#fafafa" }}>
+                          {isDetailLoading ? (
+                            <Typography variant="body2" color="text.secondary">
+                              Cargando detalle del envío...
+                            </Typography>
+                          ) : (
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} md={4}>
+                                <Typography variant="subtitle2" fontWeight={600}>
+                                  Datos del envío
+                                </Typography>
+                                <Stack spacing={0.5} mt={1}>
+                                  <Typography variant="body2">ID: #{details.id}</Typography>
+                                  <Typography variant="body2">
+                                    Estado: {SHIPMENT_STATUS_LABELS[details.status]}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    Destino: {details.deposit_name ?? details.deposit_id}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    Fecha estimada: {formatDate(details.estimated_delivery_date)}
+                                  </Typography>
+                                  <Typography variant="body2">Creado: {formatDate(details.created_at)}</Typography>
+                                  <Typography variant="body2">
+                                    Actualizado: {formatDate(details.updated_at)}
+                                  </Typography>
+                                </Stack>
+                              </Grid>
+                              <Grid item xs={12} md={8}>
+                                <Typography variant="subtitle2" fontWeight={600}>
+                                  Pedidos incluidos
+                                </Typography>
+                                <Stack spacing={1} mt={1}>
+                                  {detailOrders.length === 0 && detailItems.length === 0 && (
+                                    <Typography variant="body2" color="text.secondary">
+                                      No hay pedidos asociados a este envío.
+                                    </Typography>
+                                  )}
+                                  {detailOrders.map((order) => (
+                                    <Box key={order.id} sx={{ border: "1px solid #e0e0e0", borderRadius: 2, p: 1 }}>
+                                      <Typography variant="body2" fontWeight={600}>
+                                        Pedido #{order.id}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Estado: {order.status} · Destino: {order.destination}
+                                        {order.required_delivery_date
+                                          ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
+                                          : ""}
+                                      </Typography>
+                                      <Stack spacing={0.5} mt={1}>
+                                        {(itemsByOrder[order.id] ?? []).length === 0 ? (
+                                          <Typography variant="caption" color="text.secondary">
+                                            Sin productos asociados.
+                                          </Typography>
+                                        ) : (
+                                          itemsByOrder[order.id].map((item) => (
+                                            <Box key={item.id} sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+                                              <Typography variant="body2">
+                                                {item.sku_name} ({item.sku_code})
+                                              </Typography>
+                                              <Typography variant="body2" color="text.secondary">
+                                                Cant.: {item.quantity} · Pendiente: {item.remaining_quantity}
+                                              </Typography>
+                                            </Box>
+                                          ))
+                                        )}
+                                      </Stack>
+                                    </Box>
+                                  ))}
+                                  {detailOrders.length === 0 &&
+                                    fallbackOrderIds.map((orderId) => (
+                                      <Box key={orderId} sx={{ border: "1px solid #e0e0e0", borderRadius: 2, p: 1 }}>
+                                        <Typography variant="body2" fontWeight={600}>
+                                          Pedido #{orderId}
+                                        </Typography>
+                                        <Stack spacing={0.5} mt={1}>
+                                          {(itemsByOrder[orderId] ?? []).map((item) => (
+                                            <Box key={item.id} sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+                                              <Typography variant="body2">
+                                                {item.sku_name} ({item.sku_code})
+                                              </Typography>
+                                              <Typography variant="body2" color="text.secondary">
+                                                Cant.: {item.quantity} · Pendiente: {item.remaining_quantity}
+                                              </Typography>
+                                            </Box>
+                                          ))}
+                                        </Stack>
+                                      </Box>
+                                    ))}
+                                </Stack>
+                              </Grid>
+                            </Grid>
+                          )}
+                        </Box>
+                      </Collapse>
                     </Box>
                   );
                 })}
