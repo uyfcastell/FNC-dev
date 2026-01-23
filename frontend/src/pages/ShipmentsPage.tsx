@@ -8,12 +8,15 @@ import {
   CardContent,
   CardHeader,
   Checkbox,
+  Collapse,
   Divider,
   FormControlLabel,
   Grid,
   IconButton,
   MenuItem,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -34,6 +37,7 @@ import {
   Deposit,
   Order,
   Shipment,
+  ShipmentItem,
   ShipmentStatus,
 } from "../lib/api";
 
@@ -63,6 +67,10 @@ export function ShipmentsPage() {
   const [shipmentDateFrom, setShipmentDateFrom] = useState("");
   const [shipmentDateTo, setShipmentDateTo] = useState("");
   const [shipmentIdFilter, setShipmentIdFilter] = useState("");
+  const [tab, setTab] = useState<"bandeja" | "crear">("bandeja");
+  const [expandedShipmentId, setExpandedShipmentId] = useState<number | null>(null);
+  const [shipmentDetails, setShipmentDetails] = useState<Record<number, Shipment>>({});
+  const [detailLoadingIds, setDetailLoadingIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     void loadCatalog();
@@ -331,6 +339,7 @@ export function ShipmentsPage() {
       setEstimatedDeliveryDate(shipment.estimated_delivery_date);
       setActiveShipment(shipment);
       setEditingShipmentId(shipment.id);
+      setTab("crear");
       setSuccess(`Continuando edición del envío #${shipment.id}.`);
     } catch (err) {
       console.error(err);
@@ -344,6 +353,39 @@ export function ShipmentsPage() {
     resetForm();
     setSuccess("Edición cancelada.");
   };
+
+  const handleToggleDetails = async (shipmentId: number) => {
+    setExpandedShipmentId((prev) => (prev === shipmentId ? null : shipmentId));
+    if (expandedShipmentId === shipmentId) {
+      return;
+    }
+    if (shipmentDetails[shipmentId]?.items || shipmentDetails[shipmentId]?.orders) {
+      return;
+    }
+    setDetailLoadingIds((prev) => new Set(prev).add(shipmentId));
+    try {
+      const details = await fetchShipment(shipmentId);
+      setShipmentDetails((prev) => ({ ...prev, [shipmentId]: details }));
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos cargar el detalle del envío.");
+    } finally {
+      setDetailLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(shipmentId);
+        return next;
+      });
+    }
+  };
+
+  const groupItemsByOrder = (items: ShipmentItem[]) =>
+    items.reduce<Record<number, ShipmentItem[]>>((acc, item) => {
+      if (!acc[item.order_id]) {
+        acc[item.order_id] = [];
+      }
+      acc[item.order_id].push(item);
+      return acc;
+    }, {});
 
   const getShipmentActionState = (status: ShipmentStatus) => {
     const canEdit = status === "draft";
@@ -368,327 +410,456 @@ export function ShipmentsPage() {
         <LocalShippingIcon color="primary" /> Envíos de planta
       </Typography>
 
+      <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ borderBottom: 1, borderColor: "divider" }}>
+        <Tab value="bandeja" label="Bandeja de envíos" />
+        <Tab value="crear" label="Crear envío" />
+      </Tabs>
+
       {error && <Alert severity="error">{error}</Alert>}
       {success && <Alert severity="success">{success}</Alert>}
 
-      <Card>
-        <CardHeader
-          title={editingShipmentId ? `Editar envío #${editingShipmentId}` : "Crear envío"}
-          subheader={
-            editingShipmentId
-              ? "Actualiza pedidos y cantidades antes de confirmar el envío"
-              : "Selecciona local, pedidos y cantidades a despachar"
-          }
-        />
-        <Divider />
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
-              <Card variant="outlined">
-                <CardHeader title="Paso 1 — Local" />
-                <Divider />
-                <CardContent>
-                  <TextField
-                    select
-                    fullWidth
-                    label="Local"
-                    value={selectedDepositId}
-                    onChange={(e) => setSelectedDepositId(e.target.value)}
-                  >
-                    <MenuItem value="">Seleccionar...</MenuItem>
-                    {deposits.map((deposit) => (
-                      <MenuItem key={deposit.id} value={deposit.id}>
-                        {deposit.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={8}>
-              <Card variant="outlined">
-                <CardHeader title="Paso 2 — Pedidos" />
-                <Divider />
-                <CardContent>
-                  <Stack spacing={1}>
-                    {selectedDepositId && orders.length === 0 && (
-                      <Typography variant="body2" color="text.secondary">
-                        No hay pedidos enviados o parcialmente despachados para este local.
-                      </Typography>
-                    )}
-                    {orders.map((order) => (
-                      <Box key={order.id} sx={{ border: "1px solid #e0e0e0", borderRadius: 2, p: 1 }}>
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              checked={selectedOrderIds.has(order.id)}
-                              onChange={() => toggleOrder(order.id)}
-                            />
-                          }
-                          label={
-                            <Stack spacing={0.5}>
-                              <Typography fontWeight={600}>Pedido #{order.id}</Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Fecha: {formatDate(order.created_at)} · Estado: {order.status}
-                                {order.required_delivery_date ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}` : ""}
-                              </Typography>
-                            </Stack>
-                          }
-                        />
-                      </Box>
-                    ))}
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12}>
-              <Card variant="outlined">
-                <CardHeader title="Paso 3 — Cantidades a despachar" />
-                <Divider />
-                <CardContent>
-                  {orderItems.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      Selecciona pedidos para definir cantidades.
-                    </Typography>
-                  ) : (
+      {tab === "crear" && (
+        <Card>
+          <CardHeader
+            title={editingShipmentId ? `Editar envío #${editingShipmentId}` : "Crear envío"}
+            subheader={
+              editingShipmentId
+                ? "Actualiza pedidos y cantidades antes de confirmar el envío"
+                : "Selecciona local, pedidos y cantidades a despachar"
+            }
+          />
+          <Divider />
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <Card variant="outlined">
+                  <CardHeader title="Paso 1 — Local" />
+                  <Divider />
+                  <CardContent>
+                    <TextField
+                      select
+                      fullWidth
+                      label="Local"
+                      value={selectedDepositId}
+                      onChange={(e) => setSelectedDepositId(e.target.value)}
+                    >
+                      <MenuItem value="">Seleccionar...</MenuItem>
+                      {deposits.map((deposit) => (
+                        <MenuItem key={deposit.id} value={deposit.id}>
+                          {deposit.name}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} md={8}>
+                <Card variant="outlined">
+                  <CardHeader title="Paso 2 — Pedidos" />
+                  <Divider />
+                  <CardContent>
                     <Stack spacing={1}>
-                      {orderItems.map(({ order, item, pending }) => (
-                        <Box
-                          key={`${order.id}-${item.id}`}
-                          sx={{
-                            display: "flex",
-                            flexDirection: "column",
-                            border: "1px solid #e0e0e0",
-                            borderRadius: 2,
-                            p: 1,
-                          }}
-                        >
-                          <Typography fontWeight={600}>
-                            Pedido #{order.id} · {item.sku_name ?? `SKU ${item.sku_id}`}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Pedida: {item.quantity} · Despachada: {item.dispatched_quantity ?? 0} · Pendiente: {pending}
-                          </Typography>
-                          <TextField
-                            label="Cantidad a despachar"
-                            type="number"
-                            size="small"
-                            value={quantities[item.id ?? 0] ?? 0}
-                            inputProps={{ min: 0, max: pending, step: 1 }}
-                            onChange={(e) => updateQuantity(item.id ?? 0, Number(e.target.value), pending)}
-                            sx={{ mt: 1, maxWidth: 200 }}
+                      {selectedDepositId && orders.length === 0 && (
+                        <Typography variant="body2" color="text.secondary">
+                          No hay pedidos enviados o parcialmente despachados para este local.
+                        </Typography>
+                      )}
+                      {orders.map((order) => (
+                        <Box key={order.id} sx={{ border: "1px solid #e0e0e0", borderRadius: 2, p: 1 }}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={selectedOrderIds.has(order.id)}
+                                onChange={() => toggleOrder(order.id)}
+                              />
+                            }
+                            label={
+                              <Stack spacing={0.5}>
+                                <Typography fontWeight={600}>Pedido #{order.id}</Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  Fecha: {formatDate(order.created_at)} · Estado: {order.status}
+                                  {order.required_delivery_date
+                                    ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
+                                    : ""}
+                                </Typography>
+                              </Stack>
+                            }
                           />
                         </Box>
                       ))}
                     </Stack>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Card variant="outlined">
-                <CardHeader title="Paso 4 — Fecha estimada" />
-                <Divider />
-                <CardContent>
-                  <TextField
-                    type="date"
-                    label="Fecha estimada de entrega"
-                    value={estimatedDeliveryDate}
-                    onChange={(e) => setEstimatedDeliveryDate(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                    required
-                  />
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Card variant="outlined">
-                <CardHeader title="Paso 5 — Crear" />
-                <Divider />
-                <CardContent>
-                  <Stack spacing={1}>
-                    <Button
-                      variant="contained"
-                      startIcon={<LocalShippingIcon />}
-                      onClick={handleSaveShipment}
-                      disabled={loading}
-                    >
-                      {loading
-                        ? "Procesando..."
-                        : editingShipmentId
-                          ? "Guardar cambios"
-                          : "Crear envío"}
-                    </Button>
-                    {activeShipment && (
-                      <Stack direction="row" spacing={1} flexWrap="wrap">
-                        <Button variant="outlined" onClick={() => handleConfirmShipment()} disabled={loading}>
-                          Confirmar envío
-                        </Button>
-                        {editingShipmentId && (
-                          <Button variant="text" onClick={handleCancelEdit} disabled={loading}>
-                            Cancelar edición
-                          </Button>
-                        )}
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12}>
+                <Card variant="outlined">
+                  <CardHeader title="Paso 3 — Cantidades a despachar" />
+                  <Divider />
+                  <CardContent>
+                    {orderItems.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        Selecciona pedidos para definir cantidades.
+                      </Typography>
+                    ) : (
+                      <Stack spacing={1}>
+                        {orderItems.map(({ order, item, pending }) => (
+                          <Box
+                            key={`${order.id}-${item.id}`}
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              border: "1px solid #e0e0e0",
+                              borderRadius: 2,
+                              p: 1,
+                            }}
+                          >
+                            <Typography fontWeight={600}>
+                              Pedido #{order.id} · {item.sku_name ?? `SKU ${item.sku_id}`}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Pedida: {item.quantity} · Despachada: {item.dispatched_quantity ?? 0} · Pendiente: {pending}
+                            </Typography>
+                            <TextField
+                              label="Cantidad a despachar"
+                              type="number"
+                              size="small"
+                              value={quantities[item.id ?? 0] ?? 0}
+                              inputProps={{ min: 0, max: pending, step: 1 }}
+                              onChange={(e) => updateQuantity(item.id ?? 0, Number(e.target.value), pending)}
+                              sx={{ mt: 1, maxWidth: 200 }}
+                            />
+                          </Box>
+                        ))}
                       </Stack>
                     )}
-                  </Stack>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Card variant="outlined">
+                  <CardHeader title="Paso 4 — Fecha estimada" />
+                  <Divider />
+                  <CardContent>
+                    <TextField
+                      type="date"
+                      label="Fecha estimada de entrega"
+                      value={estimatedDeliveryDate}
+                      onChange={(e) => setEstimatedDeliveryDate(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      required
+                    />
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Card variant="outlined">
+                  <CardHeader title="Paso 5 — Crear" />
+                  <Divider />
+                  <CardContent>
+                    <Stack spacing={1}>
+                      <Button
+                        variant="contained"
+                        startIcon={<LocalShippingIcon />}
+                        onClick={handleSaveShipment}
+                        disabled={loading}
+                      >
+                        {loading
+                          ? "Procesando..."
+                          : editingShipmentId
+                            ? "Guardar cambios"
+                            : "Crear envío"}
+                      </Button>
+                      {activeShipment && (
+                        <Stack direction="row" spacing={1} flexWrap="wrap">
+                          <Button variant="outlined" onClick={() => handleConfirmShipment()} disabled={loading}>
+                            Confirmar envío
+                          </Button>
+                          {editingShipmentId && (
+                            <Button variant="text" onClick={handleCancelEdit} disabled={loading}>
+                              Cancelar edición
+                            </Button>
+                          )}
+                        </Stack>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
             </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      <Card>
-        <CardHeader
-          title={`Envíos existentes (${filteredShipments.length})`}
-          action={
-            <IconButton onClick={loadShipments}>
-              <RefreshIcon />
-            </IconButton>
-          }
-        />
-        <Divider />
-        <CardContent>
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={12} md={3}>
-              <TextField
-                select
-                fullWidth
-                label="Estado"
-                value={shipmentStatusFilter}
-                onChange={(e) => setShipmentStatusFilter(e.target.value as ShipmentStatus | "all")}
-              >
-                <MenuItem value="all">Todos</MenuItem>
-                {Object.entries(SHIPMENT_STATUS_LABELS).map(([status, label]) => (
-                  <MenuItem key={status} value={status}>
-                    {label}
-                  </MenuItem>
-                ))}
-              </TextField>
+      {tab === "bandeja" && (
+        <Card>
+          <CardHeader
+            title={`Bandeja de envíos (${filteredShipments.length})`}
+            action={
+              <IconButton onClick={loadShipments}>
+                <RefreshIcon />
+              </IconButton>
+            }
+          />
+          <Divider />
+          <CardContent>
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Estado"
+                  value={shipmentStatusFilter}
+                  onChange={(e) => setShipmentStatusFilter(e.target.value as ShipmentStatus | "all")}
+                >
+                  <MenuItem value="all">Todos</MenuItem>
+                  {Object.entries(SHIPMENT_STATUS_LABELS).map(([status, label]) => (
+                    <MenuItem key={status} value={status}>
+                      {label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Local destino"
+                  value={shipmentDepositFilter}
+                  onChange={(e) => setShipmentDepositFilter(e.target.value)}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {deposits.map((deposit) => (
+                    <MenuItem key={deposit.id} value={deposit.id}>
+                      {deposit.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Fecha estimada desde"
+                  value={shipmentDateFrom}
+                  onChange={(e) => handleShipmentDateFromChange(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Fecha estimada hasta"
+                  value={shipmentDateTo}
+                  onChange={(e) => handleShipmentDateToChange(e.target.value)}
+                  inputProps={{ min: shipmentDateFrom || undefined }}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Buscar por ID de envío"
+                  value={shipmentIdFilter}
+                  onChange={(e) => setShipmentIdFilter(e.target.value)}
+                />
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField
-                select
-                fullWidth
-                label="Local destino"
-                value={shipmentDepositFilter}
-                onChange={(e) => setShipmentDepositFilter(e.target.value)}
-              >
-                <MenuItem value="">Todos</MenuItem>
-                {deposits.map((deposit) => (
-                  <MenuItem key={deposit.id} value={deposit.id}>
-                    {deposit.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                type="date"
-                label="Fecha estimada desde"
-                value={shipmentDateFrom}
-                onChange={(e) => handleShipmentDateFromChange(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <TextField
-                fullWidth
-                type="date"
-                label="Fecha estimada hasta"
-                value={shipmentDateTo}
-                onChange={(e) => handleShipmentDateToChange(e.target.value)}
-                inputProps={{ min: shipmentDateFrom || undefined }}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                label="Buscar por ID de envío"
-                value={shipmentIdFilter}
-                onChange={(e) => setShipmentIdFilter(e.target.value)}
-              />
-            </Grid>
-          </Grid>
-          {filteredShipments.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              Aún no hay envíos registrados.
-            </Typography>
-          ) : (
-            <Stack spacing={1}>
-              {filteredShipments.map((shipment) => {
-                const actionState = getShipmentActionState(shipment.status);
-                return (
-                  <Box
-                    key={shipment.id}
-                    sx={{
-                      border: "1px solid #e0e0e0",
-                      borderRadius: 2,
-                      p: 1,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      flexWrap: "wrap",
-                      gap: 1,
-                    }}
-                  >
-                    <Box>
-                      <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                      <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
-                        <span>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => handleEditShipment(shipment.id)}
-                            disabled={!actionState.canEdit || loading}
-                          >
-                            Editar
-                          </Button>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title={actionState.confirmReason} disableHoverListener={actionState.canConfirm}>
-                        <span>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            onClick={() => handleConfirmShipment(shipment.id)}
-                            disabled={!actionState.canConfirm || loading}
-                          >
-                            Confirmar
-                          </Button>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title={actionState.cancelReason} disableHoverListener={actionState.canCancel}>
-                        <span>
+            {filteredShipments.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Aún no hay envíos registrados.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {filteredShipments.map((shipment) => {
+                  const actionState = getShipmentActionState(shipment.status);
+                  const details = shipmentDetails[shipment.id] ?? shipment;
+                  const isExpanded = expandedShipmentId === shipment.id;
+                  const isDetailLoading = detailLoadingIds.has(shipment.id);
+                  const detailOrders = details.orders ?? [];
+                  const detailItems = details.items ?? [];
+                  const itemsByOrder = groupItemsByOrder(detailItems);
+                  const fallbackOrderIds = detailOrders.length
+                    ? []
+                    : Array.from(new Set(detailItems.map((item) => item.order_id)));
+                  return (
+                    <Box
+                      key={shipment.id}
+                      sx={{
+                        border: "1px solid #e0e0e0",
+                        borderRadius: 2,
+                        p: 1,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                          gap: 1,
+                        }}
+                      >
+                        <Box>
+                          <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                           <Button
                             size="small"
                             variant="text"
-                            color="error"
-                            onClick={() => handleCancelShipment(shipment.id)}
-                            disabled={!actionState.canCancel || loading}
+                            onClick={() => void handleToggleDetails(shipment.id)}
+                            disabled={isDetailLoading}
                           >
-                            Cancelar envío
+                            {isExpanded ? "Ocultar detalle" : "Ver detalle"}
                           </Button>
-                        </span>
-                      </Tooltip>
-                    </Stack>
-                  </Box>
-                );
-              })}
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
+                          <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleEditShipment(shipment.id)}
+                                disabled={!actionState.canEdit || loading}
+                              >
+                                Editar
+                              </Button>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={actionState.confirmReason} disableHoverListener={actionState.canConfirm}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                onClick={() => handleConfirmShipment(shipment.id)}
+                                disabled={!actionState.canConfirm || loading}
+                              >
+                                Confirmar
+                              </Button>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={actionState.cancelReason} disableHoverListener={actionState.canCancel}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="text"
+                                color="error"
+                                onClick={() => handleCancelShipment(shipment.id)}
+                                disabled={!actionState.canCancel || loading}
+                              >
+                                Cancelar envío
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        </Stack>
+                      </Box>
+                      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                        <Box sx={{ mt: 1, border: "1px dashed #e0e0e0", borderRadius: 2, p: 2, bgcolor: "#fafafa" }}>
+                          {isDetailLoading ? (
+                            <Typography variant="body2" color="text.secondary">
+                              Cargando detalle del envío...
+                            </Typography>
+                          ) : (
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} md={4}>
+                                <Typography variant="subtitle2" fontWeight={600}>
+                                  Datos del envío
+                                </Typography>
+                                <Stack spacing={0.5} mt={1}>
+                                  <Typography variant="body2">ID: #{details.id}</Typography>
+                                  <Typography variant="body2">
+                                    Estado: {SHIPMENT_STATUS_LABELS[details.status]}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    Destino: {details.deposit_name ?? details.deposit_id}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    Fecha estimada: {formatDate(details.estimated_delivery_date)}
+                                  </Typography>
+                                  <Typography variant="body2">Creado: {formatDate(details.created_at)}</Typography>
+                                  <Typography variant="body2">
+                                    Actualizado: {formatDate(details.updated_at)}
+                                  </Typography>
+                                </Stack>
+                              </Grid>
+                              <Grid item xs={12} md={8}>
+                                <Typography variant="subtitle2" fontWeight={600}>
+                                  Pedidos incluidos
+                                </Typography>
+                                <Stack spacing={1} mt={1}>
+                                  {detailOrders.length === 0 && detailItems.length === 0 && (
+                                    <Typography variant="body2" color="text.secondary">
+                                      No hay pedidos asociados a este envío.
+                                    </Typography>
+                                  )}
+                                  {detailOrders.map((order) => (
+                                    <Box key={order.id} sx={{ border: "1px solid #e0e0e0", borderRadius: 2, p: 1 }}>
+                                      <Typography variant="body2" fontWeight={600}>
+                                        Pedido #{order.id}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Estado: {order.status} · Destino: {order.destination}
+                                        {order.required_delivery_date
+                                          ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
+                                          : ""}
+                                      </Typography>
+                                      <Stack spacing={0.5} mt={1}>
+                                        {(itemsByOrder[order.id] ?? []).length === 0 ? (
+                                          <Typography variant="caption" color="text.secondary">
+                                            Sin productos asociados.
+                                          </Typography>
+                                        ) : (
+                                          itemsByOrder[order.id].map((item) => (
+                                            <Box key={item.id} sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+                                              <Typography variant="body2">
+                                                {item.sku_name} ({item.sku_code})
+                                              </Typography>
+                                              <Typography variant="body2" color="text.secondary">
+                                                Cant.: {item.quantity} · Pendiente: {item.remaining_quantity}
+                                              </Typography>
+                                            </Box>
+                                          ))
+                                        )}
+                                      </Stack>
+                                    </Box>
+                                  ))}
+                                  {detailOrders.length === 0 &&
+                                    fallbackOrderIds.map((orderId) => (
+                                      <Box key={orderId} sx={{ border: "1px solid #e0e0e0", borderRadius: 2, p: 1 }}>
+                                        <Typography variant="body2" fontWeight={600}>
+                                          Pedido #{orderId}
+                                        </Typography>
+                                        <Stack spacing={0.5} mt={1}>
+                                          {(itemsByOrder[orderId] ?? []).map((item) => (
+                                            <Box key={item.id} sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}>
+                                              <Typography variant="body2">
+                                                {item.sku_name} ({item.sku_code})
+                                              </Typography>
+                                              <Typography variant="body2" color="text.secondary">
+                                                Cant.: {item.quantity} · Pendiente: {item.remaining_quantity}
+                                              </Typography>
+                                            </Box>
+                                          ))}
+                                        </Stack>
+                                      </Box>
+                                    ))}
+                                </Stack>
+                              </Grid>
+                            </Grid>
+                          )}
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  );
+                })}
+              </Stack>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </Stack>
   );
 }
