@@ -15,6 +15,7 @@ import {
   MenuItem,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
@@ -344,6 +345,23 @@ export function ShipmentsPage() {
     setSuccess("Edición cancelada.");
   };
 
+  const getShipmentActionState = (status: ShipmentStatus) => {
+    const canEdit = status === "draft";
+    const canConfirm = status === "draft";
+    const canCancel = status !== "dispatched";
+    return {
+      canEdit,
+      canConfirm,
+      canCancel,
+      editReason: canEdit ? "" : "Solo los envíos en borrador pueden editarse.",
+      confirmReason: canConfirm ? "" : "Solo los envíos en borrador pueden confirmarse.",
+      cancelReason:
+        status === "dispatched"
+          ? "Los envíos despachados no se pueden cancelar."
+          : "Solo los envíos en borrador o confirmados pueden cancelarse.",
+    };
+  };
+
   return (
     <Stack spacing={3}>
       <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
@@ -601,49 +619,72 @@ export function ShipmentsPage() {
             </Typography>
           ) : (
             <Stack spacing={1}>
-              {filteredShipments.map((shipment) => (
-                <Box
-                  key={shipment.id}
-                  sx={{
-                    border: "1px solid #e0e0e0",
-                    borderRadius: 2,
-                    p: 1,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    flexWrap: "wrap",
-                    gap: 1,
-                  }}
-                >
-                  <Box>
-                    <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
-                    </Typography>
-                  </Box>
-                  {shipment.status === "draft" && (
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Button size="small" variant="outlined" onClick={() => handleEditShipment(shipment.id)}>
-                        Editar
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="text"
-                        color="error"
-                        onClick={() => handleCancelShipment(shipment.id)}
-                        disabled={loading}
-                      >
-                        Cancelar envío
-                      </Button>
-                      <Button size="small" variant="contained" onClick={() => handleConfirmShipment(shipment.id)}>
-                        Confirmar
-                      </Button>
+              {filteredShipments.map((shipment) => {
+                const actionState = getShipmentActionState(shipment.status);
+                return (
+                  <Box
+                    key={shipment.id}
+                    sx={{
+                      border: "1px solid #e0e0e0",
+                      borderRadius: 2,
+                      p: 1,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: 1,
+                    }}
+                  >
+                    <Box>
+                      <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleEditShipment(shipment.id)}
+                            disabled={!actionState.canEdit || loading}
+                          >
+                            Editar
+                          </Button>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title={actionState.confirmReason} disableHoverListener={actionState.canConfirm}>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => handleConfirmShipment(shipment.id)}
+                            disabled={!actionState.canConfirm || loading}
+                          >
+                            Confirmar
+                          </Button>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title={actionState.cancelReason} disableHoverListener={actionState.canCancel}>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="error"
+                            onClick={() => handleCancelShipment(shipment.id)}
+                            disabled={!actionState.canCancel || loading}
+                          >
+                            Cancelar envío
+                          </Button>
+                        </span>
+                      </Tooltip>
                     </Stack>
-                  )}
-                </Box>
-              ))}
+                  </Box>
+                );
+              })}
             </Stack>
           )}
         </CardContent>
