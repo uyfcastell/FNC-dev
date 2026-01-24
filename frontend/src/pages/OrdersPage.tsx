@@ -44,9 +44,21 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 type OrdersTabKey = "bandeja" | "ingreso";
-type OrderLine = { sku_id: string; quantity: string; current_stock: string };
+type OrderLine = {
+  sku_id: string;
+  quantity: string;
+  current_stock: string;
+  dispatched_quantity: number;
+  is_locked: boolean;
+};
 
-const initialLine: OrderLine = { sku_id: "", quantity: "", current_stock: "" };
+const initialLine: OrderLine = {
+  sku_id: "",
+  quantity: "",
+  current_stock: "",
+  dispatched_quantity: 0,
+  is_locked: false,
+};
 
 export function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -264,10 +276,13 @@ export function OrdersPage() {
     order.items.forEach((item) => {
       const sku = skus.find((s) => s.id === item.sku_id);
       const section = sectionForSku(sku);
+      const dispatchedQuantity = item.dispatched_quantity ?? 0;
       nextLines[section].push({
         sku_id: String(item.sku_id),
         quantity: String(item.quantity),
         current_stock: item.current_stock != null ? String(item.current_stock) : "",
+        dispatched_quantity: dispatchedQuantity,
+        is_locked: dispatchedQuantity > 0,
       });
     });
     const filledLines: Record<OrderSectionKey, OrderLine[]> = {
@@ -322,46 +337,56 @@ export function OrdersPage() {
         <CardContent>
           <Stack spacing={1.5}>
             {sectionLines.map((item, index) => (
-              <Stack key={`${section.key}-${index}`} direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
-                <TextField
-                  select
-                  label="Producto"
-                  value={item.sku_id}
-                  onChange={(e) => handleLineChange(section.key, index, "sku_id", e.target.value)}
-                  sx={{ flex: 1 }}
-                  helperText={!options.length ? "No hay productos activos en la sección" : undefined}
-                >
-                  {options.map((sku) => (
-                    <MenuItem key={sku.id} value={sku.id}>
-                      {skuLabel(sku.id)}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Cantidad"
-                  type="number"
-                  inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
-                  value={item.quantity}
-                  onChange={(e) => handleLineChange(section.key, index, "quantity", e.target.value)}
-                  sx={{ width: 160 }}
-                />
-                <TextField
-                  required
-                  label="Stock en local"
-                  type="number"
-                  inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
-                  value={item.current_stock}
-                  onChange={(e) => handleLineChange(section.key, index, "current_stock", e.target.value)}
-                  sx={{ width: 180 }}
-                />
-                <IconButton
-                  aria-label="Eliminar línea"
-                  color="error"
-                  disabled={sectionLines.length <= 1}
-                  onClick={() => removeLine(section.key, index)}
-                >
-                  <RemoveCircleOutlineIcon />
-                </IconButton>
+              <Stack key={`${section.key}-${index}`} spacing={0.5}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                  <TextField
+                    select
+                    label="Producto"
+                    value={item.sku_id}
+                    onChange={(e) => handleLineChange(section.key, index, "sku_id", e.target.value)}
+                    sx={{ flex: 1 }}
+                    disabled={item.is_locked}
+                    helperText={!options.length ? "No hay productos activos en la sección" : undefined}
+                  >
+                    {options.map((sku) => (
+                      <MenuItem key={sku.id} value={sku.id}>
+                        {skuLabel(sku.id)}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    label="Cantidad"
+                    type="number"
+                    inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
+                    value={item.quantity}
+                    onChange={(e) => handleLineChange(section.key, index, "quantity", e.target.value)}
+                    sx={{ width: 160 }}
+                    disabled={item.is_locked}
+                  />
+                  <TextField
+                    required
+                    label="Stock en local"
+                    type="number"
+                    inputProps={{ step: 1, min: 0, inputMode: "numeric" }}
+                    value={item.current_stock}
+                    onChange={(e) => handleLineChange(section.key, index, "current_stock", e.target.value)}
+                    sx={{ width: 180 }}
+                    disabled={item.is_locked}
+                  />
+                  <IconButton
+                    aria-label="Eliminar línea"
+                    color="error"
+                    disabled={sectionLines.length <= 1 || item.is_locked}
+                    onClick={() => removeLine(section.key, index)}
+                  >
+                    <RemoveCircleOutlineIcon />
+                  </IconButton>
+                </Stack>
+                {item.is_locked && (
+                  <Typography variant="caption" color="text.secondary">
+                    Ítem despachado en envíos confirmados · Cantidad: {item.dispatched_quantity}
+                  </Typography>
+                )}
               </Stack>
             ))}
             <Button variant="outlined" startIcon={<PlaylistAddIcon />} onClick={() => addLine(section.key)} disabled={!options.length}>
