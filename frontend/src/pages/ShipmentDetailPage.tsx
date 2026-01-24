@@ -26,6 +26,8 @@ const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleD
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
   submitted: "Enviado",
+  prepared: "Preparado",
+  partially_prepared: "Preparado parcial",
   partially_dispatched: "Parcialmente despachado",
   dispatched: "Despachado",
   cancelled: "Cancelado",

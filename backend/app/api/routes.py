@@ -549,12 +549,22 @@ def _ensure_order_transition(order: Order, next_status: OrderStatus) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede volver a borrador")
     if next_status == OrderStatus.SUBMITTED and order.status != OrderStatus.DRAFT:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo un borrador puede enviarse")
-    if next_status in {OrderStatus.PARTIALLY_DISPATCHED, OrderStatus.DISPATCHED}:
+    if next_status in {
+        OrderStatus.PREPARED,
+        OrderStatus.PARTIALLY_PREPARED,
+        OrderStatus.PARTIALLY_DISPATCHED,
+        OrderStatus.DISPATCHED,
+    }:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El estado de despacho solo se actualiza desde envíos",
         )
-    if next_status == OrderStatus.CANCELLED and order.status not in {OrderStatus.DRAFT, OrderStatus.SUBMITTED}:
+    if next_status == OrderStatus.CANCELLED and order.status not in {
+        OrderStatus.DRAFT,
+        OrderStatus.SUBMITTED,
+        OrderStatus.PREPARED,
+        OrderStatus.PARTIALLY_PREPARED,
+    }:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no puede cancelarse en este estado")
 
 
@@ -607,12 +617,109 @@ def _get_dispatched_quantities(session: Session, order_item_ids: list[int]) -> d
         .join(Shipment)
         .where(
             ShipmentItem.order_item_id.in_(order_item_ids),
-            Shipment.status.in_({ShipmentStatus.CONFIRMED, ShipmentStatus.DISPATCHED}),
+            Shipment.status == ShipmentStatus.DISPATCHED,
         )
         .group_by(ShipmentItem.order_item_id)
     )
     rows = session.exec(statement).all()
     return {row[0]: float(row[1] or 0) for row in rows}
+
+
+def _get_prepared_quantities(
+    session: Session,
+    order_item_ids: list[int],
+    exclude_shipment_id: int | None = None,
+) -> dict[int, float]:
+    if not order_item_ids:
+        return {}
+    statement = (
+        select(ShipmentItem.order_item_id, func.sum(ShipmentItem.quantity))
+        .join(Shipment)
+        .where(
+            ShipmentItem.order_item_id.in_(order_item_ids),
+            Shipment.status.in_({ShipmentStatus.DRAFT, ShipmentStatus.CONFIRMED}),
+        )
+    )
+    if exclude_shipment_id is not None:
+        statement = statement.where(ShipmentItem.shipment_id != exclude_shipment_id)
+    statement = statement.group_by(ShipmentItem.order_item_id)
+    rows = session.exec(statement).all()
+    return {row[0]: float(row[1] or 0) for row in rows}
+
+
+def _get_assigned_quantities(
+    session: Session,
+    order_item_ids: list[int],
+    exclude_shipment_id: int | None = None,
+) -> dict[int, float]:
+    prepared = _get_prepared_quantities(session, order_item_ids, exclude_shipment_id=exclude_shipment_id)
+    dispatched = _get_dispatched_quantities(session, order_item_ids)
+    combined = prepared.copy()
+    for order_item_id, quantity in dispatched.items():
+        combined[order_item_id] = combined.get(order_item_id, 0.0) + quantity
+    return combined
+
+
+def _sync_order_statuses(
+    session: Session,
+    order_ids: set[int],
+    current_user: User,
+    shipment_id: int | None = None,
+) -> None:
+    if not order_ids:
+        return
+    orders = session.exec(select(Order).where(Order.id.in_(order_ids))).all()
+    for order in orders:
+        order_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+        order_item_ids = [item.id for item in order_items]
+        dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+        prepared_quantities = _get_prepared_quantities(session, order_item_ids)
+        all_dispatched = True
+        any_dispatched = False
+        all_prepared = True
+        any_prepared = False
+        for order_item in order_items:
+            dispatched = dispatched_quantities.get(order_item.id, 0.0)
+            prepared = prepared_quantities.get(order_item.id, 0.0)
+            if dispatched <= 0:
+                all_dispatched = False
+            if dispatched > 0:
+                any_dispatched = True
+            if dispatched < float(order_item.quantity):
+                all_dispatched = False
+            if prepared <= 0:
+                all_prepared = False
+            if prepared > 0:
+                any_prepared = True
+            if prepared < float(order_item.quantity):
+                all_prepared = False
+        if any_dispatched:
+            new_status = OrderStatus.DISPATCHED if all_dispatched else OrderStatus.PARTIALLY_DISPATCHED
+        elif any_prepared:
+            new_status = OrderStatus.PREPARED if all_prepared else OrderStatus.PARTIALLY_PREPARED
+        else:
+            new_status = OrderStatus.SUBMITTED if order.status != OrderStatus.DRAFT else order.status
+        if order.status != new_status:
+            before_status = order.status
+            order.status = new_status
+            order.updated_at = datetime.utcnow()
+            order.updated_by_user_id = current_user.id
+            session.add(order)
+            _log_audit(
+                session,
+                "orders",
+                order.id,
+                AuditAction.STATUS,
+                current_user.id,
+                {
+                    "event": "order_status_changed",
+                    "shipment_id": shipment_id,
+                    "order_id": order.id,
+                    "deposit_id": order.destination_deposit_id,
+                    "from_status": before_status,
+                    "to_status": new_status,
+                },
+            )
 
 
 def _get_latest_shipment_date(session: Session, order_id: int) -> date | None:
@@ -681,7 +788,9 @@ def _diff_order_header(before: dict, after: dict) -> dict:
 
 def _map_order(order: Order, session: Session) -> OrderRead:
     session.refresh(order, attribute_names=["items"])
-    dispatched_quantities = _get_dispatched_quantities(session, [item.id for item in order.items])
+    order_item_ids = [item.id for item in order.items]
+    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+    prepared_quantities = _get_prepared_quantities(session, order_item_ids)
     items = []
     for item in order.items:
         sku = session.get(SKU, item.sku_id)
@@ -690,7 +799,8 @@ def _map_order(order: Order, session: Session) -> OrderRead:
         quantity_value = float(item.quantity)
         has_legacy_decimal = not quantity_value.is_integer()
         dispatched_quantity = dispatched_quantities.get(item.id, 0.0)
-        pending_quantity = max(quantity_value - dispatched_quantity, 0.0)
+        prepared_quantity = prepared_quantities.get(item.id, 0.0)
+        pending_quantity = max(quantity_value - prepared_quantity - dispatched_quantity, 0.0)
         items.append(
             {
                 "id": item.id,
@@ -699,6 +809,7 @@ def _map_order(order: Order, session: Session) -> OrderRead:
                 "sku_name": sku_name,
                 "quantity": quantity_value,
                 "current_stock": item.current_stock,
+                "prepared_quantity": prepared_quantity,
                 "dispatched_quantity": dispatched_quantity,
                 "pending_quantity": pending_quantity,
                 "has_legacy_decimal": has_legacy_decimal,
@@ -1740,16 +1851,10 @@ def update_order(
     allowed_statuses = {OrderStatus.DRAFT} if not is_admin else {
         OrderStatus.DRAFT,
         OrderStatus.SUBMITTED,
-        OrderStatus.PARTIALLY_DISPATCHED,
+        OrderStatus.PARTIALLY_PREPARED,
     }
     if order.status not in allowed_statuses:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede editar el pedido en este estado")
-    if _order_locked_by_shipment(session, order.id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El pedido está bloqueado por un envío confirmado o despachado",
-        )
-
     if payload.items is not None and not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
     if payload.requested_by is not None and not payload.requested_by.strip():
@@ -1791,10 +1896,58 @@ def update_order(
     session.flush()
 
     if items is not None:
-        for item in existing_items:
-            session.delete(item)
+        payload_by_sku = {item["sku_id"]: item for item in items}
+        if len(payload_by_sku) != len(items):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hay ítems duplicados en el pedido")
+
+        order_item_ids = [item.id for item in existing_items]
+        assigned_quantities = _get_assigned_quantities(session, order_item_ids)
+        dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+        existing_by_sku = {item.sku_id: item for item in existing_items}
+        for existing_item in existing_items:
+            assigned = assigned_quantities.get(existing_item.id, 0.0)
+            dispatched = dispatched_quantities.get(existing_item.id, 0.0)
+            payload_item = payload_by_sku.get(existing_item.sku_id)
+            if assigned > 0 and not payload_item:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No se pueden eliminar ítems ya asignados a un envío",
+                )
+            if not payload_item:
+                continue
+            payload_quantity = int(payload_item["quantity"])
+            payload_stock = payload_item.get("current_stock")
+            payload_stock_value = int(payload_stock) if payload_stock is not None else None
+            if dispatched > 0:
+                if payload_quantity != int(existing_item.quantity) or payload_stock_value != existing_item.current_stock:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No se pueden modificar ítems ya despachados",
+                    )
+            elif assigned > 0 and payload_quantity < assigned:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La cantidad no puede ser menor a la asignada a envíos",
+                )
+
+        for existing_item in existing_items:
+            assigned = assigned_quantities.get(existing_item.id, 0.0)
+            if assigned > 0:
+                continue
+            if existing_item.sku_id not in payload_by_sku:
+                session.delete(existing_item)
         session.flush()
+
         for item in items:
+            existing_item = existing_by_sku.get(item["sku_id"])
+            if existing_item:
+                assigned = assigned_quantities.get(existing_item.id, 0.0)
+                dispatched = dispatched_quantities.get(existing_item.id, 0.0)
+                if dispatched <= 0:
+                    existing_item.quantity = int(item["quantity"])
+                    existing_item.current_stock = int(item["current_stock"]) if item.get("current_stock") is not None else None
+                    session.add(existing_item)
+                continue
             session.add(
                 OrderItem(
                     order_id=order.id,
@@ -2064,10 +2217,15 @@ def add_orders_to_shipment(
     order_item_ids = []
     order_items_by_order: dict[int, list[OrderItem]] = {}
     for order in orders:
-        if order.status not in {OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_DISPATCHED}:
+        if order.status not in {
+            OrderStatus.SUBMITTED,
+            OrderStatus.PARTIALLY_PREPARED,
+            OrderStatus.PREPARED,
+            OrderStatus.PARTIALLY_DISPATCHED,
+        }:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"El pedido {order.id} no está en estado Enviado o Parcialmente despachado",
+                detail=f"El pedido {order.id} no está en estado Enviado, Preparado o Parcialmente despachado",
             )
         if order.destination_deposit_id != shipment.deposit_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Los pedidos deben ser del mismo local")
@@ -2077,11 +2235,11 @@ def add_orders_to_shipment(
         order_items_by_order[order.id] = items
         order_item_ids.extend([item.id for item in items])
 
-    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+    assigned_quantities = _get_assigned_quantities(session, order_item_ids)
     added_items = []
     for order_id, items in order_items_by_order.items():
         for item in items:
-            remaining = float(item.quantity) - dispatched_quantities.get(item.id, 0.0)
+            remaining = float(item.quantity) - assigned_quantities.get(item.id, 0.0)
             if remaining <= 0:
                 continue
             if item.id in existing_order_item_ids:
@@ -2103,6 +2261,7 @@ def add_orders_to_shipment(
         "items": added_items,
     }
     _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+    _sync_order_statuses(session, set(payload.order_ids), current_user, shipment_id=shipment.id)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)
@@ -2129,7 +2288,7 @@ def update_shipment_items(
     items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
     item_map = {item.order_item_id: item for item in items}
     order_item_ids = list(item_map.keys())
-    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+    assigned_quantities = _get_assigned_quantities(session, order_item_ids, exclude_shipment_id=shipment.id)
 
     before_quantities = {item.order_item_id: item.quantity for item in items}
     changes = []
@@ -2142,11 +2301,11 @@ def update_shipment_items(
         order_item = session.get(OrderItem, update.order_item_id)
         if not order_item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de pedido no encontrado")
-        remaining = float(order_item.quantity) - dispatched_quantities.get(order_item.id, 0.0)
+        remaining = float(order_item.quantity) - assigned_quantities.get(order_item.id, 0.0)
         if update.quantity > remaining:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La cantidad supera lo pendiente por despachar",
+                detail="La cantidad supera lo pendiente por preparar",
             )
         shipment_item = item_map[update.order_item_id]
         if update.quantity == 0:
@@ -2179,6 +2338,8 @@ def update_shipment_items(
         "before": before_quantities,
     }
     _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+    order_ids = {item.order_id for item in items}
+    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)
@@ -2201,6 +2362,7 @@ def cancel_shipment(
 
     shipment_payload = _map_shipment(shipment, session)
     items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+    order_ids = {item.order_id for item in items}
     for item in items:
         session.delete(item)
 
@@ -2211,6 +2373,8 @@ def cancel_shipment(
     }
     _log_audit(session, "shipments", shipment.id, AuditAction.CANCEL, current_user.id, audit_changes)
     session.delete(shipment)
+    session.flush()
+    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
     session.commit()
     return shipment_payload
 
@@ -2234,13 +2398,13 @@ def confirm_shipment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El envío no tiene ítems cargados")
 
     order_item_ids = [item.order_item_id for item in shipment.items]
-    dispatched_quantities = _get_dispatched_quantities(session, order_item_ids)
+    assigned_quantities = _get_assigned_quantities(session, order_item_ids, exclude_shipment_id=shipment.id)
 
     for item in shipment.items:
         order_item = session.get(OrderItem, item.order_item_id)
         if not order_item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de pedido no encontrado")
-        remaining = float(order_item.quantity) - dispatched_quantities.get(order_item.id, 0.0)
+        remaining = float(order_item.quantity) - assigned_quantities.get(order_item.id, 0.0)
         if item.quantity <= 0 or item.quantity > remaining:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -2328,48 +2492,7 @@ def confirm_shipment(
     session.add(shipment)
     session.flush()
 
-    orders = session.exec(select(Order).where(Order.id.in_({item.order_id for item in shipment.items}))).all()
-    for order in orders:
-        order_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
-        order_item_ids = [item.id for item in order_items]
-        shipped_quantities = _get_dispatched_quantities(session, order_item_ids)
-        all_dispatched = True
-        any_dispatched = False
-        for order_item in order_items:
-            dispatched = shipped_quantities.get(order_item.id, 0.0)
-            if dispatched <= 0:
-                all_dispatched = False
-            if dispatched > 0:
-                any_dispatched = True
-            if dispatched < float(order_item.quantity):
-                all_dispatched = False
-        if all_dispatched:
-            new_status = OrderStatus.DISPATCHED
-        elif any_dispatched:
-            new_status = OrderStatus.PARTIALLY_DISPATCHED
-        else:
-            new_status = order.status
-        if order.status != new_status:
-            before_status = order.status
-            order.status = new_status
-            order.updated_at = datetime.utcnow()
-            order.updated_by_user_id = current_user.id
-            session.add(order)
-            _log_audit(
-                session,
-                "orders",
-                order.id,
-                AuditAction.STATUS,
-                current_user.id,
-                {
-                    "event": "order_status_changed",
-                    "shipment_id": shipment.id,
-                    "order_id": order.id,
-                    "deposit_id": order.destination_deposit_id,
-                    "from_status": before_status,
-                    "to_status": new_status,
-                },
-            )
+    _sync_order_statuses(session, {item.order_id for item in shipment.items}, current_user, shipment_id=shipment.id)
 
     _log_audit(
         session,
@@ -2407,6 +2530,8 @@ def dispatch_shipment(
     shipment.status = ShipmentStatus.DISPATCHED
     shipment.updated_at = datetime.utcnow()
     session.add(shipment)
+    session.flush()
+    _sync_order_statuses(session, {item.order_id for item in shipment.items}, current_user, shipment_id=shipment.id)
     _log_audit(
         session,
         "shipments",

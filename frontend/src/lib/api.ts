@@ -207,7 +207,14 @@ export type Recipe = {
   items: RecipeItem[];
 };
 
-export type OrderStatus = "draft" | "submitted" | "partially_dispatched" | "dispatched" | "cancelled";
+export type OrderStatus =
+  | "draft"
+  | "submitted"
+  | "prepared"
+  | "partially_prepared"
+  | "partially_dispatched"
+  | "dispatched"
+  | "cancelled";
 
 export type OrderItem = {
   id?: number;
@@ -216,6 +223,7 @@ export type OrderItem = {
   sku_name?: string;
   quantity: number;
   current_stock?: number | null;
+  prepared_quantity?: number | null;
   dispatched_quantity?: number | null;
   pending_quantity?: number | null;
   has_legacy_decimal?: boolean | null;
