@@ -17,6 +17,7 @@ import { MobileShell } from "./shell/MobileShell";
 import { MobileHomePage } from "./pages/MobileHomePage";
 import { MobileProductionPage } from "./pages/MobileProductionPage";
 import { MobileOrdersPage } from "./pages/MobileOrdersPage";
+import { MobileShipmentsPage } from "./pages/MobileShipmentsPage";
 import { AdminPage } from "./pages/AdminPage";
 import { OrderEntryPage } from "./pages/OrderEntryPage";
 import { MermasPage } from "./pages/MermasPage";
@@ -33,12 +34,14 @@ function MobileRoutes() {
         { label: "Inicio", to: "/" },
         { label: "Producción", to: "/mobile/produccion" },
         { label: "Pedidos", to: "/mobile/pedidos" },
+        { label: "Envíos", to: "/mobile/envios" },
       ]}
     >
       <Routes>
         <Route path="/" element={<MobileHomePage />} />
         <Route path="/mobile/produccion" element={<MobileProductionPage />} />
         <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
+        <Route path="/mobile/envios" element={<MobileShipmentsPage />} />
         <Route path="*" element={<MobileHomePage />} />
       </Routes>
     </MobileShell>

@@ -28,6 +28,7 @@ import {
   cancelShipment,
   confirmShipment,
   createShipment,
+  dispatchShipment,
   fetchShipment,
   fetchDeposits,
   fetchOrders,
@@ -328,6 +329,22 @@ export function ShipmentsPage() {
     }
   };
 
+  const handleDispatchShipment = async (shipmentId: number) => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      await dispatchShipment(shipmentId);
+      setSuccess(`Envío #${shipmentId} despachado.`);
+      await loadShipments();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos despachar el envío.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleEditShipment = async (shipmentId: number) => {
     setError(null);
     setSuccess(null);
@@ -390,13 +407,16 @@ export function ShipmentsPage() {
   const getShipmentActionState = (status: ShipmentStatus) => {
     const canEdit = status === "draft";
     const canConfirm = status === "draft";
+    const canDispatch = status === "confirmed";
     const canCancel = status !== "dispatched";
     return {
       canEdit,
       canConfirm,
+      canDispatch,
       canCancel,
       editReason: canEdit ? "" : "Solo los envíos en borrador pueden editarse.",
       confirmReason: canConfirm ? "" : "Solo los envíos en borrador pueden confirmarse.",
+      dispatchReason: canDispatch ? "" : "Solo los envíos confirmados pueden despacharse.",
       cancelReason:
         status === "dispatched"
           ? "Los envíos despachados no se pueden cancelar."
@@ -738,6 +758,19 @@ export function ShipmentsPage() {
                                 disabled={!actionState.canConfirm || loading}
                               >
                                 Confirmar
+                              </Button>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title={actionState.dispatchReason} disableHoverListener={actionState.canDispatch}>
+                            <span>
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="success"
+                                onClick={() => handleDispatchShipment(shipment.id)}
+                                disabled={!actionState.canDispatch || loading}
+                              >
+                                Despachar
                               </Button>
                             </span>
                           </Tooltip>
