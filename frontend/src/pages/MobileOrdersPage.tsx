@@ -47,6 +47,8 @@ const STORAGE_KEY = "mobile_orders_deposit_id";
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
   submitted: "Enviado",
+  prepared: "Preparado",
+  partially_prepared: "Preparado parcial",
   partially_dispatched: "Parcialmente despachado",
   dispatched: "Despachado",
   cancelled: "Cancelado",
@@ -56,12 +58,16 @@ const STATUS_FILTERS: Array<{ label: string; value: OrderStatus | "all" }> = [
   { label: "Todos", value: "all" },
   { label: "Borrador", value: "draft" },
   { label: "Enviado", value: "submitted" },
+  { label: "Preparado", value: "prepared" },
+  { label: "Preparado parcial", value: "partially_prepared" },
   { label: "Parcialmente despachado", value: "partially_dispatched" },
   { label: "Despachado", value: "dispatched" },
   { label: "Cancelado", value: "cancelled" },
 ];
 
 const statusColor = (status: OrderStatus) => {
+  if (status === "partially_prepared") return "warning";
+  if (status === "prepared") return "info";
   if (status === "partially_dispatched") return "warning";
   if (status === "dispatched") return "success";
   if (status === "cancelled") return "error";
@@ -576,11 +582,21 @@ export function MobileOrdersPage() {
                               Stock en local: {item.current_stock}
                             </Typography>
                           )}
+                          {(item.prepared_quantity ?? 0) > 0 && (
+                            <Typography variant="body2" color="text.secondary">
+                              En envío: {item.prepared_quantity}
+                            </Typography>
+                          )}
+                          {(item.dispatched_quantity ?? 0) > 0 && (
+                            <Typography variant="body2" color="text.secondary">
+                              Despachado: {item.dispatched_quantity}
+                            </Typography>
+                          )}
                         </CardContent>
                       </Card>
                     ))}
                   </Stack>
-                  {["draft", "submitted"].includes(activeOrder.status) && (
+                  {["draft", "submitted", "prepared", "partially_prepared"].includes(activeOrder.status) && (
                     <Stack spacing={1} direction="row" flexWrap="wrap">
                       {activeOrder.status === "draft" && (
                         <Button

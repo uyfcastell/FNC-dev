@@ -337,6 +337,7 @@ class OrderItemRead(OrderItemPayload):
     id: int
     sku_code: str
     sku_name: str
+    prepared_quantity: float | None = None
     dispatched_quantity: float | None = None
     pending_quantity: float | None = None
     has_legacy_decimal: bool | None = None

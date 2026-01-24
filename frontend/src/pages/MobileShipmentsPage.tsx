@@ -20,6 +20,7 @@ import {
   dispatchShipment,
   fetchShipment,
   fetchShipments,
+  OrderStatus,
   Shipment,
   ShipmentItem,
   ShipmentStatus,
@@ -31,6 +32,15 @@ const SHIPMENT_STATUS_LABELS: Record<ShipmentStatus, string> = {
   draft: "Borrador",
   confirmed: "Confirmado",
   dispatched: "Despachado",
+};
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  draft: "Borrador",
+  submitted: "Enviado",
+  prepared: "Preparado",
+  partially_prepared: "Preparado parcial",
+  partially_dispatched: "Parcialmente despachado",
+  dispatched: "Despachado",
+  cancelled: "Cancelado",
 };
 
 const statusColor = (status: ShipmentStatus) => {
@@ -232,7 +242,7 @@ export function MobileShipmentsPage() {
                                     Pedido #{order.id}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary">
-                                    Estado: {order.status} · Destino: {order.destination}
+                                    Estado: {ORDER_STATUS_LABELS[order.status]} · Destino: {order.destination}
                                     {order.required_delivery_date
                                       ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
                                       : ""}

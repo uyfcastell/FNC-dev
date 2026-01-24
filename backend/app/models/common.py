@@ -40,6 +40,8 @@ class MermaAction(str, Enum):
 class OrderStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    PREPARED = "prepared"
+    PARTIALLY_PREPARED = "partially_prepared"
     PARTIALLY_DISPATCHED = "partially_dispatched"
     DISPATCHED = "dispatched"
     CANCELLED = "cancelled"

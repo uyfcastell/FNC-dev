@@ -38,6 +38,8 @@ import { ORDER_SECTIONS, OrderSectionKey, sectionForSku } from "../lib/orderSect
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
   submitted: "Enviado",
+  prepared: "Preparado",
+  partially_prepared: "Preparado parcial",
   partially_dispatched: "Parcialmente despachado",
   dispatched: "Despachado",
   cancelled: "Cancelado",
@@ -48,16 +50,22 @@ type OrderLine = {
   sku_id: string;
   quantity: string;
   current_stock: string;
+  prepared_quantity: number;
   dispatched_quantity: number;
-  is_locked: boolean;
+  assigned_quantity: number;
+  is_assigned: boolean;
+  is_dispatched: boolean;
 };
 
 const initialLine: OrderLine = {
   sku_id: "",
   quantity: "",
   current_stock: "",
+  prepared_quantity: 0,
   dispatched_quantity: 0,
-  is_locked: false,
+  assigned_quantity: 0,
+  is_assigned: false,
+  is_dispatched: false,
 };
 
 export function OrdersPage() {
@@ -247,6 +255,13 @@ export function OrdersPage() {
       setError("El stock actual debe ser un número entero");
       return;
     }
+    const invalidAssigned = Object.values(lines)
+      .flat()
+      .find((item) => item.sku_id && item.assigned_quantity > 0 && Number(item.quantity) < item.assigned_quantity);
+    if (invalidAssigned) {
+      setError("La cantidad no puede ser menor a lo asignado a envíos");
+      return;
+    }
     try {
       const payload = {
         destination_deposit_id: Number(header.destination_deposit_id),
@@ -276,13 +291,18 @@ export function OrdersPage() {
     order.items.forEach((item) => {
       const sku = skus.find((s) => s.id === item.sku_id);
       const section = sectionForSku(sku);
+      const preparedQuantity = item.prepared_quantity ?? 0;
       const dispatchedQuantity = item.dispatched_quantity ?? 0;
+      const assignedQuantity = preparedQuantity + dispatchedQuantity;
       nextLines[section].push({
         sku_id: String(item.sku_id),
         quantity: String(item.quantity),
         current_stock: item.current_stock != null ? String(item.current_stock) : "",
+        prepared_quantity: preparedQuantity,
         dispatched_quantity: dispatchedQuantity,
-        is_locked: dispatchedQuantity > 0,
+        assigned_quantity: assignedQuantity,
+        is_assigned: assignedQuantity > 0,
+        is_dispatched: dispatchedQuantity > 0,
       });
     });
     const filledLines: Record<OrderSectionKey, OrderLine[]> = {
@@ -345,7 +365,7 @@ export function OrdersPage() {
                     value={item.sku_id}
                     onChange={(e) => handleLineChange(section.key, index, "sku_id", e.target.value)}
                     sx={{ flex: 1 }}
-                    disabled={item.is_locked}
+                    disabled={item.is_assigned}
                     helperText={!options.length ? "No hay productos activos en la sección" : undefined}
                   >
                     {options.map((sku) => (
@@ -357,11 +377,11 @@ export function OrdersPage() {
                   <TextField
                     label="Cantidad"
                     type="number"
-                    inputProps={{ step: 1, min: 1, inputMode: "numeric" }}
+                    inputProps={{ step: 1, min: item.assigned_quantity > 0 ? item.assigned_quantity : 1, inputMode: "numeric" }}
                     value={item.quantity}
                     onChange={(e) => handleLineChange(section.key, index, "quantity", e.target.value)}
                     sx={{ width: 160 }}
-                    disabled={item.is_locked}
+                    disabled={item.is_dispatched}
                   />
                   <TextField
                     required
@@ -371,20 +391,20 @@ export function OrdersPage() {
                     value={item.current_stock}
                     onChange={(e) => handleLineChange(section.key, index, "current_stock", e.target.value)}
                     sx={{ width: 180 }}
-                    disabled={item.is_locked}
+                    disabled={item.is_dispatched}
                   />
                   <IconButton
                     aria-label="Eliminar línea"
                     color="error"
-                    disabled={sectionLines.length <= 1 || item.is_locked}
+                    disabled={sectionLines.length <= 1 || item.is_assigned}
                     onClick={() => removeLine(section.key, index)}
                   >
                     <RemoveCircleOutlineIcon />
                   </IconButton>
                 </Stack>
-                {item.is_locked && (
+                {item.is_assigned && (
                   <Typography variant="caption" color="text.secondary">
-                    Ítem despachado en envíos confirmados · Cantidad: {item.dispatched_quantity}
+                    Ítem asignado a envíos · En envío: {item.prepared_quantity ?? 0} · Despachado: {item.dispatched_quantity}
                   </Typography>
                 )}
               </Stack>
@@ -571,7 +591,7 @@ export function OrdersPage() {
             <Stack spacing={1}>
               {filteredOrders.map((order) => {
                 const isCancelled = order.status === "cancelled";
-                const isEditable = ["draft", "submitted", "partially_dispatched"].includes(order.status);
+                const isEditable = ["draft", "submitted", "partially_prepared"].includes(order.status);
                 return (
                   <Card key={order.id} variant="outlined">
                     <CardContent>
@@ -589,6 +609,8 @@ export function OrdersPage() {
                               <Typography key={item.id} variant="body2">
                                 {skuLabel(item.sku_id)} — {item.quantity}
                                 {item.current_stock != null && ` (stock: ${item.current_stock})`}
+                                {(item.prepared_quantity ?? 0) > 0 && ` · En envío: ${item.prepared_quantity}`}
+                                {(item.dispatched_quantity ?? 0) > 0 && ` · Despachado: ${item.dispatched_quantity}`}
                               </Typography>
                             ))}
                           </Stack>
@@ -600,7 +622,10 @@ export function OrdersPage() {
                             label="Estado"
                             value={order.status}
                             onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                            disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
+                            disabled={
+                              isCancelled ||
+                              ["prepared", "partially_prepared", "partially_dispatched", "dispatched"].includes(order.status)
+                            }
                           >
                             {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
                               <MenuItem key={status} value={status}>
@@ -611,9 +636,13 @@ export function OrdersPage() {
                           <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
                             Editar
                           </Button>
-                          <Button color="error" onClick={() => handleCancelOrder(order.id)} disabled={isCancelled}>
-                            Cancelar
-                          </Button>
+                        <Button
+                          color="error"
+                          onClick={() => handleCancelOrder(order.id)}
+                          disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
+                        >
+                          Cancelar
+                        </Button>
                         </Stack>
                       </Stack>
                     </CardContent>

@@ -48,6 +48,15 @@ const SHIPMENT_STATUS_LABELS: Record<ShipmentStatus, string> = {
   confirmed: "Confirmado",
   dispatched: "Despachado",
 };
+const ORDER_STATUS_LABELS: Record<Order["status"], string> = {
+  draft: "Borrador",
+  submitted: "Enviado",
+  prepared: "Preparado",
+  partially_prepared: "Preparado parcial",
+  partially_dispatched: "Parcialmente despachado",
+  dispatched: "Despachado",
+  cancelled: "Cancelado",
+};
 
 export function ShipmentsPage() {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -115,7 +124,11 @@ export function ShipmentsPage() {
   const loadOrders = async (depositId: number) => {
     try {
       const orderList = await fetchOrders({ destination_deposit_id: depositId });
-      setOrders(orderList.filter((order) => ["submitted", "partially_dispatched"].includes(order.status)));
+      setOrders(
+        orderList.filter((order) =>
+          ["submitted", "partially_prepared", "prepared", "partially_dispatched"].includes(order.status),
+        ),
+      );
       setError(null);
     } catch (err) {
       console.error(err);
@@ -497,7 +510,7 @@ export function ShipmentsPage() {
                               <Stack spacing={0.5}>
                                 <Typography fontWeight={600}>Pedido #{order.id}</Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                  Fecha: {formatDate(order.created_at)} · Estado: {order.status}
+                                Fecha: {formatDate(order.created_at)} · Estado: {ORDER_STATUS_LABELS[order.status]}
                                   {order.required_delivery_date
                                     ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
                                     : ""}
@@ -833,8 +846,8 @@ export function ShipmentsPage() {
                                       <Typography variant="body2" fontWeight={600}>
                                         Pedido #{order.id}
                                       </Typography>
-                                      <Typography variant="caption" color="text.secondary">
-                                        Estado: {order.status} · Destino: {order.destination}
+                                    <Typography variant="caption" color="text.secondary">
+                                        Estado: {ORDER_STATUS_LABELS[order.status]} · Destino: {order.destination}
                                         {order.required_delivery_date
                                           ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
                                           : ""}
