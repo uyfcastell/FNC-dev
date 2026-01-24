@@ -1744,12 +1744,6 @@ def update_order(
     }
     if order.status not in allowed_statuses:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede editar el pedido en este estado")
-    if _order_locked_by_shipment(session, order.id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El pedido está bloqueado por un envío confirmado o despachado",
-        )
-
     if payload.items is not None and not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
     if payload.requested_by is not None and not payload.requested_by.strip():
@@ -1791,10 +1785,48 @@ def update_order(
     session.flush()
 
     if items is not None:
-        for item in existing_items:
-            session.delete(item)
+        payload_by_sku = {item["sku_id"]: item for item in items}
+        if len(payload_by_sku) != len(items):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hay ítems duplicados en el pedido")
+
+        dispatched_quantities = _get_dispatched_quantities(session, [item.id for item in existing_items])
+        existing_by_sku = {item.sku_id: item for item in existing_items}
+        for existing_item in existing_items:
+            dispatched = dispatched_quantities.get(existing_item.id, 0.0)
+            if dispatched <= 0:
+                continue
+            payload_item = payload_by_sku.get(existing_item.sku_id)
+            if not payload_item:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No se pueden eliminar ítems ya despachados en un envío",
+                )
+            payload_quantity = int(payload_item["quantity"])
+            payload_stock = payload_item.get("current_stock")
+            payload_stock_value = int(payload_stock) if payload_stock is not None else None
+            if payload_quantity != int(existing_item.quantity) or payload_stock_value != existing_item.current_stock:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No se pueden modificar ítems ya despachados en un envío",
+                )
+
+        for existing_item in existing_items:
+            dispatched = dispatched_quantities.get(existing_item.id, 0.0)
+            if dispatched > 0:
+                continue
+            if existing_item.sku_id not in payload_by_sku:
+                session.delete(existing_item)
         session.flush()
+
         for item in items:
+            existing_item = existing_by_sku.get(item["sku_id"])
+            if existing_item:
+                dispatched = dispatched_quantities.get(existing_item.id, 0.0)
+                if dispatched <= 0:
+                    existing_item.quantity = int(item["quantity"])
+                    existing_item.current_stock = int(item["current_stock"]) if item.get("current_stock") is not None else None
+                    session.add(existing_item)
+                continue
             session.add(
                 OrderItem(
                     order_id=order.id,
