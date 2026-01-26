@@ -85,7 +85,7 @@ import {
   User,
 } from "../lib/api";
 
-const PRODUCTION_TYPE_CODES = ["PT", "SEMI"];
+const RECIPE_PRODUCT_CODES = ["PT", "SEMI", "MP"];
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
   { value: "production", label: "Producción" },
   { value: "empaque", label: "Empaque" },
@@ -225,8 +225,8 @@ export function AdminPage() {
     [sortedSkus, showInactiveSkus, skuSearch]
   );
   const recipeComponents = useMemo(
-    () => sortedSkus.filter((sku) => PRODUCTION_TYPE_CODES.includes(sku.sku_type_code) && (showInactiveSkus || sku.is_active)),
-    [sortedSkus, showInactiveSkus]
+    () => sortedSkus.filter((sku) => RECIPE_PRODUCT_CODES.includes(sku.sku_type_code) && sku.is_active),
+    [sortedSkus]
   );
   const filteredRecipes = useMemo(
     () =>
