@@ -75,14 +75,12 @@ class DepositCreate(SQLModel):
     is_store: bool = False
     is_active: bool = True
 
-
 class DepositUpdate(SQLModel):
     name: str | None = None
     location: str | None = None
     controls_lot: bool | None = None
     is_store: bool | None = None
     is_active: bool | None = None
-
 
 class DepositRead(SQLModel):
     id: int
@@ -110,10 +108,11 @@ class RecipeCreate(SQLModel):
     items: list[RecipeItemPayload]
     is_active: bool = True
 
-
-class RecipeUpdate(RecipeCreate):
+class RecipeUpdate(SQLModel):
+    product_id: int | None = None
+    name: str | None = None
+    items: list[RecipeItemPayload] | None = None
     is_active: bool | None = None
-
 
 class RecipeRead(SQLModel):
     id: int
