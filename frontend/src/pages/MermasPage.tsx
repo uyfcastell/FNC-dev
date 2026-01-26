@@ -86,11 +86,11 @@ type MermaEventFormState = {
 };
 
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
-  { value: "production", label: "Producción" },
-  { value: "empaque", label: "Empaque" },
-  { value: "stock", label: "Stock/Depósito" },
-  { value: "transito_post_remito", label: "Tránsito post-remito" },
-  { value: "administrativa", label: "Administrativa" },
+  { value: "PRODUCTION", label: "Producción" },
+  { value: "EMPAQUE", label: "Empaque" },
+  { value: "STOCK", label: "Stock/Depósito" },
+  { value: "TRANSITO_POST_REMITO", label: "Tránsito post-remito" },
+  { value: "ADMINISTRATIVA", label: "Administrativa" },
 ];
 
 const MERMA_ACTION_OPTIONS: { value: MermaAction; label: string }[] = [
@@ -119,7 +119,7 @@ export function MermasPage() {
   const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label ?? unitCode ?? "";
 
   const [eventForm, setEventForm] = useState<MermaEventFormState>({
-    stage: "production",
+    stage: "PRODUCTION",
     type_id: null,
     cause_id: null,
     sku_id: null,
@@ -151,10 +151,10 @@ export function MermasPage() {
   }>({});
 
   const [typeForm, setTypeForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>(
-    { stage: "production", code: "", label: "", is_active: true }
+    { stage: "PRODUCTION", code: "", label: "", is_active: true }
   );
   const [causeForm, setCauseForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>(
-    { stage: "production", code: "", label: "", is_active: true }
+    { stage: "PRODUCTION", code: "", label: "", is_active: true }
   );
   const [lineForm, setLineForm] = useState<{ id?: number; name: string; is_active: boolean }>({ name: "", is_active: true });
 
@@ -252,7 +252,7 @@ export function MermasPage() {
   const filteredSkus = useMemo(
     () => skus.filter((sku) => {
       if (!sku.is_active) return false;
-      if (eventForm.stage === "production" || eventForm.stage === "empaque") return ["PT", "SEMI", "MP"].includes(sku.sku_type_code);
+      if (eventForm.stage === "PRODUCTION" || eventForm.stage === "EMPAQUE") return ["PT", "SEMI", "MP"].includes(sku.sku_type_code);
       return true;
     }),
     [skus, eventForm.stage]
@@ -318,19 +318,19 @@ export function MermasPage() {
       setError("Completá tipo, causa, SKU y cantidad");
       return;
     }
-    if (["production", "empaque", "stock"].includes(eventForm.stage) && !eventForm.deposit_id) {
+    if (["PRODUCTION", "EMPAQUE", "STOCK"].includes(eventForm.stage) && !eventForm.deposit_id) {
       setError("Selecciona un depósito para esta etapa");
       return;
     }
-    if (eventForm.stage === "production" && !eventForm.production_line_id) {
+    if (eventForm.stage === "PRODUCTION" && !eventForm.production_line_id) {
       setError("Selecciona la línea de producción");
       return;
     }
-    if (eventForm.stage === "transito_post_remito" && !eventForm.remito_id) {
+    if (eventForm.stage === "TRANSITO_POST_REMITO" && !eventForm.remito_id) {
       setError("Indica el remito asociado");
       return;
     }
-    if (eventForm.stage === "administrativa" && (!eventForm.notes || !eventForm.notes?.trim())) {
+    if (eventForm.stage === "ADMINISTRATIVA" && (!eventForm.notes || !eventForm.notes?.trim())) {
       setError("En etapa administrativa las notas son obligatorias");
       return;
     }
@@ -379,7 +379,7 @@ export function MermasPage() {
       } else {
         await createMermaType({ stage: typeForm.stage, code: typeForm.code, label: typeForm.label, is_active: typeForm.is_active });
       }
-      setTypeForm({ id: undefined, stage: "production", code: "", label: "", is_active: true });
+      setTypeForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true });
       await loadReferenceData();
       setSuccess("Catálogo de tipos actualizado");
     } catch (err) {
@@ -396,7 +396,7 @@ export function MermasPage() {
       } else {
         await createMermaCause({ stage: causeForm.stage, code: causeForm.code, label: causeForm.label, is_active: causeForm.is_active });
       }
-      setCauseForm({ id: undefined, stage: "production", code: "", label: "", is_active: true });
+      setCauseForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true });
       await loadReferenceData();
       setSuccess("Catálogo de causas actualizado");
     } catch (err) {
@@ -526,7 +526,10 @@ export function MermasPage() {
                     </Typography>
                   )}
                 </Grid>
-                {(eventForm.stage === "production" || eventForm.stage === "empaque" || eventForm.stage === "stock" || (eventForm.stage === "administrativa" && eventForm.affects_stock)) && (
+                {(eventForm.stage === "PRODUCTION" ||
+                  eventForm.stage === "EMPAQUE" ||
+                  eventForm.stage === "STOCK" ||
+                  (eventForm.stage === "ADMINISTRATIVA" && eventForm.affects_stock)) && (
                   <Grid item xs={12} md={3}>
                     <SearchableSelect
                       label="Depósito"
@@ -537,7 +540,7 @@ export function MermasPage() {
                     />
                   </Grid>
                 )}
-                {eventForm.stage === "production" && (
+                {eventForm.stage === "PRODUCTION" && (
                   <Grid item xs={12} md={3}>
                     <SearchableSelect
                       label="Línea de producción"
@@ -548,7 +551,7 @@ export function MermasPage() {
                     />
                   </Grid>
                 )}
-                {eventForm.stage === "transito_post_remito" && (
+                {eventForm.stage === "TRANSITO_POST_REMITO" && (
                   <Grid item xs={12} md={3}>
                     <TextField
                       fullWidth
@@ -959,7 +962,7 @@ export function MermasPage() {
                       {typeForm.id ? "Actualizar" : "Crear"}
                     </Button>
                     {typeForm.id && (
-                      <Button onClick={() => setTypeForm({ id: undefined, stage: "production", code: "", label: "", is_active: true })}>Cancelar</Button>
+                      <Button onClick={() => setTypeForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true })}>Cancelar</Button>
                     )}
                   </Stack>
                 </Stack>
@@ -1055,7 +1058,7 @@ export function MermasPage() {
                       {causeForm.id ? "Actualizar" : "Crear"}
                     </Button>
                     {causeForm.id && (
-                      <Button onClick={() => setCauseForm({ id: undefined, stage: "production", code: "", label: "", is_active: true })}>Cancelar</Button>
+                      <Button onClick={() => setCauseForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true })}>Cancelar</Button>
                     )}
                   </Stack>
                 </Stack>

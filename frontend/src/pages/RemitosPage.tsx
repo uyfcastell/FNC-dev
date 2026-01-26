@@ -45,10 +45,8 @@ const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleD
 
 const REMITO_STATUS_LABELS: Record<RemitoStatus, string> = {
   pending: "Pendiente",
-  sent: "Enviado",
-  delivered: "Entregado",
-  dispatched: "Despachado",
-  received: "Recibido",
+  dispatched: "Enviado",
+  received: "Entregado",
   cancelled: "Cancelado",
 };
 
