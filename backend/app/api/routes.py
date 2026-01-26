@@ -50,6 +50,7 @@ from ..schemas import (
     DepositCreate,
     DepositRead,
     DepositUpdate,
+    StatusUpdate,
     SKUTypeCreate,
     SKUTypeRead,
     SKUTypeUpdate,
@@ -300,7 +301,7 @@ def _convert_to_base_quantity(sku: SKU, quantity: float, unit: UnitOfMeasure | N
 
 
 def _get_recipe_for_product(session: Session, product_id: int) -> Recipe | None:
-    return session.exec(select(Recipe).where(Recipe.product_id == product_id)).first()
+    return session.exec(select(Recipe).where(Recipe.product_id == product_id, Recipe.is_active.is_(True))).first()
 
 
 def _calculate_consumption_by_lot(
@@ -1521,13 +1522,56 @@ def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
     sku = session.get(SKU, sku_id)
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
-    session.delete(sku)
+    in_use_reasons = []
+    if session.exec(select(RecipeItem.id).where(RecipeItem.component_id == sku_id)).first():
+        in_use_reasons.append("componentes de recetas")
+    if session.exec(select(Recipe.id).where(Recipe.product_id == sku_id)).first():
+        in_use_reasons.append("recetas de producto")
+    if session.exec(select(ProductionLot.id).where(ProductionLot.sku_id == sku_id)).first():
+        in_use_reasons.append("lotes de producción")
+    if session.exec(select(StockMovement.id).where(StockMovement.sku_id == sku_id)).first():
+        in_use_reasons.append("movimientos de stock")
+    if session.exec(select(StockLevel.id).where(StockLevel.sku_id == sku_id)).first():
+        in_use_reasons.append("niveles de stock")
+    if session.exec(select(OrderItem.id).where(OrderItem.sku_id == sku_id)).first():
+        in_use_reasons.append("pedidos")
+    if session.exec(select(RemitoItem.id).where(RemitoItem.sku_id == sku_id)).first():
+        in_use_reasons.append("remitos")
+    if session.exec(select(InventoryCountItem.id).where(InventoryCountItem.sku_id == sku_id)).first():
+        in_use_reasons.append("inventarios")
+    if session.exec(select(MermaEvent.id).where(MermaEvent.sku_id == sku_id)).first():
+        in_use_reasons.append("mermas")
+    if in_use_reasons:
+        reason_text = ", ".join(in_use_reasons)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar el producto porque está referenciado en: {reason_text}.",
+        )
+    sku.is_active = False
+    sku.updated_at = datetime.utcnow()
+    session.add(sku)
     session.commit()
 
 
+@router.patch("/skus/{sku_id}/status", tags=["sku"], response_model=SKURead)
+def update_sku_status(sku_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> SKURead:
+    sku = session.get(SKU, sku_id)
+    if not sku:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
+    sku.is_active = payload.is_active
+    sku.updated_at = datetime.utcnow()
+    session.add(sku)
+    session.commit()
+    session.refresh(sku)
+    return _map_sku(sku, session)
+
+
 @router.get("/deposits", tags=["deposits"], response_model=list[DepositRead])
-def list_deposits(session: Session = Depends(get_session)) -> list[Deposit]:
-    return session.exec(select(Deposit).order_by(Deposit.name)).all()
+def list_deposits(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[Deposit]:
+    statement = select(Deposit)
+    if not include_inactive:
+        statement = statement.where(Deposit.is_active.is_(True))
+    return session.exec(statement.order_by(Deposit.name)).all()
 
 
 @router.post("/deposits", tags=["deposits"], status_code=status.HTTP_201_CREATED, response_model=DepositRead)
@@ -1566,8 +1610,46 @@ def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> 
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
-    session.delete(deposit)
+    in_use_reasons = []
+    if session.exec(select(StockMovement.id).where(StockMovement.deposit_id == deposit_id)).first():
+        in_use_reasons.append("movimientos de stock")
+    if session.exec(select(StockLevel.id).where(StockLevel.deposit_id == deposit_id)).first():
+        in_use_reasons.append("niveles de stock")
+    if session.exec(select(ProductionLot.id).where(ProductionLot.deposit_id == deposit_id)).first():
+        in_use_reasons.append("lotes de producción")
+    if session.exec(select(InventoryCount.id).where(InventoryCount.deposit_id == deposit_id)).first():
+        in_use_reasons.append("inventarios")
+    if session.exec(select(Order.id).where(Order.destination_deposit_id == deposit_id)).first():
+        in_use_reasons.append("pedidos")
+    if session.exec(select(Remito.id).where((Remito.source_deposit_id == deposit_id) | (Remito.destination_deposit_id == deposit_id))).first():
+        in_use_reasons.append("remitos")
+    if session.exec(select(Shipment.id).where(Shipment.deposit_id == deposit_id)).first():
+        in_use_reasons.append("envíos")
+    if session.exec(select(MermaEvent.id).where(MermaEvent.deposit_id == deposit_id)).first():
+        in_use_reasons.append("mermas")
+    if in_use_reasons:
+        reason_text = ", ".join(in_use_reasons)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede eliminar el depósito porque está referenciado en: {reason_text}.",
+        )
+    deposit.is_active = False
+    deposit.updated_at = datetime.utcnow()
+    session.add(deposit)
     session.commit()
+
+
+@router.patch("/deposits/{deposit_id}/status", tags=["deposits"], response_model=DepositRead)
+def update_deposit_status(deposit_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> Deposit:
+    deposit = session.get(Deposit, deposit_id)
+    if not deposit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
+    deposit.is_active = payload.is_active
+    deposit.updated_at = datetime.utcnow()
+    session.add(deposit)
+    session.commit()
+    session.refresh(deposit)
+    return deposit
 
 
 @router.get("/production-lines", tags=["mermas"], response_model=list[ProductionLineRead])
@@ -1635,12 +1717,16 @@ def _map_recipe(recipe: Recipe, session: Session) -> RecipeRead:
         product_id=recipe.product_id,
         name=recipe.name,
         items=items,
+        is_active=recipe.is_active,
     )
 
 
 @router.get("/recipes", tags=["recipes"], response_model=list[RecipeRead])
-def list_recipes(session: Session = Depends(get_session)) -> list[RecipeRead]:
-    recipes = session.exec(select(Recipe)).all()
+def list_recipes(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[RecipeRead]:
+    statement = select(Recipe)
+    if not include_inactive:
+        statement = statement.where(Recipe.is_active.is_(True))
+    recipes = session.exec(statement).all()
     return [_map_recipe(recipe, session) for recipe in recipes]
 
 
@@ -1667,7 +1753,7 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
     if len(existing_components) != len(component_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún componente no existe")
 
-    recipe = Recipe(product_id=payload.product_id, name=payload.name)
+    recipe = Recipe(product_id=payload.product_id, name=payload.name, is_active=payload.is_active)
     session.add(recipe)
     session.flush()  # assign id for FK
 
@@ -1709,6 +1795,8 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depe
 
     recipe.product_id = payload.product_id
     recipe.name = payload.name
+    if payload.is_active is not None:
+        recipe.is_active = payload.is_active
 
     # Replace items
     current_items = session.exec(select(RecipeItem).where(RecipeItem.recipe_id == recipe.id)).all()
@@ -1729,11 +1817,28 @@ def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> No
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada")
-    items = session.exec(select(RecipeItem).where(RecipeItem.recipe_id == recipe.id)).all()
-    for item in items:
-        session.delete(item)
-    session.delete(recipe)
+    if session.exec(select(ProductionLot.id).where(ProductionLot.sku_id == recipe.product_id)).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede eliminar la receta porque ya fue usada en producción.",
+        )
+    recipe.is_active = False
+    recipe.updated_at = datetime.utcnow()
+    session.add(recipe)
     session.commit()
+
+
+@router.patch("/recipes/{recipe_id}/status", tags=["recipes"], response_model=RecipeRead)
+def update_recipe_status(recipe_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> RecipeRead:
+    recipe = session.get(Recipe, recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada")
+    recipe.is_active = payload.is_active
+    recipe.updated_at = datetime.utcnow()
+    session.add(recipe)
+    session.commit()
+    session.refresh(recipe)
+    return _map_recipe(recipe, session)
 
 
 @router.get(

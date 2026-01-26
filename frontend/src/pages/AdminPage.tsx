@@ -34,20 +34,18 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ChangeEvent, Dispatch, FormEvent, Fragment, SetStateAction, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, Dispatch, FormEvent, Fragment, RefObject, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  ApiError,
   createDeposit,
   createRecipe,
   createSku,
   createUser,
   createMermaCause,
   createMermaType,
-  deleteDeposit,
   deleteMermaCause,
   deleteMermaType,
-  deleteRecipe,
-  deleteSku,
   deleteUser,
   Deposit,
   fetchDeposits,
@@ -76,10 +74,13 @@ import {
   updateStockMovementType,
   deleteStockMovementType,
   updateDeposit,
+  updateDepositStatus,
   updateMermaCause,
   updateMermaType,
   updateRecipe,
+  updateRecipeStatus,
   updateSku,
+  updateSkuStatus,
   updateUser,
   Role,
   User,
@@ -118,10 +119,20 @@ export function AdminPage() {
   const [depositSearch, setDepositSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
+  const [showInactiveRecipes, setShowInactiveRecipes] = useState(false);
+  const [showInactiveDeposits, setShowInactiveDeposits] = useState(false);
   const [expandedSkus, setExpandedSkus] = useState<Record<number, boolean>>({});
   const [expandedRecipes, setExpandedRecipes] = useState<Record<number, boolean>>({});
   const [expandedDeposits, setExpandedDeposits] = useState<Record<number, boolean>>({});
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
+  const skuCodeRef = useRef<HTMLInputElement>(null);
+  const recipeProductRef = useRef<HTMLInputElement>(null);
+  const depositNameRef = useRef<HTMLInputElement>(null);
+  const userEmailRef = useRef<HTMLInputElement>(null);
+  const skuTypeCodeRef = useRef<HTMLInputElement>(null);
+  const movementTypeCodeRef = useRef<HTMLInputElement>(null);
+  const mermaTypeStageRef = useRef<HTMLInputElement>(null);
+  const mermaCauseStageRef = useRef<HTMLInputElement>(null);
 
   const [skuForm, setSkuForm] = useState<{
     id?: number;
@@ -149,19 +160,26 @@ export function AdminPage() {
       alert_red_max: "",
     }
   );
-  const [depositForm, setDepositForm] = useState<{ id?: number; name: string; location: string; controls_lot: boolean; is_store: boolean }>(
-    {
-      name: "",
-      location: "",
-      controls_lot: true,
-      is_store: false,
-    }
-  );
-  const [recipeForm, setRecipeForm] = useState<{ id?: number; product_id: string; name: string; items: RecipeFormItem[] }>(
+  const [depositForm, setDepositForm] = useState<{
+    id?: number;
+    name: string;
+    location: string;
+    controls_lot: boolean;
+    is_store: boolean;
+    is_active: boolean;
+  }>({
+    name: "",
+    location: "",
+    controls_lot: true,
+    is_store: false,
+    is_active: true,
+  });
+  const [recipeForm, setRecipeForm] = useState<{ id?: number; product_id: string; name: string; items: RecipeFormItem[]; is_active: boolean }>(
     {
       product_id: "",
       name: "",
       items: [{ component_id: "", quantity: "" }],
+      is_active: true,
     }
   );
   const [userForm, setUserForm] = useState<{ id?: number; email: string; full_name: string; password: string; role_id: string; is_active: boolean }>(
@@ -231,18 +249,20 @@ export function AdminPage() {
   const filteredRecipes = useMemo(
     () =>
       recipes.filter((recipe) => {
+        if (!showInactiveRecipes && !recipe.is_active) return false;
         if (!recipeSearch) return true;
         const product = skuMap.get(recipe.product_id);
         return matchesSearch(`${recipe.name} ${product?.name ?? ""}`, recipeSearch);
       }),
-    [recipes, recipeSearch, skuMap]
+    [recipes, recipeSearch, skuMap, showInactiveRecipes]
   );
   const filteredDeposits = useMemo(
     () =>
-      sortedDeposits.filter((deposit) =>
-        depositSearch ? matchesSearch(`${deposit.name} ${deposit.location ?? ""}`, depositSearch) : true
-      ),
-    [sortedDeposits, depositSearch]
+      sortedDeposits.filter((deposit) => {
+        if (!showInactiveDeposits && !deposit.is_active) return false;
+        return depositSearch ? matchesSearch(`${deposit.name} ${deposit.location ?? ""}`, depositSearch) : true;
+      }),
+    [sortedDeposits, depositSearch, showInactiveDeposits]
   );
   const filteredUsers = useMemo(
     () =>
@@ -258,8 +278,8 @@ export function AdminPage() {
     try {
       const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList, mermaTypeList, mermaCauseList] = await Promise.all([
         fetchSkus({ include_inactive: true }),
-        fetchDeposits(),
-        fetchRecipes(),
+        fetchDeposits({ include_inactive: true }),
+        fetchRecipes({ include_inactive: true }),
         fetchRoles(),
         fetchUsers(),
         fetchUnits(),
@@ -383,7 +403,7 @@ export function AdminPage() {
         await createDeposit(payload);
         setSuccess("Depósito creado");
       }
-      setDepositForm({ name: "", location: "", controls_lot: true, is_store: false });
+      setDepositForm({ name: "", location: "", controls_lot: true, is_store: false, is_active: true });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -402,6 +422,7 @@ export function AdminPage() {
         product_id: Number(recipeForm.product_id),
         name: recipeForm.name || skuMap.get(Number(recipeForm.product_id))?.name || "Receta",
         items: recipeForm.items.map((item) => ({ component_id: Number(item.component_id), quantity: Number(item.quantity) })),
+        is_active: recipeForm.is_active,
       };
       if (recipeForm.id) {
         await updateRecipe(recipeForm.id, payload);
@@ -410,7 +431,7 @@ export function AdminPage() {
         await createRecipe(payload);
         setSuccess("Receta creada");
       }
-      setRecipeForm({ id: undefined, product_id: "", name: "", items: [{ component_id: "", quantity: "" }] });
+      setRecipeForm({ id: undefined, product_id: "", name: "", items: [{ component_id: "", quantity: "" }], is_active: true });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -455,17 +476,26 @@ export function AdminPage() {
   const removeRecipeItem = (index: number) =>
     setRecipeForm((prev) => ({ ...prev, items: prev.items.filter((_, idx) => idx !== index) }));
 
+  const queueScrollToForm = (ref?: RefObject<HTMLInputElement>) => {
+    window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      ref?.current?.focus({ preventScroll: true });
+    }, 0);
+  };
+
   const startEditRecipe = (recipe: Recipe) => {
     setRecipeForm({
       id: recipe.id,
       product_id: String(recipe.product_id),
       name: recipe.name,
       items: recipe.items.map((item) => ({ component_id: String(item.component_id), quantity: String(item.quantity) })),
+      is_active: recipe.is_active,
     });
     setTab("recetas");
+    queueScrollToForm(recipeProductRef);
   };
 
-  const startEditSku = (sku: SKU) =>
+  const startEditSku = (sku: SKU) => {
     setSkuForm({
       id: sku.id,
       code: sku.code,
@@ -479,15 +509,20 @@ export function AdminPage() {
       alert_yellow_min: sku.alert_yellow_min ?? "",
       alert_red_max: sku.alert_red_max ?? "",
     });
-  const startEditDeposit = (deposit: Deposit) =>
+    queueScrollToForm(skuCodeRef);
+  };
+  const startEditDeposit = (deposit: Deposit) => {
     setDepositForm({
       id: deposit.id,
       name: deposit.name,
       location: deposit.location ?? "",
       controls_lot: deposit.controls_lot,
       is_store: deposit.is_store,
+      is_active: deposit.is_active,
     });
-  const startEditUser = (user: User) =>
+    queueScrollToForm(depositNameRef);
+  };
+  const startEditUser = (user: User) => {
     setUserForm({
       id: user.id,
       email: user.email,
@@ -496,6 +531,8 @@ export function AdminPage() {
       role_id: user.role_id ? String(user.role_id) : "",
       is_active: user.is_active,
     });
+    queueScrollToForm(userEmailRef);
+  };
 
   const skuLabel = (sku: SKU) => `${sku.name} (${sku.code})`;
   const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label || unitCode || "";
@@ -520,16 +557,56 @@ export function AdminPage() {
   const handleDelete = async (type: "sku" | "deposit" | "recipe" | "user", id: number) => {
     if (!window.confirm("¿Eliminar el registro?")) return;
     try {
-      if (type === "sku") await deleteSku(id);
-      if (type === "deposit") await deleteDeposit(id);
-      if (type === "recipe") await deleteRecipe(id);
       if (type === "user") await deleteUser(id);
       setSuccess("Registro eliminado");
       await loadData();
     } catch (err) {
       console.error(err);
+      if (err instanceof ApiError) {
+        try {
+          const parsed = JSON.parse(err.message);
+          setError(parsed?.detail ?? "No pudimos eliminar el registro");
+          return;
+        } catch {
+          setError(err.message);
+          return;
+        }
+      }
       setError("No pudimos eliminar el registro");
     }
+  };
+
+  const handleStatusChange = async (type: "sku" | "deposit" | "recipe", id: number, isActive: boolean) => {
+    try {
+      if (type === "sku") await updateSkuStatus(id, isActive);
+      if (type === "deposit") await updateDepositStatus(id, isActive);
+      if (type === "recipe") await updateRecipeStatus(id, isActive);
+      setSuccess(isActive ? "Registro activado" : "Registro inactivado");
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos actualizar el estado");
+    }
+  };
+
+  const startEditSkuType = (skuType: SKUType) => {
+    setSkuTypeForm({ ...skuType });
+    queueScrollToForm(skuTypeCodeRef);
+  };
+
+  const startEditMovementType = (movementType: StockMovementType) => {
+    setMovementTypeForm({ ...movementType });
+    queueScrollToForm(movementTypeCodeRef);
+  };
+
+  const startEditMermaType = (mermaType: MermaType) => {
+    setMermaTypeForm({ ...mermaType });
+    queueScrollToForm(mermaTypeStageRef);
+  };
+
+  const startEditMermaCause = (mermaCause: MermaCause) => {
+    setMermaCauseForm({ ...mermaCause });
+    queueScrollToForm(mermaCauseStageRef);
   };
 
   const handleSkuTypeSubmit = async (event: FormEvent) => {
@@ -705,7 +782,13 @@ export function AdminPage() {
           <Divider />
           <CardContent>
             <Stack component="form" spacing={2} onSubmit={handleSkuSubmit}>
-              <TextField label="Código" required value={skuForm.code} onChange={(e) => setSkuForm((prev) => ({ ...prev, code: e.target.value }))} />
+              <TextField
+                label="Código"
+                required
+                value={skuForm.code}
+                onChange={(e) => setSkuForm((prev) => ({ ...prev, code: e.target.value }))}
+                inputRef={skuCodeRef}
+              />
               <TextField label="Nombre" required value={skuForm.name} onChange={(e) => setSkuForm((prev) => ({ ...prev, name: e.target.value }))} />
               <TextField
                 select
@@ -887,11 +970,19 @@ export function AdminPage() {
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Eliminar">
-                          <IconButton size="small" color="error" onClick={() => handleDelete("sku", sku.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {sku.is_active ? (
+                          <Tooltip title="Inactivar">
+                            <IconButton size="small" color="warning" onClick={() => handleStatusChange("sku", sku.id, false)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip title="Activar">
+                            <IconButton size="small" color="success" onClick={() => handleStatusChange("sku", sku.id, true)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </TableCell>
                     </TableRow>
                     <TableRow>
@@ -941,6 +1032,7 @@ export function AdminPage() {
                 inputProps={{ style: { textTransform: "uppercase" } }}
                 required
                 disabled={!!skuTypeForm.id}
+                inputRef={skuTypeCodeRef}
               />
               <TextField
                 label="Nombre visible"
@@ -983,11 +1075,11 @@ export function AdminPage() {
                     <TableCell>{type.label}</TableCell>
                     <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => setSkuTypeForm({ ...type })}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditSkuType(type)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       <Tooltip title="Eliminar / desactivar">
                         <IconButton size="small" color="error" onClick={() => handleSkuTypeDelete(type.id)}>
                           <DeleteIcon fontSize="small" />
@@ -1014,6 +1106,7 @@ export function AdminPage() {
                 inputProps={{ style: { textTransform: "uppercase" } }}
                 required
                 disabled={!!movementTypeForm.id}
+                inputRef={movementTypeCodeRef}
               />
               <TextField
                 label="Nombre visible"
@@ -1056,11 +1149,11 @@ export function AdminPage() {
                     <TableCell>{type.label}</TableCell>
                     <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => setMovementTypeForm({ ...type })}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditMovementType(type)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       <Tooltip title="Eliminar / desactivar">
                         <IconButton size="small" color="error" onClick={() => handleMovementTypeDelete(type.id)}>
                           <DeleteIcon fontSize="small" />
@@ -1085,6 +1178,7 @@ export function AdminPage() {
                 label="Etapa"
                 value={mermaTypeForm.stage}
                 onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
+                inputRef={mermaTypeStageRef}
               >
                 {MERMA_STAGE_OPTIONS.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
@@ -1159,7 +1253,7 @@ export function AdminPage() {
                           }}
                         />
                         <Tooltip title="Editar">
-                          <IconButton size="small" onClick={() => setMermaTypeForm({ ...type })}>
+                          <IconButton size="small" onClick={() => startEditMermaType(type)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -1188,6 +1282,7 @@ export function AdminPage() {
                 label="Etapa"
                 value={mermaCauseForm.stage}
                 onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
+                inputRef={mermaCauseStageRef}
               >
                 {MERMA_STAGE_OPTIONS.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
@@ -1262,7 +1357,7 @@ export function AdminPage() {
                           }}
                         />
                         <Tooltip title="Editar">
-                          <IconButton size="small" onClick={() => setMermaCauseForm({ ...cause })}>
+                          <IconButton size="small" onClick={() => startEditMermaCause(cause)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -1291,7 +1386,13 @@ export function AdminPage() {
           <Divider />
           <CardContent>
             <Stack component="form" spacing={2} onSubmit={handleDepositSubmit}>
-              <TextField label="Nombre" required value={depositForm.name} onChange={(e) => setDepositForm((prev) => ({ ...prev, name: e.target.value }))} />
+              <TextField
+                label="Nombre"
+                required
+                value={depositForm.name}
+                onChange={(e) => setDepositForm((prev) => ({ ...prev, name: e.target.value }))}
+                inputRef={depositNameRef}
+              />
               <TextField label="Ubicación" value={depositForm.location} onChange={(e) => setDepositForm((prev) => ({ ...prev, location: e.target.value }))} />
               <TextField
                 select
@@ -1306,12 +1407,23 @@ export function AdminPage() {
                 control={<Switch checked={depositForm.is_store} onChange={(e) => setDepositForm((prev) => ({ ...prev, is_store: e.target.checked }))} />}
                 label="Es local (destino de pedidos)"
               />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={depositForm.is_active}
+                    onChange={(e) => setDepositForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
+              />
               <Stack direction="row" spacing={1}>
                 <Button type="submit" variant="contained">
                   {depositForm.id ? "Actualizar" : "Crear"}
                 </Button>
                 {depositForm.id && (
-                  <Button onClick={() => setDepositForm({ name: "", location: "", controls_lot: true, is_store: false })}>Cancelar</Button>
+                  <Button onClick={() => setDepositForm({ name: "", location: "", controls_lot: true, is_store: false, is_active: true })}>
+                    Cancelar
+                  </Button>
                 )}
               </Stack>
             </Stack>
@@ -1327,7 +1439,7 @@ export function AdminPage() {
           />
           <Divider />
           <CardContent>
-            <Box sx={{ mb: 2 }}>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
               <TextField
                 label="Buscar por nombre o ubicación"
                 value={depositSearch}
@@ -1335,7 +1447,11 @@ export function AdminPage() {
                 size="small"
                 sx={{ maxWidth: 320 }}
               />
-            </Box>
+              <FormControlLabel
+                control={<Switch checked={showInactiveDeposits} onChange={(e) => setShowInactiveDeposits(e.target.checked)} />}
+                label="Mostrar inactivos"
+              />
+            </Stack>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -1344,6 +1460,7 @@ export function AdminPage() {
                   <TableCell>Ubicación</TableCell>
                   <TableCell>Controla lote</TableCell>
                   <TableCell>Es local</TableCell>
+                  <TableCell>Estado</TableCell>
                   <TableCell align="right">Acciones</TableCell>
                 </TableRow>
               </TableHead>
@@ -1362,21 +1479,30 @@ export function AdminPage() {
                       <TableCell>{deposit.location || "—"}</TableCell>
                       <TableCell>{deposit.controls_lot ? "Sí" : "No"}</TableCell>
                       <TableCell>{deposit.is_store ? "Sí" : "No"}</TableCell>
+                      <TableCell>{deposit.is_active ? "Activo" : "Inactivo"}</TableCell>
                       <TableCell align="right">
                         <Tooltip title="Editar">
                           <IconButton size="small" onClick={() => startEditDeposit(deposit)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Eliminar">
-                          <IconButton size="small" color="error" onClick={() => handleDelete("deposit", deposit.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {deposit.is_active ? (
+                          <Tooltip title="Inactivar">
+                            <IconButton size="small" color="warning" onClick={() => handleStatusChange("deposit", deposit.id, false)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip title="Activar">
+                            <IconButton size="small" color="success" onClick={() => handleStatusChange("deposit", deposit.id, true)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={6} sx={{ py: 0 }}>
+                      <TableCell colSpan={7} sx={{ py: 0 }}>
                         <Collapse in={expandedDeposits[deposit.id]} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 1 }}>
                             <Stack spacing={0.5}>
@@ -1419,9 +1545,10 @@ export function AdminPage() {
               <TextField
                 select
                 required
-                label="Producto (solo PT/SEMI)"
+                label="Producto"
                 value={recipeForm.product_id}
                 onChange={(e) => setRecipeForm((prev) => ({ ...prev, product_id: e.target.value }))}
+                inputRef={recipeProductRef}
               >
                 {filteredProducts.map((sku) => (
                   <MenuItem key={sku.id} value={sku.id}>
@@ -1434,6 +1561,15 @@ export function AdminPage() {
                 value={recipeForm.name}
                 placeholder="Si no lo completas usamos el nombre del producto"
                 onChange={(e) => setRecipeForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={recipeForm.is_active}
+                    onChange={(e) => setRecipeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
               />
               <Typography variant="subtitle2">Componentes</Typography>
               <Stack spacing={1}>
@@ -1481,7 +1617,7 @@ export function AdminPage() {
                   {recipeForm.id ? "Actualizar" : "Guardar"}
                 </Button>
                 {recipeForm.id && (
-                  <Button onClick={() => setRecipeForm({ id: undefined, product_id: "", name: "", items: [{ component_id: "", quantity: "" }] })}>
+                  <Button onClick={() => setRecipeForm({ id: undefined, product_id: "", name: "", items: [{ component_id: "", quantity: "" }], is_active: true })}>
                     Cancelar
                   </Button>
                 )}
@@ -1499,7 +1635,7 @@ export function AdminPage() {
           />
           <Divider />
           <CardContent>
-            <Box sx={{ mb: 2 }}>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
               <TextField
                 label="Buscar por nombre o producto"
                 value={recipeSearch}
@@ -1507,13 +1643,18 @@ export function AdminPage() {
                 size="small"
                 sx={{ maxWidth: 320 }}
               />
-            </Box>
+              <FormControlLabel
+                control={<Switch checked={showInactiveRecipes} onChange={(e) => setShowInactiveRecipes(e.target.checked)} />}
+                label="Mostrar inactivos"
+              />
+            </Stack>
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell />
                   <TableCell>Receta</TableCell>
                   <TableCell>Producto</TableCell>
+                  <TableCell>Estado</TableCell>
                   <TableCell align="right">Acciones</TableCell>
                 </TableRow>
               </TableHead>
@@ -1530,21 +1671,30 @@ export function AdminPage() {
                       </TableCell>
                       <TableCell>{recipe.name || "Receta"}</TableCell>
                       <TableCell>{skuMap.get(recipe.product_id) ? skuLabel(skuMap.get(recipe.product_id) as SKU) : `SKU ${recipe.product_id}`}</TableCell>
+                      <TableCell>{recipe.is_active ? "Activo" : "Inactivo"}</TableCell>
                       <TableCell align="right">
                         <Tooltip title="Editar">
                           <IconButton size="small" onClick={() => startEditRecipe(recipe)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Eliminar">
-                          <IconButton size="small" color="error" onClick={() => handleDelete("recipe", recipe.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {recipe.is_active ? (
+                          <Tooltip title="Inactivar">
+                            <IconButton size="small" color="warning" onClick={() => handleStatusChange("recipe", recipe.id, false)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip title="Activar">
+                            <IconButton size="small" color="success" onClick={() => handleStatusChange("recipe", recipe.id, true)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={4} sx={{ py: 0 }}>
+                      <TableCell colSpan={5} sx={{ py: 0 }}>
                         <Collapse in={expandedRecipes[recipe.id]} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 1 }}>
                             <Stack spacing={0.5}>
@@ -1586,7 +1736,13 @@ export function AdminPage() {
           <Divider />
           <CardContent>
             <Stack component="form" spacing={2} onSubmit={handleUserSubmit}>
-              <TextField label="Email" required value={userForm.email} onChange={(e) => setUserForm((prev) => ({ ...prev, email: e.target.value }))} />
+              <TextField
+                label="Email"
+                required
+                value={userForm.email}
+                onChange={(e) => setUserForm((prev) => ({ ...prev, email: e.target.value }))}
+                inputRef={userEmailRef}
+              />
               <TextField label="Nombre" required value={userForm.full_name} onChange={(e) => setUserForm((prev) => ({ ...prev, full_name: e.target.value }))} />
               <TextField
                 label={userForm.id ? "Nueva contraseña (opcional)" : "Contraseña"}

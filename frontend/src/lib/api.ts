@@ -99,6 +99,7 @@ export type Deposit = {
   location?: string | null;
   controls_lot: boolean;
   is_store: boolean;
+  is_active: boolean;
 };
 
 export type StockLevel = {
@@ -205,6 +206,7 @@ export type Recipe = {
   product_id: number;
   name: string;
   items: RecipeItem[];
+  is_active: boolean;
 };
 
 export type OrderStatus =
@@ -561,8 +563,12 @@ export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: strin
   return apiRequest(`/skus${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener la lista de SKUs");
 }
 
-export async function fetchDeposits(): Promise<Deposit[]> {
-  return apiRequest("/deposits", {}, "No se pudo obtener la lista de depósitos");
+export async function fetchDeposits(params?: { include_inactive?: boolean }): Promise<Deposit[]> {
+  const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  return apiRequest(`/deposits${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudo obtener la lista de depósitos");
 }
 
 export async function fetchStockLevels(): Promise<StockLevel[]> {
@@ -616,6 +622,10 @@ export async function deleteSku(id: number): Promise<void> {
   await apiRequest(`/skus/${id}`, { method: "DELETE" }, "No se pudo eliminar el SKU");
 }
 
+export async function updateSkuStatus(id: number, is_active: boolean): Promise<SKU> {
+  return apiRequest(`/skus/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active }) }, "No se pudo actualizar el estado del SKU");
+}
+
 export async function createDeposit(payload: Omit<Deposit, "id">): Promise<Deposit> {
   return apiRequest("/deposits", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el depósito");
 }
@@ -626,6 +636,10 @@ export async function updateDeposit(id: number, payload: Partial<Omit<Deposit, "
 
 export async function deleteDeposit(id: number): Promise<void> {
   await apiRequest(`/deposits/${id}`, { method: "DELETE" }, "No se pudo eliminar el depósito");
+}
+
+export async function updateDepositStatus(id: number, is_active: boolean): Promise<Deposit> {
+  return apiRequest(`/deposits/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active }) }, "No se pudo actualizar el estado del depósito");
 }
 
 export async function fetchStockMovementTypes(params?: { include_inactive?: boolean }): Promise<StockMovementType[]> {
@@ -740,8 +754,12 @@ export async function createStockMovement(payload: StockMovementPayload): Promis
   return apiRequest("/stock/movements", { method: "POST", body: JSON.stringify(payload) }, "No se pudo registrar el movimiento");
 }
 
-export async function fetchRecipes(): Promise<Recipe[]> {
-  return apiRequest("/recipes", {}, "No se pudo obtener las recetas");
+export async function fetchRecipes(params?: { include_inactive?: boolean }): Promise<Recipe[]> {
+  const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  return apiRequest(`/recipes${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudo obtener las recetas");
 }
 
 export async function createRecipe(payload: Omit<Recipe, "id">): Promise<Recipe> {
@@ -754,6 +772,10 @@ export async function updateRecipe(id: number, payload: Omit<Recipe, "id">): Pro
 
 export async function deleteRecipe(id: number): Promise<void> {
   await apiRequest(`/recipes/${id}`, { method: "DELETE" }, "No se pudo eliminar la receta");
+}
+
+export async function updateRecipeStatus(id: number, is_active: boolean): Promise<Recipe> {
+  return apiRequest(`/recipes/${id}/status`, { method: "PATCH", body: JSON.stringify({ is_active }) }, "No se pudo actualizar el estado de la receta");
 }
 
 export async function fetchStockReport(): Promise<StockReport> {

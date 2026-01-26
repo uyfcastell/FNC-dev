@@ -42,3 +42,39 @@ def test_create_valid_sku(client):
 
     data = res.json()
     assert data["code"] == code
+
+
+def test_delete_sku_in_use_returns_conflict(client):
+    res = client.get("/api/skus")
+    assert res.status_code == 200
+    sku = next(item for item in res.json() if item["code"] == "CUC-GRANEL")
+    delete_res = client.delete(f"/api/skus/{sku['id']}")
+    assert delete_res.status_code == 409
+
+
+def test_inactivate_sku_filters_by_default(client):
+    code = f"TEST-INACTIVE-{uuid.uuid4().hex[:6]}"
+    sku_type_id = _get_sku_type_id(client, "PT")
+
+    payload = {
+        "code": code,
+        "name": "SKU Inactivo",
+        "sku_type_id": sku_type_id,
+        "unit": "unit",
+        "is_active": True,
+    }
+
+    res = client.post("/api/skus", json=payload)
+    assert res.status_code in (200, 201)
+    sku_id = res.json()["id"]
+
+    res = client.patch(f"/api/skus/{sku_id}/status", json={"is_active": False})
+    assert res.status_code == 200
+
+    res = client.get("/api/skus")
+    assert res.status_code == 200
+    assert all(item["id"] != sku_id for item in res.json())
+
+    res = client.get("/api/skus?include_inactive=true")
+    assert res.status_code == 200
+    assert any(item["id"] == sku_id for item in res.json())
