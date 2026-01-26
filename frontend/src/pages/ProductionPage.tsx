@@ -197,6 +197,7 @@ export function ProductionPage() {
       await createRecipe({
         product_id: recipeForm.product_id,
         name: recipeName,
+	is_active: true,
         items: recipeForm.items.map((item) => ({
           component_id: Number(item.component_id),
           quantity: Number(item.quantity),

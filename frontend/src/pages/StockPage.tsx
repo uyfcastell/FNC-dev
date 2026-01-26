@@ -248,6 +248,7 @@ export function StockPage() {
         location: depositForm.location || null,
         controls_lot: depositForm.controls_lot,
         is_store: depositForm.is_store,
+	is_active: true,
       });
       setSuccess("Depósito creado correctamente");
       setDepositForm({ name: "", location: "", controls_lot: true, is_store: false });
