@@ -1,6 +1,8 @@
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InventoryIcon from "@mui/icons-material/Inventory2";
 import LibraryAddIcon from "@mui/icons-material/LibraryAdd";
 import RestaurantMenuIcon from "@mui/icons-material/RestaurantMenu";
@@ -13,6 +15,7 @@ import {
   CardContent,
   CardHeader,
   Chip,
+  Collapse,
   Divider,
   Grid,
   IconButton,
@@ -31,7 +34,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, Dispatch, FormEvent, Fragment, SetStateAction, useEffect, useMemo, useState } from "react";
 
 import {
   createDeposit,
@@ -82,7 +85,7 @@ import {
   User,
 } from "../lib/api";
 
-const PRODUCTION_TYPE_CODES = ["PT", "SEMI"];
+const RECIPE_PRODUCT_CODES = ["PT", "SEMI", "MP"];
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
   { value: "production", label: "Producción" },
   { value: "empaque", label: "Empaque" },
@@ -115,6 +118,10 @@ export function AdminPage() {
   const [depositSearch, setDepositSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
+  const [expandedSkus, setExpandedSkus] = useState<Record<number, boolean>>({});
+  const [expandedRecipes, setExpandedRecipes] = useState<Record<number, boolean>>({});
+  const [expandedDeposits, setExpandedDeposits] = useState<Record<number, boolean>>({});
+  const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
 
   const [skuForm, setSkuForm] = useState<{
     id?: number;
@@ -218,8 +225,8 @@ export function AdminPage() {
     [sortedSkus, showInactiveSkus, skuSearch]
   );
   const recipeComponents = useMemo(
-    () => sortedSkus.filter((sku) => PRODUCTION_TYPE_CODES.includes(sku.sku_type_code) && (showInactiveSkus || sku.is_active)),
-    [sortedSkus, showInactiveSkus]
+    () => sortedSkus.filter((sku) => RECIPE_PRODUCT_CODES.includes(sku.sku_type_code) && sku.is_active),
+    [sortedSkus]
   );
   const filteredRecipes = useMemo(
     () =>
@@ -499,6 +506,8 @@ export function AdminPage() {
     if (sku.alert_red_max != null) parts.push(`Rojo <= ${sku.alert_red_max}`);
     return parts.length ? parts.join(" · ") : "Sin alerta";
   };
+  const toggleExpanded = (setter: Dispatch<SetStateAction<Record<number, boolean>>>, id: number) =>
+    setter((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const recipeItemUnit = (componentId: string) => {
     if (!componentId) return "";
@@ -690,7 +699,7 @@ export function AdminPage() {
 
   const renderProductos = () => (
     <Grid container spacing={2} alignItems="stretch">
-      <Grid item xs={12} md={4}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader title="Producto" subheader={skuForm.id ? "Editar" : "Alta"} avatar={<InventoryIcon color="primary" />} />
           <Divider />
@@ -816,7 +825,7 @@ export function AdminPage() {
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={8}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader
             title="Productos"
@@ -841,6 +850,7 @@ export function AdminPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell />
                   <TableCell>Código</TableCell>
                   <TableCell>Nombre</TableCell>
                   <TableCell>Tipo</TableCell>
@@ -853,29 +863,60 @@ export function AdminPage() {
               </TableHead>
               <TableBody>
                 {filteredSkus.map((sku) => (
-                  <TableRow key={sku.id} hover>
-                    <TableCell>{sku.code}</TableCell>
-                    <TableCell>{sku.name}</TableCell>
-                    <TableCell>{`${sku.sku_type_code} — ${sku.sku_type_label}`}</TableCell>
-                    <TableCell>{unitLabel(sku.unit)}</TableCell>
-                    <TableCell>
-                      {sku.sku_type_code === "SEMI" ? `${sku.units_per_kg ?? 1} un = 1 kg` : "—"}
-                    </TableCell>
-                    <TableCell>{skuAlertSummary(sku)}</TableCell>
-                    <TableCell>{sku.is_active ? "Activo" : "Inactivo"}</TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => startEditSku(sku)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => handleDelete("sku", sku.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                  <Fragment key={sku.id}>
+                    <TableRow hover>
+                      <TableCell>
+                        <Tooltip title={expandedSkus[sku.id] ? "Ocultar detalle" : "Ver detalle"}>
+                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedSkus, sku.id)}>
+                            {expandedSkus[sku.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>{sku.code}</TableCell>
+                      <TableCell>{sku.name}</TableCell>
+                      <TableCell>{`${sku.sku_type_code} — ${sku.sku_type_label}`}</TableCell>
+                      <TableCell>{unitLabel(sku.unit)}</TableCell>
+                      <TableCell>
+                        {sku.sku_type_code === "SEMI" ? `${sku.units_per_kg ?? 1} un = 1 kg` : "—"}
+                      </TableCell>
+                      <TableCell>{skuAlertSummary(sku)}</TableCell>
+                      <TableCell>{sku.is_active ? "Activo" : "Inactivo"}</TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditSku(sku)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Eliminar">
+                          <IconButton size="small" color="error" onClick={() => handleDelete("sku", sku.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={9} sx={{ py: 0 }}>
+                        <Collapse in={expandedSkus[sku.id]} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 1 }}>
+                            <Stack spacing={0.5}>
+                              <Typography variant="subtitle2">Detalle</Typography>
+                              <Typography variant="body2">
+                                <strong>Notas:</strong> {sku.notes ? sku.notes : "—"}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Alertas:</strong> {skuAlertSummary(sku)}
+                              </Typography>
+                              {sku.sku_type_code === "SEMI" && (
+                                <Typography variant="body2">
+                                  <strong>Conversión SEMI:</strong> {sku.units_per_kg ?? 1} un = 1 kg
+                                </Typography>
+                              )}
+                            </Stack>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -1244,7 +1285,7 @@ export function AdminPage() {
 
   const renderDepositos = () => (
     <Grid container spacing={2} alignItems="stretch">
-      <Grid item xs={12} md={4}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader title="Depósito" subheader={depositForm.id ? "Editar" : "Alta"} avatar={<StoreIcon color="primary" />} />
           <Divider />
@@ -1277,7 +1318,7 @@ export function AdminPage() {
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={8}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader
             title="Depósitos"
@@ -1298,6 +1339,7 @@ export function AdminPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell />
                   <TableCell>Nombre</TableCell>
                   <TableCell>Ubicación</TableCell>
                   <TableCell>Controla lote</TableCell>
@@ -1307,24 +1349,56 @@ export function AdminPage() {
               </TableHead>
               <TableBody>
                 {filteredDeposits.map((deposit) => (
-                  <TableRow key={deposit.id} hover>
-                    <TableCell>{deposit.name}</TableCell>
-                    <TableCell>{deposit.location || "—"}</TableCell>
-                    <TableCell>{deposit.controls_lot ? "Sí" : "No"}</TableCell>
-                    <TableCell>{deposit.is_store ? "Sí" : "No"}</TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => startEditDeposit(deposit)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => handleDelete("deposit", deposit.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                  <Fragment key={deposit.id}>
+                    <TableRow hover>
+                      <TableCell>
+                        <Tooltip title={expandedDeposits[deposit.id] ? "Ocultar detalle" : "Ver detalle"}>
+                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedDeposits, deposit.id)}>
+                            {expandedDeposits[deposit.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>{deposit.name}</TableCell>
+                      <TableCell>{deposit.location || "—"}</TableCell>
+                      <TableCell>{deposit.controls_lot ? "Sí" : "No"}</TableCell>
+                      <TableCell>{deposit.is_store ? "Sí" : "No"}</TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditDeposit(deposit)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Eliminar">
+                          <IconButton size="small" color="error" onClick={() => handleDelete("deposit", deposit.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ py: 0 }}>
+                        <Collapse in={expandedDeposits[deposit.id]} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 1 }}>
+                            <Stack spacing={0.5}>
+                              <Typography variant="subtitle2">Detalle</Typography>
+                              <Typography variant="body2">
+                                <strong>ID:</strong> {deposit.id}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Ubicación:</strong> {deposit.location || "—"}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Controla lote:</strong> {deposit.controls_lot ? "Sí" : "No"}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Es local:</strong> {deposit.is_store ? "Sí" : "No"}
+                              </Typography>
+                            </Stack>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -1336,7 +1410,7 @@ export function AdminPage() {
 
   const renderRecetas = () => (
     <Grid container spacing={2} alignItems="stretch">
-      <Grid item xs={12} md={5}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader title="Receta" subheader={recipeForm.id ? "Editar" : "Nueva"} avatar={<RestaurantMenuIcon color="primary" />} />
           <Divider />
@@ -1416,7 +1490,7 @@ export function AdminPage() {
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={7}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader
             title="Recetas registradas"
@@ -1437,6 +1511,7 @@ export function AdminPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell />
                   <TableCell>Receta</TableCell>
                   <TableCell>Producto</TableCell>
                   <TableCell align="right">Acciones</TableCell>
@@ -1444,22 +1519,56 @@ export function AdminPage() {
               </TableHead>
               <TableBody>
                 {filteredRecipes.map((recipe) => (
-                  <TableRow key={recipe.id} hover>
-                    <TableCell>{recipe.name || "Receta"}</TableCell>
-                    <TableCell>{skuMap.get(recipe.product_id) ? skuLabel(skuMap.get(recipe.product_id) as SKU) : `SKU ${recipe.product_id}`}</TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => startEditRecipe(recipe)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => handleDelete("recipe", recipe.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                  <Fragment key={recipe.id}>
+                    <TableRow hover>
+                      <TableCell>
+                        <Tooltip title={expandedRecipes[recipe.id] ? "Ocultar detalle" : "Ver detalle"}>
+                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedRecipes, recipe.id)}>
+                            {expandedRecipes[recipe.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>{recipe.name || "Receta"}</TableCell>
+                      <TableCell>{skuMap.get(recipe.product_id) ? skuLabel(skuMap.get(recipe.product_id) as SKU) : `SKU ${recipe.product_id}`}</TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditRecipe(recipe)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Eliminar">
+                          <IconButton size="small" color="error" onClick={() => handleDelete("recipe", recipe.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={4} sx={{ py: 0 }}>
+                        <Collapse in={expandedRecipes[recipe.id]} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 1 }}>
+                            <Stack spacing={0.5}>
+                              <Typography variant="subtitle2">Ingredientes</Typography>
+                              {recipe.items.length ? (
+                                recipe.items.map((item) => {
+                                  const component = skuMap.get(item.component_id);
+                                  const name = item.component_name || component?.name || `SKU ${item.component_id}`;
+                                  const unit = item.component_unit || component?.unit;
+                                  return (
+                                    <Typography key={`${recipe.id}-${item.component_id}`} variant="body2">
+                                      {name} · {item.quantity} {unitLabel(unit)}
+                                    </Typography>
+                                  );
+                                })
+                              ) : (
+                                <Typography variant="body2">Sin ingredientes registrados.</Typography>
+                              )}
+                            </Stack>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -1471,7 +1580,7 @@ export function AdminPage() {
 
   const renderUsuarios = () => (
     <Grid container spacing={2} alignItems="stretch">
-      <Grid item xs={12} md={5}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader title="Usuario" subheader={userForm.id ? "Editar" : "Nuevo"} avatar={<AdminPanelSettingsIcon color="primary" />} />
           <Divider />
@@ -1523,7 +1632,7 @@ export function AdminPage() {
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={7}>
+      <Grid item xs={12}>
         <Card>
           <CardHeader
             title="Usuarios"
@@ -1544,6 +1653,7 @@ export function AdminPage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell />
                   <TableCell>Nombre</TableCell>
                   <TableCell>Email</TableCell>
                   <TableCell>Rol</TableCell>
@@ -1553,24 +1663,53 @@ export function AdminPage() {
               </TableHead>
               <TableBody>
                 {filteredUsers.map((user) => (
-                  <TableRow key={user.id} hover>
-                    <TableCell>{user.full_name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>{user.role_name || "—"}</TableCell>
-                    <TableCell>{user.is_active ? "Activo" : "Inactivo"}</TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => startEditUser(user)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => handleDelete("user", user.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                  <Fragment key={user.id}>
+                    <TableRow hover>
+                      <TableCell>
+                        <Tooltip title={expandedUsers[user.id] ? "Ocultar detalle" : "Ver detalle"}>
+                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedUsers, user.id)}>
+                            {expandedUsers[user.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>{user.full_name}</TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell>{user.role_name || "—"}</TableCell>
+                      <TableCell>{user.is_active ? "Activo" : "Inactivo"}</TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditUser(user)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Eliminar">
+                          <IconButton size="small" color="error" onClick={() => handleDelete("user", user.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ py: 0 }}>
+                        <Collapse in={expandedUsers[user.id]} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 1 }}>
+                            <Stack spacing={0.5}>
+                              <Typography variant="subtitle2">Detalle</Typography>
+                              <Typography variant="body2">
+                                <strong>ID:</strong> {user.id}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Rol:</strong> {user.role_name || "Sin rol"}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Estado:</strong> {user.is_active ? "Activo" : "Inactivo"}
+                              </Typography>
+                            </Stack>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
