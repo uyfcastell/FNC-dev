@@ -46,7 +46,7 @@ async function apiRequest<T>(path: string, options: RequestInit, defaultError: s
 
 export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
 
-export type MermaStage = "production" | "empaque" | "stock" | "transito_post_remito" | "administrativa";
+export type MermaStage = "PRODUCTION" | "EMPAQUE" | "STOCK" | "TRANSITO_POST_REMITO" | "ADMINISTRATIVA";
 export type MermaAction = "discarded" | "reprocessed" | "admin_adjustment" | "none";
 
 export type SKUType = {
@@ -254,7 +254,7 @@ export type Order = {
   items: OrderItem[];
 };
 
-export type RemitoStatus = "pending" | "sent" | "delivered" | "dispatched" | "received" | "cancelled";
+export type RemitoStatus = "pending" | "dispatched" | "received" | "cancelled";
 
 export type RemitoItem = {
   id: number;

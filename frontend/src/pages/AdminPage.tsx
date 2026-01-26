@@ -88,11 +88,11 @@ import {
 
 const RECIPE_PRODUCT_CODES = ["PT", "SEMI", "MP"];
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
-  { value: "production", label: "Producción" },
-  { value: "empaque", label: "Empaque" },
-  { value: "stock", label: "Stock/Depósito" },
-  { value: "transito_post_remito", label: "Tránsito post-remito" },
-  { value: "administrativa", label: "Administrativa" },
+  { value: "PRODUCTION", label: "Producción" },
+  { value: "EMPAQUE", label: "Empaque" },
+  { value: "STOCK", label: "Stock/Depósito" },
+  { value: "TRANSITO_POST_REMITO", label: "Tránsito post-remito" },
+  { value: "ADMINISTRATIVA", label: "Administrativa" },
 ];
 const mermaStageLabel = (stage: MermaStage) => MERMA_STAGE_OPTIONS.find((s) => s.value === stage)?.label ?? stage;
 
@@ -202,13 +202,13 @@ export function AdminPage() {
     is_active: true,
   });
   const [mermaTypeForm, setMermaTypeForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>({
-    stage: "production",
+    stage: "PRODUCTION",
     code: "",
     label: "",
     is_active: true,
   });
   const [mermaCauseForm, setMermaCauseForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>({
-    stage: "production",
+    stage: "PRODUCTION",
     code: "",
     label: "",
     is_active: true,
@@ -687,7 +687,7 @@ export function AdminPage() {
         });
         setSuccess("Tipo de merma creado");
       }
-      setMermaTypeForm({ id: undefined, stage: "production", code: "", label: "", is_active: true });
+      setMermaTypeForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -718,7 +718,7 @@ export function AdminPage() {
         });
         setSuccess("Causa de merma creada");
       }
-      setMermaCauseForm({ id: undefined, stage: "production", code: "", label: "", is_active: true });
+      setMermaCauseForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -1214,7 +1214,7 @@ export function AdminPage() {
                   {mermaTypeForm.id ? "Actualizar" : "Crear"}
                 </Button>
                 {mermaTypeForm.id && (
-                  <Button onClick={() => setMermaTypeForm({ id: undefined, stage: "production", code: "", label: "", is_active: true })}>
+                  <Button onClick={() => setMermaTypeForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true })}>
                     Cancelar
                   </Button>
                 )}
@@ -1318,7 +1318,7 @@ export function AdminPage() {
                   {mermaCauseForm.id ? "Actualizar" : "Crear"}
                 </Button>
                 {mermaCauseForm.id && (
-                  <Button onClick={() => setMermaCauseForm({ id: undefined, stage: "production", code: "", label: "", is_active: true })}>
+                  <Button onClick={() => setMermaCauseForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true })}>
                     Cancelar
                   </Button>
                 )}
