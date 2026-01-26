@@ -11,7 +11,7 @@ def test_list_production_lines(client):
 def test_create_production_line(client):
     payload = {
         "name": "LINEA_TEST",
-        "active": True
+        "is_active": True,
     }
 
     res = client.post("/api/production-lines", json=payload)
@@ -22,4 +22,3 @@ def test_create_production_line(client):
         assert "detail" in data
     else:
         assert res.status_code in (200, 201)
-

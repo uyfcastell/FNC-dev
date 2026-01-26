@@ -73,6 +73,7 @@ class DepositCreate(SQLModel):
     location: str | None = None
     controls_lot: bool = True
     is_store: bool = False
+    is_active: bool = True
 
 
 class DepositUpdate(SQLModel):
@@ -80,6 +81,7 @@ class DepositUpdate(SQLModel):
     location: str | None = None
     controls_lot: bool | None = None
     is_store: bool | None = None
+    is_active: bool | None = None
 
 
 class DepositRead(SQLModel):
@@ -88,6 +90,7 @@ class DepositRead(SQLModel):
     location: str | None = None
     controls_lot: bool
     is_store: bool
+    is_active: bool
 
 
 class RecipeItemPayload(SQLModel):
@@ -105,10 +108,11 @@ class RecipeCreate(SQLModel):
     product_id: int
     name: str
     items: list[RecipeItemPayload]
+    is_active: bool = True
 
 
 class RecipeUpdate(RecipeCreate):
-    pass
+    is_active: bool | None = None
 
 
 class RecipeRead(SQLModel):
@@ -116,6 +120,11 @@ class RecipeRead(SQLModel):
     product_id: int
     name: str
     items: list[RecipeItemRead]
+    is_active: bool
+
+
+class StatusUpdate(SQLModel):
+    is_active: bool
 
 
 class StockMovementCreate(SQLModel):
