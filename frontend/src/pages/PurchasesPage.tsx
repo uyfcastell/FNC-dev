@@ -144,6 +144,12 @@ export function PurchasesPage() {
     window.setTimeout(() => supplierNameRef.current?.focus(), 100);
   }, [supplierForm.id]);
 
+  const buildReceiptParams = () => ({
+    supplier_id: receiptFilters.supplier_id ? Number(receiptFilters.supplier_id) : undefined,
+    date_from: receiptFilters.date_from || undefined,
+    date_to: receiptFilters.date_to || undefined,
+  });
+
   const loadData = async () => {
     try {
       const [supplierList, skuList, depositList, unitList] = await Promise.all([
@@ -156,7 +162,7 @@ export function PurchasesPage() {
       setSkus(skuList);
       setDeposits(depositList);
       setUnits(unitList.map((unit) => unit.code));
-      await loadReceipts();
+      await loadReceipts(buildReceiptParams());
       setError(null);
     } catch (err) {
       console.error(err);
@@ -260,11 +266,7 @@ export function PurchasesPage() {
   const handleReceiptFilter = async () => {
     try {
       setError(null);
-      await loadReceipts({
-        supplier_id: receiptFilters.supplier_id ? Number(receiptFilters.supplier_id) : undefined,
-        date_from: receiptFilters.date_from || undefined,
-        date_to: receiptFilters.date_to || undefined,
-      });
+      await loadReceipts(buildReceiptParams());
     } catch (err) {
       console.error(err);
       setError("No pudimos aplicar los filtros.");
