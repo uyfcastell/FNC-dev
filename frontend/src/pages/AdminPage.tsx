@@ -126,6 +126,9 @@ export function AdminPage() {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [rolePermissions, setRolePermissions] = useState<Record<number, Set<string>>>({});
   const [savingPermissions, setSavingPermissions] = useState(false);
+  const [permissionModuleFilter, setPermissionModuleFilter] = useState("");
+  const [permissionActionFilter, setPermissionActionFilter] = useState("");
+  const [permissionRoleFilter, setPermissionRoleFilter] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -265,6 +268,37 @@ export function AdminPage() {
   const sortedPermissions = useMemo(
     () => [...permissions].sort((a, b) => a.category.localeCompare(b.category) || a.action.localeCompare(b.action)),
     [permissions]
+  );
+
+  const permissionModuleOptions = useMemo(
+    () => Array.from(new Set(permissions.map((permission) => permission.category))).sort((a, b) => a.localeCompare(b)),
+    [permissions]
+  );
+
+  const permissionActionOptions = useMemo(() => {
+    const basePermissions = permissionModuleFilter
+      ? permissions.filter((permission) => permission.category === permissionModuleFilter)
+      : permissions;
+    return Array.from(new Set(basePermissions.map((permission) => permission.action))).sort((a, b) => a.localeCompare(b));
+  }, [permissionModuleFilter, permissions]);
+
+  const filteredPermissions = useMemo(
+    () =>
+      sortedPermissions.filter((permission) => {
+        if (permissionModuleFilter && permission.category !== permissionModuleFilter) {
+          return false;
+        }
+        if (permissionActionFilter && permission.action !== permissionActionFilter) {
+          return false;
+        }
+        return true;
+      }),
+    [permissionActionFilter, permissionModuleFilter, sortedPermissions]
+  );
+
+  const filteredRoles = useMemo(
+    () => (permissionRoleFilter ? sortedRoles.filter((role) => role.id === Number(permissionRoleFilter)) : sortedRoles),
+    [permissionRoleFilter, sortedRoles]
   );
 
   const matchesSearch = (text: string, search: string) => text.toLowerCase().includes(search.trim().toLowerCase());
@@ -2222,42 +2256,108 @@ export function AdminPage() {
           {savingPermissions ? "Guardando..." : "Guardar cambios"}
         </Button>
       </Stack>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Módulo</TableCell>
-            <TableCell>Acción</TableCell>
-            <TableCell>Descripción</TableCell>
-            {sortedRoles.map((role) => (
-              <TableCell key={role.id} align="center">
-                {role.name}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {sortedPermissions.map((permission) => (
-            <TableRow key={permission.key} hover>
-              <TableCell>{permission.category}</TableCell>
-              <TableCell>{permission.action}</TableCell>
-              <TableCell>{permission.label}</TableCell>
-              {sortedRoles.map((role) => {
-                const checked = rolePermissions[role.id]?.has(permission.key) ?? false;
-                return (
-                  <TableCell key={`${role.id}-${permission.key}`} align="center">
-                    <Checkbox
-                      checked={checked}
-                      onChange={() => toggleRolePermission(role.id, permission.key)}
-                      icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
-                      checkedIcon={<CheckBoxIcon fontSize="small" />}
-                    />
-                  </TableCell>
-                );
-              })}
-            </TableRow>
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "stretch", md: "center" }}>
+        <TextField
+          select
+          size="small"
+          label="Módulo"
+          value={permissionModuleFilter}
+          onChange={(event) => {
+            setPermissionModuleFilter(event.target.value);
+            setPermissionActionFilter("");
+          }}
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="">Todos</MenuItem>
+          {permissionModuleOptions.map((module) => (
+            <MenuItem key={module} value={module}>
+              {module}
+            </MenuItem>
           ))}
-        </TableBody>
-      </Table>
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Acción"
+          value={permissionActionFilter}
+          onChange={(event) => setPermissionActionFilter(event.target.value)}
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="">Todas</MenuItem>
+          {permissionActionOptions.map((action) => (
+            <MenuItem key={action} value={action}>
+              {action}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          select
+          size="small"
+          label="Rol"
+          value={permissionRoleFilter}
+          onChange={(event) => setPermissionRoleFilter(event.target.value)}
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="">Todos</MenuItem>
+          {sortedRoles.map((role) => (
+            <MenuItem key={role.id} value={role.id}>
+              {role.name}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Stack>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table
+          size="small"
+          sx={{
+            minWidth: 720,
+            "& th, & td": {
+              px: 1,
+              py: 0.5,
+              fontSize: 12,
+              whiteSpace: "nowrap",
+            },
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell>Módulo</TableCell>
+              <TableCell>Acción</TableCell>
+              <TableCell>Descripción</TableCell>
+              {filteredRoles.map((role) => (
+                <TableCell key={role.id} align="center">
+                  {role.name}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {filteredPermissions.map((permission) => (
+              <TableRow key={permission.key} hover>
+                <TableCell>{permission.category}</TableCell>
+                <TableCell>{permission.action}</TableCell>
+                <TableCell sx={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {permission.label}
+                </TableCell>
+                {filteredRoles.map((role) => {
+                  const checked = rolePermissions[role.id]?.has(permission.key) ?? false;
+                  return (
+                    <TableCell key={`${role.id}-${permission.key}`} align="center">
+                      <Checkbox
+                        checked={checked}
+                        onChange={() => toggleRolePermission(role.id, permission.key)}
+                        icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                        checkedIcon={<CheckBoxIcon fontSize="small" />}
+                        size="small"
+                      />
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
     </Stack>
   );
 
@@ -2286,9 +2386,9 @@ export function AdminPage() {
           <Tab label="Productos" value="productos" icon={<InventoryIcon />} iconPosition="start" />
           <Tab label="Recetas" value="recetas" icon={<RestaurantMenuIcon />} iconPosition="start" />
           <Tab label="Depósitos" value="depositos" icon={<StoreIcon />} iconPosition="start" />
+          <Tab label="Catálogos" value="catalogos" icon={<LibraryAddIcon />} iconPosition="start" />
           <Tab label="Proveedores" value="proveedores" icon={<LocalMallIcon />} iconPosition="start" />
           <Tab label="Usuarios" value="usuarios" icon={<AdminPanelSettingsIcon />} iconPosition="start" />
-          <Tab label="Catálogos" value="catalogos" icon={<LibraryAddIcon />} iconPosition="start" />
           <Tab label="Permisos" value="permisos" icon={<AdminPanelSettingsIcon />} iconPosition="start" />
         </Tabs>
         <Divider />
@@ -2296,9 +2396,9 @@ export function AdminPage() {
           {tab === "productos" && renderProductos()}
           {tab === "recetas" && renderRecetas()}
           {tab === "depositos" && renderDepositos()}
+          {tab === "catalogos" && renderCatalogos()}
           {tab === "proveedores" && renderProveedores()}
           {tab === "usuarios" && renderUsuarios()}
-          {tab === "catalogos" && renderCatalogos()}
           {tab === "permisos" && renderPermisos()}
         </CardContent>
       </Card>
