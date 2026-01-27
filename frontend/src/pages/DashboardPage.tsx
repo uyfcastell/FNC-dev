@@ -35,9 +35,9 @@ export function DashboardPage() {
         </Grid>
         <Grid item xs={12} md={6} lg={4}>
           <QuickLinkCard
-            title="Pedidos"
-            description="Ingreso rápido de pedidos de venta"
-            to="/pedidos/ingreso"
+            title="Mermas"
+            description="Registrar pérdidas y motivos de merma"
+            to="/mermas"
           />
         </Grid>
         <Grid item xs={12} md={6} lg={4}>
@@ -45,6 +45,13 @@ export function DashboardPage() {
             title="Envíos"
             description="Planificar despachos y remitos"
             to="/envios"
+          />
+        </Grid>
+        <Grid item xs={12} md={6} lg={4}>
+          <QuickLinkCard
+            title="Remitos"
+            description="Gestionar remitos de salida y recepción"
+            to="/remitos"
           />
         </Grid>
         <Grid item xs={12} md={6} lg={4}>
