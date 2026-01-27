@@ -5,6 +5,7 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LogoutIcon from "@mui/icons-material/Logout";
 import ManufacturingIcon from "@mui/icons-material/PrecisionManufacturing";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import LocalMallIcon from "@mui/icons-material/LocalMall";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MenuIcon from "@mui/icons-material/Menu";
@@ -35,6 +36,7 @@ const defaultNavItems: NavItem[] = [
   { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos" },
   { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios" },
   { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos" },
+  { label: "Compras", icon: <LocalMallIcon />, to: "/compras" },
   { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },
   { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion" },
   { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria" },

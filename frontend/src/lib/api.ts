@@ -139,6 +139,63 @@ export type StockAlertReport = {
   items: StockAlertRow[];
 };
 
+export type Supplier = {
+  id: number;
+  name: string;
+  tax_id?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  is_active: boolean;
+};
+
+export type SupplierPayload = {
+  name: string;
+  tax_id?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  is_active?: boolean;
+};
+
+export type PurchaseReceiptItemPayload = {
+  sku_id: number;
+  quantity: number;
+  unit: UnitOfMeasure;
+  lot_code?: string | null;
+  expiry_date?: string | null;
+  unit_cost?: number | null;
+};
+
+export type PurchaseReceiptItem = PurchaseReceiptItemPayload & {
+  id: number;
+  sku_code: string;
+  sku_name: string;
+  stock_movement_id?: number | null;
+};
+
+export type PurchaseReceipt = {
+  id: number;
+  supplier_id: number;
+  supplier_name?: string | null;
+  deposit_id: number;
+  deposit_name?: string | null;
+  received_at: string;
+  document_number?: string | null;
+  notes?: string | null;
+  created_at: string;
+  created_by_user_id?: number | null;
+  created_by_name?: string | null;
+  items: PurchaseReceiptItem[];
+};
+
+export type PurchaseReceiptPayload = {
+  supplier_id: number;
+  deposit_id: number;
+  received_at?: string | null;
+  document_number?: string | null;
+  notes?: string | null;
+  items: PurchaseReceiptItemPayload[];
+};
+
 export type StockMovement = {
   id: number;
   sku_id: number;
@@ -158,6 +215,7 @@ export type StockMovement = {
   production_lot_id?: number | null;
   production_line_id?: number | null;
   production_line_name?: string | null;
+  expiry_date?: string | null;
   movement_date: string;
   created_at: string;
   current_balance?: number | null;
@@ -183,8 +241,32 @@ export type StockMovementPayload = {
   reference?: string;
   lot_code?: string;
   production_line_id?: number | null;
+  expiry_date?: string | null;
   movement_date?: string;
   created_by_user_id?: number | null;
+};
+
+export type ExpiryStatus = "green" | "yellow" | "red" | "none";
+
+export type ExpiryReportRow = {
+  lot_id?: number | null;
+  lot_code?: string | null;
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  deposit_id: number;
+  deposit_name: string;
+  remaining_quantity: number;
+  unit: UnitOfMeasure;
+  produced_at: string;
+  expiry_date?: string | null;
+  days_to_expiry?: number | null;
+  status: ExpiryStatus;
+};
+
+export type ExpiryReport = {
+  total: number;
+  items: ExpiryReportRow[];
 };
 
 export type Role = {
@@ -821,6 +903,82 @@ export async function fetchStockAlertReport(params?: {
     `/reports/stock-alerts${query.toString() ? `?${query.toString()}` : ""}`,
     {},
     "No se pudo obtener el reporte de alertas de stock",
+  );
+}
+
+export async function fetchStockExpirations(params?: {
+  sku_id?: number;
+  deposit_id?: number;
+  status?: ExpiryStatus[];
+  expiry_from?: string;
+  expiry_to?: string;
+  include_no_expiry?: boolean;
+}): Promise<ExpiryReport> {
+  const query = new URLSearchParams();
+  if (params?.sku_id) {
+    query.append("sku_id", params.sku_id.toString());
+  }
+  if (params?.deposit_id) {
+    query.append("deposit_id", params.deposit_id.toString());
+  }
+  if (params?.status?.length) {
+    params.status.forEach((value) => query.append("status", value));
+  }
+  if (params?.expiry_from) {
+    query.append("expiry_from", params.expiry_from);
+  }
+  if (params?.expiry_to) {
+    query.append("expiry_to", params.expiry_to);
+  }
+  if (params?.include_no_expiry === false) {
+    query.append("include_no_expiry", "false");
+  }
+  return apiRequest(
+    `/reports/stock-expirations${query.toString() ? `?${query.toString()}` : ""}`,
+    {},
+    "No se pudo obtener el reporte de vencimientos",
+  );
+}
+
+export async function fetchSuppliers(params?: { include_inactive?: boolean }): Promise<Supplier[]> {
+  const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  return apiRequest(`/suppliers${query.toString() ? `?${query.toString()}` : ""}`, {}, "No se pudieron obtener los proveedores");
+}
+
+export async function createSupplier(payload: SupplierPayload): Promise<Supplier> {
+  return apiRequest("/suppliers", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el proveedor");
+}
+
+export async function fetchPurchaseReceipts(params?: {
+  supplier_id?: number;
+  date_from?: string;
+  date_to?: string;
+}): Promise<PurchaseReceipt[]> {
+  const query = new URLSearchParams();
+  if (params?.supplier_id) {
+    query.append("supplier_id", params.supplier_id.toString());
+  }
+  if (params?.date_from) {
+    query.append("date_from", params.date_from);
+  }
+  if (params?.date_to) {
+    query.append("date_to", params.date_to);
+  }
+  return apiRequest(
+    `/purchases/receipts${query.toString() ? `?${query.toString()}` : ""}`,
+    {},
+    "No se pudieron obtener los ingresos de compra",
+  );
+}
+
+export async function createPurchaseReceipt(payload: PurchaseReceiptPayload): Promise<PurchaseReceipt> {
+  return apiRequest(
+    "/purchases/receipts",
+    { method: "POST", body: JSON.stringify(payload) },
+    "No se pudo registrar el ingreso de compra",
   );
 }
 
