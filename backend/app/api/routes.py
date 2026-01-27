@@ -1178,6 +1178,8 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    if payload.is_active is False and _get_user_role_name(session, user) == "ADMIN":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede desactivar el usuario admin")
 
     if payload.email and payload.email != user.email:
         duplicate = session.exec(select(User).where(User.email == payload.email)).first()
@@ -1213,6 +1215,8 @@ def delete_user(user_id: int, session: Session = Depends(get_session)) -> None:
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    if _get_user_role_name(session, user) == "ADMIN":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar el usuario admin")
     session.delete(user)
     session.commit()
 

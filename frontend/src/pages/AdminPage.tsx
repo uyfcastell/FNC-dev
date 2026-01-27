@@ -473,6 +473,11 @@ export function AdminPage() {
   const handleUserSubmit = async (event: FormEvent) => {
     event.preventDefault();
     try {
+      const editingUser = userForm.id ? users.find((entry) => entry.id === userForm.id) : undefined;
+      if (editingUser && isAdminUser(editingUser) && !userForm.is_active) {
+        setError("No se puede desactivar el usuario admin.");
+        return;
+      }
       const payload = {
         email: userForm.email,
         full_name: userForm.full_name,
@@ -565,6 +570,7 @@ export function AdminPage() {
   };
 
   const toggleSupplierStatus = async (supplier: Supplier) => {
+    if (supplier.is_active && !window.confirm("¿Confirmas desactivar el proveedor?")) return;
     try {
       await updateSupplier(supplier.id, { is_active: !supplier.is_active });
       setSuccess(`Proveedor ${supplier.is_active ? "desactivado" : "activado"}`);
@@ -625,6 +631,8 @@ export function AdminPage() {
   };
   const toggleExpanded = (setter: Dispatch<SetStateAction<Record<number, boolean>>>, id: number) =>
     setter((prev) => ({ ...prev, [id]: !prev[id] }));
+  const isAdminUser = (user: User | undefined) => (user?.role_name ?? "").toUpperCase() === "ADMIN";
+  const confirmInactivate = () => window.confirm("¿Confirmas inactivar el registro?");
 
   const recipeItemUnit = (componentId: string) => {
     if (!componentId) return "";
@@ -637,7 +645,14 @@ export function AdminPage() {
   const handleDelete = async (type: "sku" | "deposit" | "recipe" | "user", id: number) => {
     if (!window.confirm("¿Eliminar el registro?")) return;
     try {
-      if (type === "user") await deleteUser(id);
+      if (type === "user") {
+        const user = users.find((entry) => entry.id === id);
+        if (isAdminUser(user)) {
+          setError("No se puede eliminar el usuario admin.");
+          return;
+        }
+        await deleteUser(id);
+      }
       setSuccess("Registro eliminado");
       await loadData();
     } catch (err) {
@@ -657,6 +672,7 @@ export function AdminPage() {
   };
 
   const handleStatusChange = async (type: "sku" | "deposit" | "recipe", id: number, isActive: boolean) => {
+    if (!isActive && !confirmInactivate()) return;
     try {
       if (type === "sku") await updateSkuStatus(id, isActive);
       if (type === "deposit") await updateDepositStatus(id, isActive);
@@ -1953,66 +1969,76 @@ export function AdminPage() {
     </Grid>
   );
 
-  const renderUsuarios = () => (
-    <Grid container spacing={2} alignItems="stretch">
-      <Grid item xs={12}>
-        <Card>
-          <CardHeader title="Usuario" subheader={userForm.id ? "Editar" : "Nuevo"} avatar={<AdminPanelSettingsIcon color="primary" />} />
-          <Divider />
-          <CardContent>
-            <Stack component="form" spacing={2} onSubmit={handleUserSubmit}>
-              <TextField
-                label="Email"
-                required
-                value={userForm.email}
-                onChange={(e) => setUserForm((prev) => ({ ...prev, email: e.target.value }))}
-                inputRef={userEmailRef}
-              />
-              <TextField label="Nombre" required value={userForm.full_name} onChange={(e) => setUserForm((prev) => ({ ...prev, full_name: e.target.value }))} />
-              <TextField
-                label={userForm.id ? "Nueva contraseña (opcional)" : "Contraseña"}
-                type="password"
-                required={!userForm.id}
-                value={userForm.password}
-                onChange={(e) => setUserForm((prev) => ({ ...prev, password: e.target.value }))}
-              />
-              <TextField
-                select
-                label="Rol"
-                value={userForm.role_id}
-                onChange={(e) => setUserForm((prev) => ({ ...prev, role_id: e.target.value }))}
-                helperText="Opcional"
-              >
-                <MenuItem value="">Sin rol</MenuItem>
-                {roles.map((role) => (
-                  <MenuItem key={role.id} value={role.id}>
-                    {role.name}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                label="Estado"
-                value={userForm.is_active ? "activo" : "inactivo"}
-                onChange={(e) => setUserForm((prev) => ({ ...prev, is_active: e.target.value === "activo" }))}
-              >
-                <MenuItem value="activo">Activo</MenuItem>
-                <MenuItem value="inactivo">Inactivo</MenuItem>
-              </TextField>
-              <Stack direction="row" spacing={1}>
-                <Button type="submit" variant="contained">
-                  {userForm.id ? "Actualizar" : "Crear"}
-                </Button>
-                {userForm.id && (
-                  <Button onClick={() => setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true })}>
-                    Cancelar
+  const renderUsuarios = () => {
+    const editingUser = userForm.id ? users.find((entry) => entry.id === userForm.id) : undefined;
+    const editingAdminUser = isAdminUser(editingUser);
+    return (
+      <Grid container spacing={2} alignItems="stretch">
+        <Grid item xs={12}>
+          <Card>
+            <CardHeader title="Usuario" subheader={userForm.id ? "Editar" : "Nuevo"} avatar={<AdminPanelSettingsIcon color="primary" />} />
+            <Divider />
+            <CardContent>
+              <Stack component="form" spacing={2} onSubmit={handleUserSubmit}>
+                <TextField
+                  label="Email"
+                  required
+                  value={userForm.email}
+                  onChange={(e) => setUserForm((prev) => ({ ...prev, email: e.target.value }))}
+                  inputRef={userEmailRef}
+                />
+                <TextField
+                  label="Nombre"
+                  required
+                  value={userForm.full_name}
+                  onChange={(e) => setUserForm((prev) => ({ ...prev, full_name: e.target.value }))}
+                />
+                <TextField
+                  label={userForm.id ? "Nueva contraseña (opcional)" : "Contraseña"}
+                  type="password"
+                  required={!userForm.id}
+                  value={userForm.password}
+                  onChange={(e) => setUserForm((prev) => ({ ...prev, password: e.target.value }))}
+                />
+                <TextField
+                  select
+                  label="Rol"
+                  value={userForm.role_id}
+                  onChange={(e) => setUserForm((prev) => ({ ...prev, role_id: e.target.value }))}
+                  helperText="Opcional"
+                >
+                  <MenuItem value="">Sin rol</MenuItem>
+                  {roles.map((role) => (
+                    <MenuItem key={role.id} value={role.id}>
+                      {role.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Estado"
+                  value={userForm.is_active ? "activo" : "inactivo"}
+                  onChange={(e) => setUserForm((prev) => ({ ...prev, is_active: e.target.value === "activo" }))}
+                  disabled={editingAdminUser}
+                  helperText={editingAdminUser ? "El usuario admin no puede desactivarse." : undefined}
+                >
+                  <MenuItem value="activo">Activo</MenuItem>
+                  <MenuItem value="inactivo">Inactivo</MenuItem>
+                </TextField>
+                <Stack direction="row" spacing={1}>
+                  <Button type="submit" variant="contained">
+                    {userForm.id ? "Actualizar" : "Crear"}
                   </Button>
-                )}
+                  {userForm.id && (
+                    <Button onClick={() => setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true })}>
+                      Cancelar
+                    </Button>
+                  )}
+                </Stack>
               </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
       <Grid item xs={12}>
         <Card>
           <CardHeader
@@ -2043,33 +2069,37 @@ export function AdminPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredUsers.map((user) => (
-                  <Fragment key={user.id}>
-                    <TableRow hover>
-                      <TableCell>
-                        <Tooltip title={expandedUsers[user.id] ? "Ocultar detalle" : "Ver detalle"}>
-                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedUsers, user.id)}>
-                            {expandedUsers[user.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell>{user.full_name}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>{user.role_name || "—"}</TableCell>
-                      <TableCell>{user.is_active ? "Activo" : "Inactivo"}</TableCell>
-                      <TableCell align="right">
-                        <Tooltip title="Editar">
-                          <IconButton size="small" onClick={() => startEditUser(user)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Eliminar">
-                          <IconButton size="small" color="error" onClick={() => handleDelete("user", user.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
+                {filteredUsers.map((user) => {
+                  const isAdmin = isAdminUser(user);
+                  return (
+                    <Fragment key={user.id}>
+                      <TableRow hover>
+                        <TableCell>
+                          <Tooltip title={expandedUsers[user.id] ? "Ocultar detalle" : "Ver detalle"}>
+                            <IconButton size="small" onClick={() => toggleExpanded(setExpandedUsers, user.id)}>
+                              {expandedUsers[user.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>{user.full_name}</TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{user.role_name || "—"}</TableCell>
+                        <TableCell>{user.is_active ? "Activo" : "Inactivo"}</TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Editar">
+                            <IconButton size="small" onClick={() => startEditUser(user)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title={isAdmin ? "El usuario admin no se puede eliminar" : "Eliminar"}>
+                            <span>
+                              <IconButton size="small" color="error" disabled={isAdmin} onClick={() => handleDelete("user", user.id)}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
                     <TableRow>
                       <TableCell colSpan={6} sx={{ py: 0 }}>
                         <Collapse in={expandedUsers[user.id]} timeout="auto" unmountOnExit>
@@ -2090,15 +2120,17 @@ export function AdminPage() {
                         </Collapse>
                       </TableCell>
                     </TableRow>
-                  </Fragment>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       </Grid>
     </Grid>
-  );
+    );
+  };
 
   return (
     <Stack spacing={2}>
