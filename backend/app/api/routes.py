@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
-from sqlalchemy import func, nulls_last
+from sqlalchemy import and_, func, nulls_last, or_
 from sqlmodel import Session, select
 
 from ..core.config import get_settings
@@ -4374,11 +4374,18 @@ def stock_expirations_report(
         statement = statement.where(ProductionLot.sku_id == sku_id)
     if deposit_id:
         statement = statement.where(ProductionLot.deposit_id == deposit_id)
+    expiry_predicates = []
     if expiry_from:
-        statement = statement.where(ProductionLot.expiry_date >= expiry_from)
+        expiry_predicates.append(ProductionLot.expiry_date >= expiry_from)
     if expiry_to:
-        statement = statement.where(ProductionLot.expiry_date <= expiry_to)
-    if not include_no_expiry:
+        expiry_predicates.append(ProductionLot.expiry_date <= expiry_to)
+    if expiry_predicates:
+        expiry_clause = and_(*expiry_predicates)
+        if include_no_expiry:
+            statement = statement.where(or_(ProductionLot.expiry_date.is_(None), expiry_clause))
+        else:
+            statement = statement.where(expiry_clause)
+    elif not include_no_expiry:
         statement = statement.where(ProductionLot.expiry_date.is_not(None))
 
     lots = session.exec(
