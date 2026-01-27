@@ -341,9 +341,8 @@ export function PurchasesPage() {
         </Alert>
       )}
       {tab === "compras" && (
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={8}>
-            <Card>
+        <Stack spacing={2}>
+          <Card>
               <CardHeader title="Ingreso de compra" subheader="Proveedor, depósito y líneas" />
               <Divider />
               <CardContent>
@@ -498,69 +497,61 @@ export function PurchasesPage() {
                 </Stack>
               </CardContent>
             </Card>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Stack spacing={2}>
-              <Card>
-                <CardHeader title="Filtros" subheader="Acota el historial de ingresos" />
-                <Divider />
-                <CardContent>
-                  <Stack spacing={2}>
-                    <TextField
-                      select
-                      label="Proveedor"
-                      value={receiptFilters.supplier_id}
-                      onChange={(e) => setReceiptFilters((prev) => ({ ...prev, supplier_id: e.target.value }))}
-                    >
-                      <MenuItem value="">Todos</MenuItem>
-                      {suppliers.map((supplier) => (
-                        <MenuItem key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                    <TextField
-                      label="Desde"
-                      type="date"
-                      value={receiptFilters.date_from}
-                      onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_from: e.target.value }))}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                    <TextField
-                      label="Hasta"
-                      type="date"
-                      value={receiptFilters.date_to}
-                      onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_to: e.target.value }))}
-                      InputLabelProps={{ shrink: true }}
-                    />
-                    <Stack direction="row" spacing={1}>
-                      <Button variant="contained" onClick={handleReceiptFilter}>
-                        Aplicar
-                      </Button>
-                      <Button variant="text" onClick={handleResetFilters}>
-                        Limpiar
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader title="Totales" subheader="Resumen del período filtrado" />
-                <Divider />
-                <CardContent>
-                  <Stack spacing={1}>
-                    <Typography variant="body2">Ingresos: {receipts.length}</Typography>
-                    <Typography variant="body2">Ítems totales: {receiptTotals.totalItems}</Typography>
-                    <Typography variant="body2">
-                      Costo estimado: ${receiptTotals.totalCost.toFixed(2)}
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Stack>
-          </Grid>
-          <Grid item xs={12}>
-            <Card>
+          <Card>
+            <CardHeader title="Filtros" subheader="Acota el historial de ingresos" />
+            <Divider />
+            <CardContent>
+              <Stack spacing={2}>
+                <TextField
+                  select
+                  label="Proveedor"
+                  value={receiptFilters.supplier_id}
+                  onChange={(e) => setReceiptFilters((prev) => ({ ...prev, supplier_id: e.target.value }))}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {suppliers.map((supplier) => (
+                    <MenuItem key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Desde"
+                  type="date"
+                  value={receiptFilters.date_from}
+                  onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_from: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  label="Hasta"
+                  type="date"
+                  value={receiptFilters.date_to}
+                  onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_to: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <Stack direction="row" spacing={1}>
+                  <Button variant="contained" onClick={handleReceiptFilter}>
+                    Aplicar
+                  </Button>
+                  <Button variant="text" onClick={handleResetFilters}>
+                    Limpiar
+                  </Button>
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader title="Totales" subheader="Resumen del período filtrado" />
+            <Divider />
+            <CardContent>
+              <Stack spacing={1}>
+                <Typography variant="body2">Ingresos: {receipts.length}</Typography>
+                <Typography variant="body2">Ítems totales: {receiptTotals.totalItems}</Typography>
+                <Typography variant="body2">Costo estimado: ${receiptTotals.totalCost.toFixed(2)}</Typography>
+              </Stack>
+            </CardContent>
+          </Card>
+          <Card>
               <CardHeader title="Ingresos recientes" subheader="Últimos ingresos registrados" />
               <Divider />
               <CardContent>
@@ -646,14 +637,12 @@ export function PurchasesPage() {
                   </TableBody>
                 </Table>
               </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+          </Card>
+        </Stack>
       )}
       {tab === "proveedores" && (
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={5}>
-            <Card ref={supplierFormRef}>
+        <Stack spacing={2}>
+          <Card ref={supplierFormRef}>
               <CardHeader
                 title={supplierForm.id ? `Editar proveedor #${supplierForm.id}` : "Alta de proveedor"}
                 subheader="Datos básicos de contacto"
@@ -712,9 +701,7 @@ export function PurchasesPage() {
                 </Stack>
               </CardContent>
             </Card>
-          </Grid>
-          <Grid item xs={12} md={7}>
-            <Card>
+          <Card>
               <CardHeader title="Listado de proveedores" subheader="Gestiona altas, modificaciones y estado" />
               <Divider />
               <CardContent>
@@ -781,51 +768,50 @@ export function PurchasesPage() {
                 </Table>
               </CardContent>
             </Card>
-            <Card sx={{ mt: 2 }}>
-              <CardHeader
-                title="Historial de compras"
-                subheader={
-                  selectedSupplierId
-                    ? `Ingresos registrados para proveedor #${selectedSupplierId}`
-                    : "Selecciona un proveedor para ver el historial"
-                }
-              />
-              <Divider />
-              <CardContent>
-                {supplierHistoryLoading && <Typography variant="body2">Cargando historial...</Typography>}
-                {!supplierHistoryLoading && (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Fecha</TableCell>
-                        <TableCell>Depósito</TableCell>
-                        <TableCell>Documento</TableCell>
-                        <TableCell align="right">Ítems</TableCell>
+          <Card>
+            <CardHeader
+              title="Historial de compras"
+              subheader={
+                selectedSupplierId
+                  ? `Ingresos registrados para proveedor #${selectedSupplierId}`
+                  : "Selecciona un proveedor para ver el historial"
+              }
+            />
+            <Divider />
+            <CardContent>
+              {supplierHistoryLoading && <Typography variant="body2">Cargando historial...</Typography>}
+              {!supplierHistoryLoading && (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Fecha</TableCell>
+                      <TableCell>Depósito</TableCell>
+                      <TableCell>Documento</TableCell>
+                      <TableCell align="right">Ítems</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {supplierHistory.map((receipt) => (
+                      <TableRow key={receipt.id}>
+                        <TableCell>{receipt.received_at}</TableCell>
+                        <TableCell>{receipt.deposit_name ?? receipt.deposit_id}</TableCell>
+                        <TableCell>{receipt.document_number ?? "—"}</TableCell>
+                        <TableCell align="right">{receipt.items.length}</TableCell>
                       </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {supplierHistory.map((receipt) => (
-                        <TableRow key={receipt.id}>
-                          <TableCell>{receipt.received_at}</TableCell>
-                          <TableCell>{receipt.deposit_name ?? receipt.deposit_id}</TableCell>
-                          <TableCell>{receipt.document_number ?? "—"}</TableCell>
-                          <TableCell align="right">{receipt.items.length}</TableCell>
-                        </TableRow>
-                      ))}
-                      {supplierHistory.length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={4} align="center">
-                            Sin ingresos registrados para este proveedor.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+                    ))}
+                    {supplierHistory.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} align="center">
+                          Sin ingresos registrados para este proveedor.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </Stack>
       )}
     </Stack>
   );
