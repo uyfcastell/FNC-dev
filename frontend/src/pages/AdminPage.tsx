@@ -1615,152 +1615,148 @@ export function AdminPage() {
   );
 
   const renderProveedores = () => (
-    <Grid container spacing={2}>
-      <Grid item xs={12} md={4}>
-        <Card>
-          <CardHeader title={supplierForm.id ? `Editar proveedor #${supplierForm.id}` : "Nuevo proveedor"} avatar={<LocalMallIcon color="primary" />} />
-          <Divider />
-          <CardContent>
-            <Stack component="form" spacing={2} onSubmit={handleSupplierSubmit}>
-              <TextField
-                required
-                label="Nombre"
-                value={supplierForm.name}
-                inputRef={supplierNameRef}
-                onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))}
-              />
-              <TextField
-                label="CUIT / Tax ID"
-                value={supplierForm.tax_id}
-                onChange={(e) => setSupplierForm((prev) => ({ ...prev, tax_id: e.target.value }))}
-              />
-              <TextField
-                label="Email"
-                value={supplierForm.email}
-                onChange={(e) => setSupplierForm((prev) => ({ ...prev, email: e.target.value }))}
-              />
-              <TextField
-                label="Teléfono"
-                value={supplierForm.phone}
-                onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))}
-              />
-              <TextField
-                select
-                label="Estado"
-                value={supplierForm.is_active ? "activo" : "inactivo"}
-                onChange={(e) => setSupplierForm((prev) => ({ ...prev, is_active: e.target.value === "activo" }))}
-              >
-                <MenuItem value="activo">Activo</MenuItem>
-                <MenuItem value="inactivo">Inactivo</MenuItem>
-              </TextField>
-              <Stack direction="row" spacing={1}>
-                <Button type="submit" variant="contained">
-                  {supplierForm.id ? "Guardar cambios" : "Crear proveedor"}
+    <Stack spacing={2}>
+      <Card>
+        <CardHeader title={supplierForm.id ? `Editar proveedor #${supplierForm.id}` : "Nuevo proveedor"} avatar={<LocalMallIcon color="primary" />} />
+        <Divider />
+        <CardContent>
+          <Stack component="form" spacing={2} onSubmit={handleSupplierSubmit}>
+            <TextField
+              required
+              label="Nombre"
+              value={supplierForm.name}
+              inputRef={supplierNameRef}
+              onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
+            <TextField
+              label="CUIT / Tax ID"
+              value={supplierForm.tax_id}
+              onChange={(e) => setSupplierForm((prev) => ({ ...prev, tax_id: e.target.value }))}
+            />
+            <TextField
+              label="Email"
+              value={supplierForm.email}
+              onChange={(e) => setSupplierForm((prev) => ({ ...prev, email: e.target.value }))}
+            />
+            <TextField
+              label="Teléfono"
+              value={supplierForm.phone}
+              onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))}
+            />
+            <TextField
+              select
+              label="Estado"
+              value={supplierForm.is_active ? "activo" : "inactivo"}
+              onChange={(e) => setSupplierForm((prev) => ({ ...prev, is_active: e.target.value === "activo" }))}
+            >
+              <MenuItem value="activo">Activo</MenuItem>
+              <MenuItem value="inactivo">Inactivo</MenuItem>
+            </TextField>
+            <Stack direction="row" spacing={1}>
+              <Button type="submit" variant="contained">
+                {supplierForm.id ? "Guardar cambios" : "Crear proveedor"}
+              </Button>
+              {supplierForm.id && (
+                <Button
+                  onClick={() => setSupplierForm({ id: undefined, name: "", tax_id: "", email: "", phone: "", is_active: true })}
+                >
+                  Cancelar edición
                 </Button>
-                {supplierForm.id && (
-                  <Button
-                    onClick={() => setSupplierForm({ id: undefined, name: "", tax_id: "", email: "", phone: "", is_active: true })}
-                  >
-                    Cancelar edición
-                  </Button>
-                )}
-              </Stack>
+              )}
             </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid item xs={12} md={8}>
-        <Card>
-          <CardHeader title="Proveedores" subheader="Listado y edición" action={<Chip label={`${filteredSuppliers.length} de ${suppliers.length}`} />} />
-          <Divider />
-          <CardContent>
-            <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
-              <TextField
-                label="Buscar por nombre, CUIT o email"
-                value={supplierSearch}
-                onChange={(e) => setSupplierSearch(e.target.value)}
-                size="small"
-                sx={{ maxWidth: 320 }}
-              />
-              <FormControlLabel
-                control={<Switch checked={showInactiveSuppliers} onChange={(e) => setShowInactiveSuppliers(e.target.checked)} />}
-                label="Mostrar inactivos"
-              />
-            </Stack>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell />
-                  <TableCell>Proveedor</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Teléfono</TableCell>
-                  <TableCell>Estado</TableCell>
-                  <TableCell align="right">Acciones</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredSuppliers.map((supplier) => (
-                  <Fragment key={supplier.id}>
-                    <TableRow hover>
-                      <TableCell>
-                        <Tooltip title={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}>
-                          <IconButton
-                            size="small"
-                            onClick={() =>
-                              setExpandedSuppliers((prev) => ({ ...prev, [supplier.id]: !prev[supplier.id] }))
-                            }
-                          >
-                            {expandedSuppliers[supplier.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell>{supplier.name}</TableCell>
-                      <TableCell>{supplier.email ?? "—"}</TableCell>
-                      <TableCell>{supplier.phone ?? "—"}</TableCell>
-                      <TableCell>{supplier.is_active ? "Activo" : "Inactivo"}</TableCell>
-                      <TableCell align="right">
-                        <Tooltip title="Editar">
-                          <IconButton size="small" onClick={() => startEditSupplier(supplier)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Button size="small" onClick={() => toggleSupplierStatus(supplier)}>
-                          {supplier.is_active ? "Desactivar" : "Activar"}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={6} sx={{ py: 0 }}>
-                        <Collapse in={expandedSuppliers[supplier.id]} timeout="auto" unmountOnExit>
-                          <Box sx={{ py: 1 }}>
-                            <Stack spacing={0.5}>
-                              <Typography variant="subtitle2">Detalle</Typography>
-                              <Typography variant="body2">
-                                <strong>ID:</strong> {supplier.id}
-                              </Typography>
-                              <Typography variant="body2">
-                                <strong>CUIT / Tax ID:</strong> {supplier.tax_id ?? "—"}
-                              </Typography>
-                            </Stack>
-                          </Box>
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
-                  </Fragment>
-                ))}
-                {filteredSuppliers.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      No hay proveedores para mostrar.
+          </Stack>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader title="Proveedores" subheader="Listado y edición" action={<Chip label={`${filteredSuppliers.length} de ${suppliers.length}`} />} />
+        <Divider />
+        <CardContent>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
+            <TextField
+              label="Buscar por nombre, CUIT o email"
+              value={supplierSearch}
+              onChange={(e) => setSupplierSearch(e.target.value)}
+              size="small"
+              sx={{ maxWidth: 320 }}
+            />
+            <FormControlLabel
+              control={<Switch checked={showInactiveSuppliers} onChange={(e) => setShowInactiveSuppliers(e.target.checked)} />}
+              label="Mostrar inactivos"
+            />
+          </Stack>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell />
+                <TableCell>Proveedor</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Teléfono</TableCell>
+                <TableCell>Estado</TableCell>
+                <TableCell align="right">Acciones</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredSuppliers.map((supplier) => (
+                <Fragment key={supplier.id}>
+                  <TableRow hover>
+                    <TableCell>
+                      <Tooltip title={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}>
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setExpandedSuppliers((prev) => ({ ...prev, [supplier.id]: !prev[supplier.id] }))
+                          }
+                        >
+                          {expandedSuppliers[supplier.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell>{supplier.name}</TableCell>
+                    <TableCell>{supplier.email ?? "—"}</TableCell>
+                    <TableCell>{supplier.phone ?? "—"}</TableCell>
+                    <TableCell>{supplier.is_active ? "Activo" : "Inactivo"}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Editar">
+                        <IconButton size="small" onClick={() => startEditSupplier(supplier)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Button size="small" onClick={() => toggleSupplierStatus(supplier)}>
+                        {supplier.is_active ? "Desactivar" : "Activar"}
+                      </Button>
                     </TableCell>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
+                  <TableRow>
+                    <TableCell colSpan={6} sx={{ py: 0 }}>
+                      <Collapse in={expandedSuppliers[supplier.id]} timeout="auto" unmountOnExit>
+                        <Box sx={{ py: 1 }}>
+                          <Stack spacing={0.5}>
+                            <Typography variant="subtitle2">Detalle</Typography>
+                            <Typography variant="body2">
+                              <strong>ID:</strong> {supplier.id}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>CUIT / Tax ID:</strong> {supplier.tax_id ?? "—"}
+                            </Typography>
+                          </Stack>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </Fragment>
+              ))}
+              {filteredSuppliers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} align="center">
+                    No hay proveedores para mostrar.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 
   const renderRecetas = () => (
