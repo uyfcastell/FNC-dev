@@ -62,6 +62,7 @@ class ProductionLot(TimestampedModel, table=True):
     produced_quantity: float = Field(gt=0)
     remaining_quantity: float = Field(default=0)
     produced_at: date = Field(default_factory=date.today)
+    expiry_date: date | None = None
     is_blocked: bool = Field(default=False)
     notes: str | None = Field(default=None, max_length=255)
 

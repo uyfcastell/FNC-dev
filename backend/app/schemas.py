@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from enum import Enum
 
 from sqlmodel import Field, SQLModel
 
@@ -140,6 +141,7 @@ class StockMovementCreate(SQLModel):
     lot_code: str | None = None
     production_lot_id: int | None = None
     production_line_id: int | None = None
+    expiry_date: date | None = None
     movement_date: date | None = None
     created_by_user_id: int | None = None
 
@@ -152,6 +154,7 @@ class ProductionLotBase(SQLModel):
     remaining_quantity: float
     lot_code: str
     produced_at: date
+    expiry_date: date | None = None
     is_blocked: bool
     notes: str | None = None
 
@@ -218,6 +221,7 @@ class StockMovementRead(SQLModel):
     production_lot_id: int | None = None
     production_line_id: int | None = None
     production_line_name: str | None = None
+    expiry_date: date | None = None
     movement_date: date
     created_at: datetime
     current_balance: float | None = None
@@ -270,6 +274,98 @@ class StockReportRead(SQLModel):
     totals_by_tag: list[StockSummaryRow]
     totals_by_deposit: list[StockSummaryRow]
     movement_totals: list[MovementSummary]
+
+
+class SupplierBase(SQLModel):
+    name: str
+    tax_id: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    is_active: bool = True
+
+
+class SupplierCreate(SupplierBase):
+    pass
+
+
+class SupplierUpdate(SQLModel):
+    name: str | None = None
+    tax_id: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    is_active: bool | None = None
+
+
+class SupplierRead(SupplierBase):
+    id: int
+
+
+class PurchaseReceiptItemPayload(SQLModel):
+    sku_id: int
+    quantity: float
+    unit: UnitOfMeasure
+    lot_code: str | None = None
+    expiry_date: date | None = None
+    unit_cost: float | None = None
+
+
+class PurchaseReceiptCreate(SQLModel):
+    supplier_id: int
+    deposit_id: int
+    received_at: date | None = None
+    document_number: str | None = None
+    notes: str | None = None
+    items: list[PurchaseReceiptItemPayload]
+
+
+class PurchaseReceiptItemRead(PurchaseReceiptItemPayload):
+    id: int
+    sku_code: str
+    sku_name: str
+    stock_movement_id: int | None = None
+
+
+class PurchaseReceiptRead(SQLModel):
+    id: int
+    supplier_id: int
+    supplier_name: str | None = None
+    deposit_id: int
+    deposit_name: str | None = None
+    received_at: date
+    document_number: str | None = None
+    notes: str | None = None
+    created_at: datetime
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
+    items: list[PurchaseReceiptItemRead]
+
+
+class ExpiryReportStatus(str, Enum):
+    GREEN = "green"
+    YELLOW = "yellow"
+    RED = "red"
+    NONE = "none"
+
+
+class ExpiryReportRow(SQLModel):
+    lot_id: int | None = None
+    lot_code: str | None = None
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    deposit_id: int
+    deposit_name: str
+    remaining_quantity: float
+    unit: UnitOfMeasure
+    produced_at: date
+    expiry_date: date | None = None
+    days_to_expiry: int | None = None
+    status: ExpiryReportStatus
+
+
+class ExpiryReport(SQLModel):
+    total: int
+    items: list[ExpiryReportRow]
 
 
 class UserCreate(SQLModel):
