@@ -11,6 +11,7 @@ import { ShipmentsPage } from "./pages/ShipmentsPage";
 import { ShipmentDetailPage } from "./pages/ShipmentDetailPage";
 import { RemitosPage } from "./pages/RemitosPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { PurchasesPage } from "./pages/PurchasesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { MobileShell } from "./shell/MobileShell";
@@ -62,6 +63,7 @@ function DesktopRoutes() {
         <Route path="/envios" element={<ShipmentsPage />} />
         <Route path="/envios/:shipmentId" element={<ShipmentDetailPage />} />
         <Route path="/remitos" element={<RemitosPage />} />
+        <Route path="/compras" element={<PurchasesPage />} />
         <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
         <Route path="/administracion" element={<AdminPage />} />
         <Route path="/auditoria" element={<AuditPage />} />
