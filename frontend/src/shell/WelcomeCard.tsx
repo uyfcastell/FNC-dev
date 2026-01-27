@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, Chip, Divider, List, ListItem, ListItemText, Stack, Typography } from "@mui/material";
 
 const steps = [
-  "Definir usuarios base y roles (Admin, Depósito, Producción, Envíos/Auditoría)",
+  "Definir usuarios base y roles (Administración, Planta, Depósito, Producción, Empaque, Reparto, Locales, Auditoría)",
   "Crear SKUs PT/SEMI/MP/CON y depósitos iniciales",
   "Registrar primeras recetas/BOM y correr migraciones",
   "Probar flujo pedido → envío → remito → movimiento de stock",

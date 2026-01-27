@@ -11,6 +11,25 @@ if TYPE_CHECKING:  # pragma: no cover
     from .order import Order, Remito
 
 
+class RolePermission(TimestampedModel, table=True):
+    __tablename__ = "role_permissions"
+
+    role_id: int = Field(foreign_key="roles.id", primary_key=True)
+    permission_id: int = Field(foreign_key="permissions.id", primary_key=True)
+
+
+class Permission(TimestampedModel, table=True):
+    __tablename__ = "permissions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(unique=True, index=True, max_length=100)
+    label: str = Field(max_length=255)
+    category: str = Field(max_length=100)
+    action: str = Field(max_length=100)
+
+    roles: list["Role"] = Relationship(back_populates="permissions", link_model=RolePermission)
+
+
 class Role(TimestampedModel, table=True):
     __tablename__ = "roles"
 
@@ -19,6 +38,7 @@ class Role(TimestampedModel, table=True):
     description: str | None = Field(default=None, max_length=255)
 
     users: list["User"] = Relationship(back_populates="role")
+    permissions: list["Permission"] = Relationship(back_populates="roles", link_model=RolePermission)
 
 
 class User(TimestampedModel, table=True):

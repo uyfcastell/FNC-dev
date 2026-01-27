@@ -275,6 +275,18 @@ export type Role = {
   description?: string | null;
 };
 
+export type Permission = {
+  id: number;
+  key: string;
+  label: string;
+  category: string;
+  action: string;
+};
+
+export type RolePermissionsPayload = {
+  permissions: string[];
+};
+
 export type RecipeItem = {
   component_id: number;
   quantity: number;
@@ -597,6 +609,22 @@ export async function fetchHealth(): Promise<{ status: string; version?: string 
 
 export async function fetchRoles(): Promise<Role[]> {
   return apiRequest("/roles", {}, "No se pudo obtener los roles");
+}
+
+export async function fetchPermissions(): Promise<Permission[]> {
+  return apiRequest("/permissions", {}, "No se pudo obtener los permisos");
+}
+
+export async function fetchRolePermissions(roleId: number): Promise<string[]> {
+  return apiRequest(`/roles/${roleId}/permissions`, {}, "No se pudo obtener los permisos del rol");
+}
+
+export async function updateRolePermissions(roleId: number, payload: RolePermissionsPayload): Promise<string[]> {
+  return apiRequest(
+    `/roles/${roleId}/permissions`,
+    { method: "PUT", body: JSON.stringify(payload) },
+    "No se pudo actualizar los permisos del rol"
+  );
 }
 
 export async function loginWithCredentials(username: string, password: string): Promise<LoginResponse> {

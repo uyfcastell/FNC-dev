@@ -5,7 +5,27 @@ from sqlmodel import Session, select
 from ..core.config import get_settings
 from ..core.security import decode_access_token
 from ..db import get_session
-from ..models import Role, User
+from ..models import Permission, Role, RolePermission, User
+
+SUPERADMIN_EMAIL = "admin@local"
+
+
+def _is_superadmin(user: User) -> bool:
+    return user.email.strip().lower() == SUPERADMIN_EMAIL
+
+
+def _normalize_role_name(name: str) -> str:
+    return (
+        name.strip()
+        .upper()
+        .replace("Á", "A")
+        .replace("É", "E")
+        .replace("Í", "I")
+        .replace("Ó", "O")
+        .replace("Ú", "U")
+        .replace("Ü", "U")
+        .replace("Ñ", "N")
+    )
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_prefix}/auth/login")
@@ -35,17 +55,42 @@ def require_roles(*roles: str):
     }
 
     def _checker(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> User:
+        if _is_superadmin(current_user):
+            return current_user
         if not normalized:
             return current_user
         if current_user.role_id is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rol no asignado")
         role = session.exec(select(Role).where(Role.id == current_user.role_id)).first()
-        role_name = role.name.upper() if role else ""
-        if role_name == "ADMIN":
+        role_name = _normalize_role_name(role.name) if role else ""
+        if role_name in {"ADMIN", "ADMINISTRACION"}:
             return current_user
         mapped_role = legacy_aliases.get(role_name, role_name)
         if mapped_role not in normalized:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rol insuficiente")
+        return current_user
+
+    return _checker
+
+
+def require_permissions(*permissions: str):
+    normalized = {permission.strip().lower() for permission in permissions}
+
+    def _checker(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> User:
+        if _is_superadmin(current_user):
+            return current_user
+        if not normalized:
+            return current_user
+        if current_user.role_id is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rol no asignado")
+        result = session.exec(
+            select(Permission.key)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == current_user.role_id)
+        ).all()
+        assigned = {key.lower() for key in result}
+        if not normalized.intersection(assigned):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permiso insuficiente")
         return current_user
 
     return _checker

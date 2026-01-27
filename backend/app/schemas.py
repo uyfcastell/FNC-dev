@@ -393,6 +393,18 @@ class UserRead(SQLModel):
     is_active: bool
 
 
+class PermissionRead(SQLModel):
+    id: int
+    key: str
+    label: str
+    category: str
+    action: str
+
+
+class RolePermissionsUpdate(SQLModel):
+    permissions: list[str]
+
+
 class LoginRequest(SQLModel):
     username: str
     password: str
