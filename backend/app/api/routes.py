@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
-from sqlalchemy import func
+from sqlalchemy import func, nulls_last
 from sqlmodel import Session, select
 
 from ..core.config import get_settings
@@ -43,6 +43,9 @@ from ..models import (
     StockLevel,
     StockMovement,
     StockMovementType,
+    Supplier,
+    PurchaseReceipt,
+    PurchaseReceiptItem,
     User,
 )
 from ..models.common import OrderStatus, RemitoStatus, ShipmentStatus, UnitOfMeasure
@@ -74,6 +77,15 @@ from ..schemas import (
     MovementSummary,
     UnitRead,
     ProductionLotRead,
+    SupplierCreate,
+    SupplierRead,
+    SupplierUpdate,
+    PurchaseReceiptCreate,
+    PurchaseReceiptRead,
+    PurchaseReceiptItemRead,
+    ExpiryReport,
+    ExpiryReportRow,
+    ExpiryReportStatus,
     LoginRequest,
     TokenResponse,
     UserCreate,
@@ -314,7 +326,7 @@ def _calculate_consumption_by_lot(
             ProductionLot.deposit_id == deposit_id,
             ProductionLot.is_blocked.is_(False),
         )
-        .order_by(ProductionLot.produced_at, ProductionLot.id)
+        .order_by(nulls_last(ProductionLot.expiry_date), ProductionLot.produced_at, ProductionLot.id)
     ).all()
 
     remaining = required_quantity
@@ -433,6 +445,21 @@ def _get_stock_alert_status(quantity: float, sku: SKU) -> str:
     return "none"
 
 
+EXPIRY_RED_DAYS = 7
+EXPIRY_YELLOW_DAYS = 15
+
+
+def _get_expiry_status(expiry_date: date | None, today: date) -> tuple[ExpiryReportStatus, int | None]:
+    if not expiry_date:
+        return ExpiryReportStatus.NONE, None
+    days = (expiry_date - today).days
+    if days <= EXPIRY_RED_DAYS:
+        return ExpiryReportStatus.RED, days
+    if days <= EXPIRY_YELLOW_DAYS:
+        return ExpiryReportStatus.YELLOW, days
+    return ExpiryReportStatus.GREEN, days
+
+
 def _map_stock_level(level: StockLevel, session: Session) -> StockLevelRead:
     session.refresh(level, attribute_names=["sku", "deposit"])
     return StockLevelRead(
@@ -464,6 +491,7 @@ def _map_production_lot(lot: ProductionLot, session: Session) -> ProductionLotRe
         produced_quantity=float(lot.produced_quantity),
         remaining_quantity=float(lot.remaining_quantity),
         produced_at=lot.produced_at,
+        expiry_date=lot.expiry_date,
         is_blocked=lot.is_blocked,
         notes=lot.notes,
     )
@@ -2966,6 +2994,194 @@ def delete_stock_movement_type(movement_type_id: int, session: Session = Depends
     session.commit()
 
 
+@router.get("/suppliers", tags=["purchases"], response_model=list[SupplierRead])
+def list_suppliers(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[SupplierRead]:
+    statement = select(Supplier)
+    if not include_inactive:
+        statement = statement.where(Supplier.is_active.is_(True))
+    records = session.exec(statement.order_by(Supplier.name)).all()
+    return [_map_supplier(record) for record in records]
+
+
+@router.post(
+    "/suppliers",
+    tags=["purchases"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=SupplierRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
+def create_supplier(payload: SupplierCreate, session: Session = Depends(get_session)) -> SupplierRead:
+    duplicate = session.exec(select(Supplier).where(Supplier.name == payload.name.strip())).first()
+    if duplicate:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un proveedor con ese nombre")
+    record = Supplier(
+        name=payload.name.strip(),
+        tax_id=payload.tax_id,
+        email=payload.email,
+        phone=payload.phone,
+        is_active=payload.is_active,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return _map_supplier(record)
+
+
+@router.put(
+    "/suppliers/{supplier_id}",
+    tags=["purchases"],
+    response_model=SupplierRead,
+    dependencies=[Depends(require_roles("ADMIN"))],
+)
+def update_supplier(
+    supplier_id: int,
+    payload: SupplierUpdate,
+    session: Session = Depends(get_session),
+) -> SupplierRead:
+    record = session.get(Supplier, supplier_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proveedor no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"]:
+        update_data["name"] = update_data["name"].strip()
+    for field, value in update_data.items():
+        setattr(record, field, value)
+    record.updated_at = datetime.utcnow()
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return _map_supplier(record)
+
+
+@router.get(
+    "/purchases/receipts",
+    tags=["purchases"],
+    response_model=list[PurchaseReceiptRead],
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def list_purchase_receipts(
+    supplier_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    session: Session = Depends(get_session),
+) -> list[PurchaseReceiptRead]:
+    statement = select(PurchaseReceipt)
+    if supplier_id:
+        statement = statement.where(PurchaseReceipt.supplier_id == supplier_id)
+    if date_from:
+        statement = statement.where(PurchaseReceipt.received_at >= date_from)
+    if date_to:
+        statement = statement.where(PurchaseReceipt.received_at <= date_to)
+    receipts = session.exec(statement.order_by(PurchaseReceipt.received_at.desc(), PurchaseReceipt.id.desc())).all()
+    return [_map_purchase_receipt(receipt, session) for receipt in receipts]
+
+
+@router.get(
+    "/purchases/receipts/{receipt_id}",
+    tags=["purchases"],
+    response_model=PurchaseReceiptRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def get_purchase_receipt(receipt_id: int, session: Session = Depends(get_session)) -> PurchaseReceiptRead:
+    receipt = session.get(PurchaseReceipt, receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingreso de compra no encontrado")
+    return _map_purchase_receipt(receipt, session)
+
+
+@router.post(
+    "/purchases/receipts",
+    tags=["purchases"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=PurchaseReceiptRead,
+    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+)
+def create_purchase_receipt(
+    payload: PurchaseReceiptCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> PurchaseReceiptRead:
+    supplier = session.get(Supplier, payload.supplier_id)
+    if not supplier or not supplier.is_active:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proveedor no encontrado")
+    deposit = session.get(Deposit, payload.deposit_id)
+    if not deposit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
+    if not payload.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debes cargar al menos un ítem")
+
+    sku_ids = {item.sku_id for item in payload.items}
+    skus = session.exec(select(SKU).where(SKU.id.in_(sku_ids))).all()
+    if len(skus) != len(sku_ids):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún SKU no existe")
+
+    for item in payload.items:
+        if item.quantity <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
+        if deposit.controls_lot and not item.lot_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote es obligatorio para el depósito seleccionado")
+
+    receipt = PurchaseReceipt(
+        supplier_id=supplier.id,
+        deposit_id=deposit.id,
+        received_at=payload.received_at or date.today(),
+        document_number=payload.document_number,
+        notes=payload.notes,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    session.add(receipt)
+    session.flush()
+
+    movement_type = _get_movement_type_by_code(session, "PURCHASE")
+    reference_value = payload.document_number or f"COMPRA-{receipt.id}"
+
+    for item in payload.items:
+        record = PurchaseReceiptItem(
+            receipt_id=receipt.id,
+            sku_id=item.sku_id,
+            quantity=item.quantity,
+            unit=item.unit,
+            lot_code=item.lot_code,
+            expiry_date=item.expiry_date,
+            unit_cost=item.unit_cost,
+        )
+        session.add(record)
+        session.flush()
+
+        movement_payload = StockMovementCreate(
+            sku_id=item.sku_id,
+            deposit_id=deposit.id,
+            movement_type_id=movement_type.id,
+            quantity=item.quantity,
+            unit=item.unit,
+            lot_code=item.lot_code,
+            expiry_date=item.expiry_date,
+            reference_type="PURCHASE_RECEIPT",
+            reference_id=receipt.id,
+            reference_item_id=record.id,
+            reference=reference_value,
+            movement_date=receipt.received_at,
+            created_by_user_id=current_user.id,
+        )
+        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        record.stock_movement_id = movement.id
+        record.updated_at = datetime.utcnow()
+        session.add(record)
+
+    _log_audit(
+        session,
+        "purchase_receipts",
+        receipt.id,
+        AuditAction.CREATE,
+        current_user.id,
+        {"supplier_id": supplier.id, "deposit_id": deposit.id, "items": len(payload.items)},
+    )
+    session.commit()
+    session.refresh(receipt)
+    return _map_purchase_receipt(receipt, session)
+
+
 def _ensure_stock_level(session: Session, deposit_id: int, sku_id: int) -> StockLevel:
     stock_level = session.exec(
         select(StockLevel).where(StockLevel.deposit_id == deposit_id, StockLevel.sku_id == sku_id)
@@ -3018,6 +3234,8 @@ def _apply_stock_movement(
     produced_at = payload.movement_date or date.today()
     if movement_code == "PRODUCTION" and not production_line:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción es obligatoria")
+    if movement_code == "PURCHASE" and deposit.controls_lot and not (payload.lot_code or payload.production_lot_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote es obligatorio para ingresos de compra")
 
     lot_code = payload.lot_code
     production_lot: ProductionLot | None = None
@@ -3052,18 +3270,17 @@ def _apply_stock_movement(
             validation_line = production_line or (
                 production_lot.production_line_id and _get_production_line_or_404(session, production_lot.production_line_id)
             )
-            if not validation_line:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no tiene línea asociada")
-            _validate_lot_code(
-                session,
-                lot_code,
-                sku,
-                deposit,
-                validation_line,
-                production_lot.produced_at,
-                allow_existing_id=production_lot.id,
-            )
-        elif movement_code != "PRODUCTION":
+            if validation_line:
+                _validate_lot_code(
+                    session,
+                    lot_code,
+                    sku,
+                    deposit,
+                    validation_line,
+                    production_lot.produced_at,
+                    allow_existing_id=production_lot.id,
+                )
+        elif movement_code not in {"PRODUCTION", "PURCHASE"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote indicado no existe")
 
     if movement_code == "PRODUCTION" and not production_lot:
@@ -3079,6 +3296,7 @@ def _apply_stock_movement(
             produced_quantity=base_quantity,
             remaining_quantity=base_quantity,
             produced_at=produced_at,
+            expiry_date=payload.expiry_date,
         )
         session.add(production_lot)
         session.flush()
@@ -3102,6 +3320,28 @@ def _apply_stock_movement(
         )
         if not production_lot.production_line_id and production_line:
             production_lot.production_line_id = production_line.id
+        if payload.expiry_date and production_lot.expiry_date and payload.expiry_date != production_lot.expiry_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El vencimiento no coincide con el lote")
+        if payload.expiry_date and not production_lot.expiry_date:
+            production_lot.expiry_date = payload.expiry_date
+    elif movement_code == "PURCHASE" and lot_code and not production_lot:
+        production_lot = ProductionLot(
+            lot_code=lot_code,
+            sku_id=sku.id,
+            deposit_id=deposit.id,
+            produced_quantity=base_quantity,
+            remaining_quantity=base_quantity,
+            produced_at=produced_at,
+            expiry_date=payload.expiry_date,
+        )
+        session.add(production_lot)
+        session.flush()
+        created_lot = True
+    elif movement_code == "PURCHASE" and production_lot:
+        if payload.expiry_date and production_lot.expiry_date and payload.expiry_date != production_lot.expiry_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El vencimiento no coincide con el lote")
+        if payload.expiry_date and not production_lot.expiry_date:
+            production_lot.expiry_date = payload.expiry_date
 
     stock_level = _ensure_stock_level(session, payload.deposit_id, payload.sku_id)
     new_quantity = stock_level.quantity + delta
@@ -3112,6 +3352,8 @@ def _apply_stock_movement(
         if movement_code == "PRODUCTION" and not created_lot:
             production_lot.produced_quantity += base_quantity
             production_lot.remaining_quantity += base_quantity
+        elif created_lot and movement_code in {"PRODUCTION", "PURCHASE"}:
+            pass
         else:
             new_remaining = production_lot.remaining_quantity + delta
             if not allow_negative_balance and new_remaining < 0:
@@ -3159,12 +3401,14 @@ def _map_stock_movement(movement: StockMovement, session: Session) -> StockMovem
     session.refresh(movement, attribute_names=["sku", "deposit", "movement_type", "production_lot"])
     production_line_id = None
     production_line_name = None
+    expiry_date = None
     if movement.production_lot:
         session.refresh(movement.production_lot, attribute_names=["production_line"])
         production_line_id = movement.production_lot.production_line_id
         production_line_name = (
             movement.production_lot.production_line.name if movement.production_lot.production_line else None
         )
+        expiry_date = movement.production_lot.expiry_date
     stock_level = session.exec(
         select(StockLevel).where(StockLevel.deposit_id == movement.deposit_id, StockLevel.sku_id == movement.sku_id)
     ).first()
@@ -3193,6 +3437,7 @@ def _map_stock_movement(movement: StockMovement, session: Session) -> StockMovem
         production_lot_id=movement.production_lot_id,
         production_line_id=production_line_id,
         production_line_name=production_line_name,
+        expiry_date=expiry_date,
         movement_date=movement.movement_date,
         created_at=movement.created_at,
         current_balance=current_balance,
@@ -3256,6 +3501,48 @@ def _map_inventory_count(count: InventoryCount, session: Session) -> InventoryCo
         approved_by_user_id=count.approved_by_user_id,
         approved_by_name=approved_by_name,
         items=[_map_inventory_count_item(item, session) for item in count.items],
+    )
+
+
+def _map_supplier(record: Supplier) -> SupplierRead:
+    return SupplierRead.model_validate(record)
+
+
+def _map_purchase_receipt_item(item: PurchaseReceiptItem, session: Session) -> PurchaseReceiptItemRead:
+    sku = session.get(SKU, item.sku_id)
+    return PurchaseReceiptItemRead(
+        id=item.id,
+        sku_id=item.sku_id,
+        sku_code=sku.code if sku else str(item.sku_id),
+        sku_name=sku.name if sku else f"SKU {item.sku_id}",
+        quantity=item.quantity,
+        unit=item.unit,
+        lot_code=item.lot_code,
+        expiry_date=item.expiry_date,
+        unit_cost=item.unit_cost,
+        stock_movement_id=item.stock_movement_id,
+    )
+
+
+def _map_purchase_receipt(receipt: PurchaseReceipt, session: Session) -> PurchaseReceiptRead:
+    session.refresh(receipt, attribute_names=["supplier", "deposit", "items"])
+    created_by_name = None
+    if receipt.created_by_user_id:
+        user = session.get(User, receipt.created_by_user_id)
+        created_by_name = user.full_name if user else None
+    return PurchaseReceiptRead(
+        id=receipt.id,
+        supplier_id=receipt.supplier_id,
+        supplier_name=receipt.supplier.name if receipt.supplier else None,
+        deposit_id=receipt.deposit_id,
+        deposit_name=receipt.deposit.name if receipt.deposit else None,
+        received_at=receipt.received_at,
+        document_number=receipt.document_number,
+        notes=receipt.notes,
+        created_at=receipt.created_at,
+        created_by_user_id=receipt.created_by_user_id,
+        created_by_name=created_by_name,
+        items=[_map_purchase_receipt_item(item, session) for item in receipt.items],
     )
 
 
@@ -4065,6 +4352,64 @@ def stock_alerts_report(
         )
 
     return StockAlertReport(total=len(items), items=items)
+
+
+@router.get("/reports/stock-expirations", tags=["reports"], response_model=ExpiryReport)
+def stock_expirations_report(
+    sku_id: int | None = None,
+    deposit_id: int | None = None,
+    status: list[ExpiryReportStatus] | None = Query(None),
+    expiry_from: date | None = None,
+    expiry_to: date | None = None,
+    include_no_expiry: bool = True,
+    session: Session = Depends(get_session),
+) -> ExpiryReport:
+    statement = select(ProductionLot).join(SKU).join(Deposit)
+    if sku_id:
+        statement = statement.where(ProductionLot.sku_id == sku_id)
+    if deposit_id:
+        statement = statement.where(ProductionLot.deposit_id == deposit_id)
+    if expiry_from:
+        statement = statement.where(ProductionLot.expiry_date >= expiry_from)
+    if expiry_to:
+        statement = statement.where(ProductionLot.expiry_date <= expiry_to)
+    if not include_no_expiry:
+        statement = statement.where(ProductionLot.expiry_date.is_not(None))
+
+    lots = session.exec(
+        statement.where(ProductionLot.remaining_quantity > 0).order_by(
+            nulls_last(ProductionLot.expiry_date),
+            ProductionLot.produced_at,
+            ProductionLot.id,
+        )
+    ).all()
+
+    today = date.today()
+    items: list[ExpiryReportRow] = []
+    for lot in lots:
+        session.refresh(lot, attribute_names=["sku", "deposit"])
+        status_value, days = _get_expiry_status(lot.expiry_date, today)
+        if status and status_value not in status:
+            continue
+        items.append(
+            ExpiryReportRow(
+                lot_id=lot.id,
+                lot_code=lot.lot_code,
+                sku_id=lot.sku_id,
+                sku_code=lot.sku.code if lot.sku else str(lot.sku_id),
+                sku_name=lot.sku.name if lot.sku else f"SKU {lot.sku_id}",
+                deposit_id=lot.deposit_id,
+                deposit_name=lot.deposit.name if lot.deposit else "",
+                remaining_quantity=float(lot.remaining_quantity),
+                unit=lot.sku.unit if lot.sku else UnitOfMeasure.UNIT,
+                produced_at=lot.produced_at,
+                expiry_date=lot.expiry_date,
+                days_to_expiry=days,
+                status=status_value,
+            )
+        )
+
+    return ExpiryReport(total=len(items), items=items)
 
 
 api_router.include_router(public_router)

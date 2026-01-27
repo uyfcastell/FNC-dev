@@ -25,10 +25,15 @@ import { useEffect, useState } from "react";
 import {
   Deposit,
   fetchDeposits,
+  fetchSkus,
   fetchSkuTypes,
   fetchStockAlertReport,
+  fetchStockExpirations,
   fetchStockReport,
+  ExpiryReport,
+  ExpiryStatus,
   MovementSummary,
+  SKU,
   SKUType,
   StockAlertReport,
   StockAlertStatus,
@@ -87,6 +92,10 @@ export function ReportsPage() {
   const [alertError, setAlertError] = useState<string | null>(null);
   const [alertSkuTypes, setAlertSkuTypes] = useState<SKUType[]>([]);
   const [alertDeposits, setAlertDeposits] = useState<Deposit[]>([]);
+  const [expiryReport, setExpiryReport] = useState<ExpiryReport>({ total: 0, items: [] });
+  const [expiryLoading, setExpiryLoading] = useState(false);
+  const [expiryError, setExpiryError] = useState<string | null>(null);
+  const [expirySkus, setExpirySkus] = useState<SKU[]>([]);
   const [alertFilters, setAlertFilters] = useState<{
     sku_type_id: string;
     deposit_id: string;
@@ -105,6 +114,21 @@ export function ReportsPage() {
     max_quantity: "",
     only_configured: false,
     include_inactive: false,
+  });
+  const [expiryFilters, setExpiryFilters] = useState<{
+    sku_id: string;
+    deposit_id: string;
+    status: ExpiryStatus | "";
+    expiry_from: string;
+    expiry_to: string;
+    include_no_expiry: boolean;
+  }>({
+    sku_id: "",
+    deposit_id: "",
+    status: "",
+    expiry_from: "",
+    expiry_to: "",
+    include_no_expiry: true,
   });
 
   useEffect(() => {
@@ -126,9 +150,14 @@ export function ReportsPage() {
   useEffect(() => {
     async function loadFilters() {
       try {
-        const [skuTypes, deposits] = await Promise.all([fetchSkuTypes({ include_inactive: true }), fetchDeposits()]);
+        const [skuTypes, deposits, skuList] = await Promise.all([
+          fetchSkuTypes({ include_inactive: true }),
+          fetchDeposits(),
+          fetchSkus(),
+        ]);
         setAlertSkuTypes(skuTypes);
         setAlertDeposits(deposits);
+        setExpirySkus(skuList);
       } catch (err) {
         console.error(err);
       }
@@ -159,8 +188,33 @@ export function ReportsPage() {
     }
   };
 
+  const loadExpiryReport = async () => {
+    setExpiryLoading(true);
+    try {
+      const report = await fetchStockExpirations({
+        sku_id: expiryFilters.sku_id ? Number(expiryFilters.sku_id) : undefined,
+        deposit_id: expiryFilters.deposit_id ? Number(expiryFilters.deposit_id) : undefined,
+        status: expiryFilters.status ? [expiryFilters.status] : undefined,
+        expiry_from: expiryFilters.expiry_from || undefined,
+        expiry_to: expiryFilters.expiry_to || undefined,
+        include_no_expiry: expiryFilters.include_no_expiry,
+      });
+      setExpiryReport(report);
+      setExpiryError(null);
+    } catch (err) {
+      console.error(err);
+      setExpiryError("No pudimos obtener el reporte de vencimientos.");
+    } finally {
+      setExpiryLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadAlertReport();
+  }, []);
+
+  useEffect(() => {
+    void loadExpiryReport();
   }, []);
 
   const alertStatusLabels: Record<StockAlertStatus, { label: string; color: "success" | "warning" | "error" | "default" }> = {
@@ -168,6 +222,13 @@ export function ReportsPage() {
     yellow: { label: "Amarillo", color: "warning" },
     red: { label: "Rojo", color: "error" },
     none: { label: "Sin alerta", color: "default" },
+  };
+
+  const expiryStatusLabels: Record<ExpiryStatus, { label: string; color: "success" | "warning" | "error" | "default" }> = {
+    green: { label: "Verde", color: "success" },
+    yellow: { label: "Amarillo", color: "warning" },
+    red: { label: "Rojo", color: "error" },
+    none: { label: "Sin vencimiento", color: "default" },
   };
 
   const alertStatusCounts = alertReport.items.reduce(
@@ -403,6 +464,182 @@ export function ReportsPage() {
                       <TableRow>
                         <TableCell colSpan={6} align="center">
                           {alertLoading ? "Cargando..." : "Sin registros para los filtros actuales."}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12}>
+          <Card>
+            <CardHeader title="Vencimientos por lote" subheader="Semáforo por fecha de vencimiento" />
+            <Divider />
+            <CardContent>
+              <Stack spacing={2}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      select
+                      label="SKU"
+                      value={expiryFilters.sku_id}
+                      onChange={(e) => setExpiryFilters((prev) => ({ ...prev, sku_id: e.target.value }))}
+                      fullWidth
+                      size="small"
+                    >
+                      <MenuItem value="">Todos</MenuItem>
+                      {expirySkus.map((sku) => (
+                        <MenuItem key={sku.id} value={sku.id}>
+                          {sku.name} ({sku.code})
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      select
+                      label="Depósito"
+                      value={expiryFilters.deposit_id}
+                      onChange={(e) => setExpiryFilters((prev) => ({ ...prev, deposit_id: e.target.value }))}
+                      fullWidth
+                      size="small"
+                    >
+                      <MenuItem value="">Todos</MenuItem>
+                      {alertDeposits.map((deposit) => (
+                        <MenuItem key={deposit.id} value={deposit.id}>
+                          {deposit.name}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      select
+                      label="Estado"
+                      value={expiryFilters.status}
+                      onChange={(e) => setExpiryFilters((prev) => ({ ...prev, status: e.target.value as ExpiryStatus | "" }))}
+                      fullWidth
+                      size="small"
+                    >
+                      <MenuItem value="">Todos</MenuItem>
+                      {Object.entries(expiryStatusLabels).map(([key, cfg]) => (
+                        <MenuItem key={key} value={key}>
+                          {cfg.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      select
+                      label="Sin vencimiento"
+                      value={expiryFilters.include_no_expiry ? "true" : "false"}
+                      onChange={(e) => setExpiryFilters((prev) => ({ ...prev, include_no_expiry: e.target.value === "true" }))}
+                      fullWidth
+                      size="small"
+                    >
+                      <MenuItem value="true">Mostrar</MenuItem>
+                      <MenuItem value="false">Ocultar</MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      label="Vence desde"
+                      type="date"
+                      value={expiryFilters.expiry_from}
+                      onChange={(e) => setExpiryFilters((prev) => ({ ...prev, expiry_from: e.target.value }))}
+                      fullWidth
+                      size="small"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      label="Vence hasta"
+                      type="date"
+                      value={expiryFilters.expiry_to}
+                      onChange={(e) => setExpiryFilters((prev) => ({ ...prev, expiry_to: e.target.value }))}
+                      fullWidth
+                      size="small"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6} display="flex" justifyContent="flex-end" alignItems="center">
+                    <Stack direction={{ xs: "column", md: "row" }} spacing={1} justifyContent="flex-end" width="100%">
+                      <Button
+                        variant="outlined"
+                        onClick={() =>
+                          setExpiryFilters({
+                            sku_id: "",
+                            deposit_id: "",
+                            status: "",
+                            expiry_from: "",
+                            expiry_to: "",
+                            include_no_expiry: true,
+                          })
+                        }
+                      >
+                        Limpiar
+                      </Button>
+                      <Button variant="contained" onClick={loadExpiryReport}>
+                        Aplicar filtros
+                      </Button>
+                    </Stack>
+                  </Grid>
+                </Grid>
+                {expiryError && <Alert severity="warning">{expiryError}</Alert>}
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  {Object.entries(expiryStatusLabels).map(([key, cfg]) => (
+                    <Chip
+                      key={key}
+                      label={cfg.label}
+                      color={cfg.color}
+                      variant="outlined"
+                      size="small"
+                    />
+                  ))}
+                  <Chip label={`Total: ${expiryReport.total}`} variant="outlined" size="small" />
+                </Stack>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Lote</TableCell>
+                      <TableCell>SKU</TableCell>
+                      <TableCell>Depósito</TableCell>
+                      <TableCell align="right">Cantidad</TableCell>
+                      <TableCell>Vence</TableCell>
+                      <TableCell>Estado</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {expiryReport.items.map((row) => (
+                      <TableRow key={`${row.lot_id ?? row.lot_code}-${row.sku_id}-${row.deposit_id}`}>
+                        <TableCell>{row.lot_code ?? "—"}</TableCell>
+                        <TableCell>
+                          {row.sku_name} ({row.sku_code})
+                        </TableCell>
+                        <TableCell>{row.deposit_name}</TableCell>
+                        <TableCell align="right">{row.remaining_quantity.toFixed(2)}</TableCell>
+                        <TableCell>
+                          {row.expiry_date ?? "—"}
+                          {row.days_to_expiry != null && ` (${row.days_to_expiry} días)`}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={expiryStatusLabels[row.status].label}
+                            color={expiryStatusLabels[row.status].color}
+                            variant="outlined"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {expiryReport.items.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} align="center">
+                          {expiryLoading ? "Cargando..." : "Sin registros para los filtros actuales."}
                         </TableCell>
                       </TableRow>
                     )}

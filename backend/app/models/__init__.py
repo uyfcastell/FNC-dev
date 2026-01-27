@@ -10,6 +10,7 @@ from .common import (
 )
 from .inventory import Deposit, InventoryCount, InventoryCountItem, ProductionLot, StockLevel, StockMovement, StockMovementType
 from .order import Order, OrderItem, Remito, RemitoItem
+from .purchase import PurchaseReceipt, PurchaseReceiptItem, Supplier
 from .shipment import Shipment, ShipmentItem
 from .sku import Recipe, RecipeItem, SKU, SKUType, SemiConversionRule
 from .merma import MermaCause, MermaEvent, MermaType, ProductionLine
@@ -33,6 +34,9 @@ __all__ = [
     "StockLevel",
     "StockMovement",
     "StockMovementType",
+    "Supplier",
+    "PurchaseReceipt",
+    "PurchaseReceiptItem",
     "MermaType",
     "MermaCause",
     "MermaEvent",
