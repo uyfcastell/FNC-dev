@@ -14,7 +14,7 @@ from ..core.config import get_settings
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..db import get_session
 from ..core.security import create_access_token, hash_password, is_legacy_hash, needs_rehash, verify_password
-from .deps import get_current_user, require_active_user, require_roles
+from .deps import get_current_user, require_active_user, require_permissions
 from ..models import (
     AuditLog,
     AuditAction,
@@ -22,9 +22,11 @@ from ..models import (
     InventoryCount,
     InventoryCountItem,
     InventoryCountStatus,
+    Permission,
     Recipe,
     RecipeItem,
     Role,
+    RolePermission,
     Order,
     OrderItem,
     Remito,
@@ -91,6 +93,8 @@ from ..schemas import (
     UserCreate,
     UserRead,
     UserUpdate,
+    PermissionRead,
+    RolePermissionsUpdate,
     OrderCreate,
     OrderRead,
     OrderSummaryRead,
@@ -185,6 +189,29 @@ def _get_user_role_name(session: Session, user: User) -> str | None:
         return None
     role = session.get(Role, user.role_id)
     return role.name if role else None
+
+
+def _normalize_role_name(name: str) -> str:
+    return (
+        name.strip()
+        .upper()
+        .replace("Á", "A")
+        .replace("É", "E")
+        .replace("Í", "I")
+        .replace("Ó", "O")
+        .replace("Ú", "U")
+        .replace("Ü", "U")
+        .replace("Ñ", "N")
+    )
+
+
+def _is_admin_account(user: User, session: Session) -> bool:
+    if user.email.strip().lower() == "admin@local":
+        return True
+    role_name = _get_user_role_name(session, user)
+    if not role_name:
+        return False
+    return _normalize_role_name(role_name) in {"ADMIN", "ADMINISTRACION"}
 
 
 def _get_sku_type_or_404(session: Session, sku_type_id: int) -> SKUType:
@@ -1121,17 +1148,79 @@ def health() -> dict[str, str]:
 @router.get(
     "/roles",
     tags=["admin"],
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("roles.view"))],
 )
 def list_roles(session: Session = Depends(get_session)) -> list[Role]:
     return session.exec(select(Role)).all()
 
 
 @router.get(
+    "/permissions",
+    tags=["admin"],
+    response_model=list[PermissionRead],
+    dependencies=[Depends(require_permissions("roles.view"))],
+)
+def list_permissions(session: Session = Depends(get_session)) -> list[PermissionRead]:
+    return session.exec(select(Permission)).all()
+
+
+@router.get(
+    "/roles/{role_id}/permissions",
+    tags=["admin"],
+    response_model=list[str],
+    dependencies=[Depends(require_permissions("roles.view"))],
+)
+def list_role_permissions(role_id: int, session: Session = Depends(get_session)) -> list[str]:
+    role = session.get(Role, role_id)
+    if not role:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rol no encontrado")
+    permissions = session.exec(
+        select(Permission.key)
+        .join(RolePermission, RolePermission.permission_id == Permission.id)
+        .where(RolePermission.role_id == role_id)
+    ).all()
+    return list(permissions)
+
+
+@router.put(
+    "/roles/{role_id}/permissions",
+    tags=["admin"],
+    response_model=list[str],
+    dependencies=[Depends(require_permissions("roles.create_edit"))],
+)
+def update_role_permissions(
+    role_id: int,
+    payload: RolePermissionsUpdate,
+    session: Session = Depends(get_session),
+) -> list[str]:
+    role = session.get(Role, role_id)
+    if not role:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rol no encontrado")
+    keys = {permission.strip().lower() for permission in payload.permissions}
+    if not keys:
+        keys = set()
+    valid_permissions = session.exec(select(Permission).where(Permission.key.in_(keys))).all()
+    if len(valid_permissions) != len(keys):
+        missing = sorted(keys.difference({permission.key for permission in valid_permissions}))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Permisos inexistentes: {', '.join(missing)}")
+    existing = session.exec(select(RolePermission).where(RolePermission.role_id == role_id)).all()
+    existing_map = {item.permission_id: item for item in existing}
+    desired_ids = {permission.id for permission in valid_permissions}
+    for permission_id, item in existing_map.items():
+        if permission_id not in desired_ids:
+            session.delete(item)
+    for permission in valid_permissions:
+        if permission.id not in existing_map:
+            session.add(RolePermission(role_id=role_id, permission_id=permission.id))
+    session.commit()
+    return [permission.key for permission in valid_permissions]
+
+
+@router.get(
     "/users",
     tags=["admin"],
     response_model=list[UserRead],
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("users.view"))],
 )
 def list_users(session: Session = Depends(get_session)) -> list[UserRead]:
     users = session.exec(select(User)).all()
@@ -1143,7 +1232,7 @@ def list_users(session: Session = Depends(get_session)) -> list[UserRead]:
     tags=["admin"],
     status_code=status.HTTP_201_CREATED,
     response_model=UserRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("users.create"))],
 )
 def create_user(payload: UserCreate, session: Session = Depends(get_session)) -> UserRead:
     existing = session.exec(select(User).where(User.email == payload.email)).first()
@@ -1172,13 +1261,13 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)) ->
     "/users/{user_id}",
     tags=["admin"],
     response_model=UserRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("users.edit"))],
 )
 def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(get_session)) -> UserRead:
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
-    if payload.is_active is False and _get_user_role_name(session, user) == "ADMIN":
+    if payload.is_active is False and _is_admin_account(user, session):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede desactivar el usuario admin")
 
     if payload.email and payload.email != user.email:
@@ -1209,19 +1298,19 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
     "/users/{user_id}",
     tags=["admin"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("users.deactivate"))],
 )
 def delete_user(user_id: int, session: Session = Depends(get_session)) -> None:
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
-    if _get_user_role_name(session, user) == "ADMIN":
+    if _is_admin_account(user, session):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar el usuario admin")
     session.delete(user)
     session.commit()
 
 
-@router.get("/units", tags=["catalogs"], response_model=list[UnitRead])
+@router.get("/units", tags=["catalogs"], response_model=list[UnitRead], dependencies=[Depends(require_permissions("units.view"))])
 def list_units() -> list[UnitRead]:
     """Catálogo controlado de unidades de medida."""
 
@@ -1239,7 +1328,12 @@ def list_units() -> list[UnitRead]:
     return [{"code": code, "label": unit_labels.get(code, code)} for code in UnitOfMeasure]
 
 
-@router.get("/sku-types", tags=["catalogs"], response_model=list[SKUTypeRead])
+@router.get(
+    "/sku-types",
+    tags=["catalogs"],
+    response_model=list[SKUTypeRead],
+    dependencies=[Depends(require_permissions("sku_types.view"))],
+)
 def list_sku_types(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[SKUTypeRead]:
     statement = select(SKUType)
     if not include_inactive:
@@ -1253,7 +1347,7 @@ def list_sku_types(include_inactive: bool = False, session: Session = Depends(ge
     tags=["catalogs"],
     status_code=status.HTTP_201_CREATED,
     response_model=SKUTypeRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("sku_types.create_edit"))],
 )
 def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_session)) -> SKUTypeRead:
     code = payload.code.strip().upper()
@@ -1271,7 +1365,7 @@ def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_sessi
     "/sku-types/{sku_type_id}",
     tags=["catalogs"],
     response_model=SKUTypeRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("sku_types.create_edit"))],
 )
 def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session = Depends(get_session)) -> SKUTypeRead:
     sku_type = session.get(SKUType, sku_type_id)
@@ -1291,7 +1385,7 @@ def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session =
     "/sku-types/{sku_type_id}",
     tags=["catalogs"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("sku_types.delete"))],
 )
 def delete_sku_type(sku_type_id: int, session: Session = Depends(get_session)) -> None:
     sku_type = session.get(SKUType, sku_type_id)
@@ -1307,7 +1401,12 @@ def delete_sku_type(sku_type_id: int, session: Session = Depends(get_session)) -
     session.commit()
 
 
-@router.get("/mermas/types", tags=["mermas"], response_model=list[MermaTypeRead])
+@router.get(
+    "/mermas/types",
+    tags=["mermas"],
+    response_model=list[MermaTypeRead],
+    dependencies=[Depends(require_permissions("mermas.view"))],
+)
 def list_merma_types(
     stage: MermaStage | None = None,
     include_inactive: bool = False,
@@ -1322,7 +1421,13 @@ def list_merma_types(
     return [MermaTypeRead.model_validate(type_) for type_ in types]
 
 
-@router.post("/mermas/types", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaTypeRead)
+@router.post(
+    "/mermas/types",
+    tags=["mermas"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=MermaTypeRead,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def create_merma_type(payload: MermaTypeCreate, session: Session = Depends(get_session)) -> MermaTypeRead:
     duplicate = session.exec(
         select(MermaType).where(MermaType.stage == payload.stage, MermaType.code == payload.code)
@@ -1336,7 +1441,12 @@ def create_merma_type(payload: MermaTypeCreate, session: Session = Depends(get_s
     return MermaTypeRead.model_validate(record)
 
 
-@router.put("/mermas/types/{type_id}", tags=["mermas"], response_model=MermaTypeRead)
+@router.put(
+    "/mermas/types/{type_id}",
+    tags=["mermas"],
+    response_model=MermaTypeRead,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session = Depends(get_session)) -> MermaTypeRead:
     record = session.get(MermaType, type_id)
     if not record:
@@ -1359,7 +1469,12 @@ def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session =
     return MermaTypeRead.model_validate(record)
 
 
-@router.delete("/mermas/types/{type_id}", tags=["mermas"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/mermas/types/{type_id}",
+    tags=["mermas"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def delete_merma_type(type_id: int, session: Session = Depends(get_session)) -> None:
     record = session.get(MermaType, type_id)
     if not record:
@@ -1371,7 +1486,12 @@ def delete_merma_type(type_id: int, session: Session = Depends(get_session)) -> 
     session.refresh(record)
 
 
-@router.get("/mermas/causes", tags=["mermas"], response_model=list[MermaCauseRead])
+@router.get(
+    "/mermas/causes",
+    tags=["mermas"],
+    response_model=list[MermaCauseRead],
+    dependencies=[Depends(require_permissions("mermas.view"))],
+)
 def list_merma_causes(
     stage: MermaStage | None = None,
     include_inactive: bool = False,
@@ -1386,7 +1506,13 @@ def list_merma_causes(
     return [MermaCauseRead.model_validate(cause) for cause in causes]
 
 
-@router.post("/mermas/causes", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaCauseRead)
+@router.post(
+    "/mermas/causes",
+    tags=["mermas"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=MermaCauseRead,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def create_merma_cause(payload: MermaCauseCreate, session: Session = Depends(get_session)) -> MermaCauseRead:
     duplicate = session.exec(
         select(MermaCause).where(MermaCause.stage == payload.stage, MermaCause.code == payload.code)
@@ -1400,7 +1526,12 @@ def create_merma_cause(payload: MermaCauseCreate, session: Session = Depends(get
     return MermaCauseRead.model_validate(record)
 
 
-@router.put("/mermas/causes/{cause_id}", tags=["mermas"], response_model=MermaCauseRead)
+@router.put(
+    "/mermas/causes/{cause_id}",
+    tags=["mermas"],
+    response_model=MermaCauseRead,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Session = Depends(get_session)) -> MermaCauseRead:
     record = session.get(MermaCause, cause_id)
     if not record:
@@ -1423,7 +1554,12 @@ def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Sessio
     return MermaCauseRead.model_validate(record)
 
 
-@router.delete("/mermas/causes/{cause_id}", tags=["mermas"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/mermas/causes/{cause_id}",
+    tags=["mermas"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -> None:
     record = session.get(MermaCause, cause_id)
     if not record:
@@ -1435,7 +1571,7 @@ def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -
     session.refresh(record)
 
 
-@router.get("/skus", tags=["sku"], response_model=list[SKURead])
+@router.get("/skus", tags=["sku"], response_model=list[SKURead], dependencies=[Depends(require_permissions("skus.view"))])
 def list_skus(
     sku_type_ids: list[int] | None = Query(None),
     tags: list[str] | None = Query(None, description="Alias para sku_type_code"),
@@ -1465,7 +1601,7 @@ def list_skus(
     tags=["sku"],
     status_code=status.HTTP_201_CREATED,
     response_model=SKURead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("skus.create"))],
 )
 def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> SKURead:
     existing = session.exec(select(SKU).where(SKU.code == payload.code)).first()
@@ -1510,7 +1646,7 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
     "/skus/{sku_id}",
     tags=["sku"],
     response_model=SKURead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("skus.edit"))],
 )
 def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_session)) -> SKURead:
     sku = session.get(SKU, sku_id)
@@ -1548,7 +1684,7 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
     "/skus/{sku_id}",
     tags=["sku"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("skus.deactivate"))],
 )
 def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
     sku = session.get(SKU, sku_id)
@@ -1585,7 +1721,12 @@ def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
     session.commit()
 
 
-@router.patch("/skus/{sku_id}/status", tags=["sku"], response_model=SKURead)
+@router.patch(
+    "/skus/{sku_id}/status",
+    tags=["sku"],
+    response_model=SKURead,
+    dependencies=[Depends(require_permissions("skus.deactivate"))],
+)
 def update_sku_status(sku_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
@@ -1598,7 +1739,7 @@ def update_sku_status(sku_id: int, payload: StatusUpdate, session: Session = Dep
     return _map_sku(sku, session)
 
 
-@router.get("/deposits", tags=["deposits"], response_model=list[DepositRead])
+@router.get("/deposits", tags=["deposits"], response_model=list[DepositRead], dependencies=[Depends(require_permissions("deposits.view"))])
 def list_deposits(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[Deposit]:
     statement = select(Deposit)
     if not include_inactive:
@@ -1606,7 +1747,13 @@ def list_deposits(include_inactive: bool = False, session: Session = Depends(get
     return session.exec(statement.order_by(Deposit.name)).all()
 
 
-@router.post("/deposits", tags=["deposits"], status_code=status.HTTP_201_CREATED, response_model=DepositRead)
+@router.post(
+    "/deposits",
+    tags=["deposits"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=DepositRead,
+    dependencies=[Depends(require_permissions("deposits.create"))],
+)
 def create_deposit(payload: DepositCreate, session: Session = Depends(get_session)) -> Deposit:
     existing = session.exec(select(Deposit).where(Deposit.name == payload.name)).first()
     if existing:
@@ -1622,7 +1769,12 @@ def create_deposit(payload: DepositCreate, session: Session = Depends(get_sessio
     return deposit
 
 
-@router.put("/deposits/{deposit_id}", tags=["deposits"], response_model=DepositRead)
+@router.put(
+    "/deposits/{deposit_id}",
+    tags=["deposits"],
+    response_model=DepositRead,
+    dependencies=[Depends(require_permissions("deposits.edit"))],
+)
 def update_deposit(deposit_id: int, payload: DepositUpdate, session: Session = Depends(get_session)) -> Deposit:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
@@ -1637,7 +1789,12 @@ def update_deposit(deposit_id: int, payload: DepositUpdate, session: Session = D
     return deposit
 
 
-@router.delete("/deposits/{deposit_id}", tags=["deposits"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/deposits/{deposit_id}",
+    tags=["deposits"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permissions("deposits.deactivate"))],
+)
 def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> None:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
@@ -1671,7 +1828,12 @@ def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> 
     session.commit()
 
 
-@router.patch("/deposits/{deposit_id}/status", tags=["deposits"], response_model=DepositRead)
+@router.patch(
+    "/deposits/{deposit_id}/status",
+    tags=["deposits"],
+    response_model=DepositRead,
+    dependencies=[Depends(require_permissions("deposits.deactivate"))],
+)
 def update_deposit_status(deposit_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> Deposit:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
@@ -1684,13 +1846,24 @@ def update_deposit_status(deposit_id: int, payload: StatusUpdate, session: Sessi
     return deposit
 
 
-@router.get("/production-lines", tags=["mermas"], response_model=list[ProductionLineRead])
+@router.get(
+    "/production-lines",
+    tags=["mermas"],
+    response_model=list[ProductionLineRead],
+    dependencies=[Depends(require_permissions("production_lines.view"))],
+)
 def list_production_lines(session: Session = Depends(get_session)) -> list[ProductionLineRead]:
     lines = session.exec(select(ProductionLine).order_by(ProductionLine.name)).all()
     return [ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active) for line in lines]
 
 
-@router.post("/production-lines", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=ProductionLineRead)
+@router.post(
+    "/production-lines",
+    tags=["mermas"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=ProductionLineRead,
+    dependencies=[Depends(require_permissions("production_lines.create_edit"))],
+)
 def create_production_line(payload: ProductionLineCreate, session: Session = Depends(get_session)) -> ProductionLineRead:
     existing = session.exec(select(ProductionLine).where(ProductionLine.name == payload.name)).first()
     if existing:
@@ -1702,7 +1875,12 @@ def create_production_line(payload: ProductionLineCreate, session: Session = Dep
     return ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active)
 
 
-@router.put("/production-lines/{line_id}", tags=["mermas"], response_model=ProductionLineRead)
+@router.put(
+    "/production-lines/{line_id}",
+    tags=["mermas"],
+    response_model=ProductionLineRead,
+    dependencies=[Depends(require_permissions("production_lines.create_edit"))],
+)
 def update_production_line(line_id: int, payload: ProductionLineUpdate, session: Session = Depends(get_session)) -> ProductionLineRead:
     line = session.get(ProductionLine, line_id)
     if not line:
@@ -1753,7 +1931,12 @@ def _map_recipe(recipe: Recipe, session: Session) -> RecipeRead:
     )
 
 
-@router.get("/recipes", tags=["recipes"], response_model=list[RecipeRead])
+@router.get(
+    "/recipes",
+    tags=["recipes"],
+    response_model=list[RecipeRead],
+    dependencies=[Depends(require_permissions("recipes.view"))],
+)
 def list_recipes(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[RecipeRead]:
     statement = select(Recipe)
     if not include_inactive:
@@ -1762,7 +1945,13 @@ def list_recipes(include_inactive: bool = False, session: Session = Depends(get_
     return [_map_recipe(recipe, session) for recipe in recipes]
 
 
-@router.post("/recipes", tags=["recipes"], status_code=status.HTTP_201_CREATED, response_model=RecipeRead)
+@router.post(
+    "/recipes",
+    tags=["recipes"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=RecipeRead,
+    dependencies=[Depends(require_permissions("recipes.create"))],
+)
 def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)) -> RecipeRead:
     product = session.get(SKU, payload.product_id)
     if not product:
@@ -1803,7 +1992,12 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
     return _map_recipe(recipe, session)
 
 
-@router.put("/recipes/{recipe_id}", tags=["recipes"], response_model=RecipeRead)
+@router.put(
+    "/recipes/{recipe_id}",
+    tags=["recipes"],
+    response_model=RecipeRead,
+    dependencies=[Depends(require_permissions("recipes.edit"))],
+)
 def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depends(get_session)) -> RecipeRead:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
@@ -1844,7 +2038,12 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depe
     return _map_recipe(recipe, session)
 
 
-@router.delete("/recipes/{recipe_id}", tags=["recipes"], status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/recipes/{recipe_id}",
+    tags=["recipes"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permissions("recipes.deactivate"))],
+)
 def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> None:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
@@ -1860,7 +2059,12 @@ def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> No
     session.commit()
 
 
-@router.patch("/recipes/{recipe_id}/status", tags=["recipes"], response_model=RecipeRead)
+@router.patch(
+    "/recipes/{recipe_id}/status",
+    tags=["recipes"],
+    response_model=RecipeRead,
+    dependencies=[Depends(require_permissions("recipes.deactivate"))],
+)
 def update_recipe_status(recipe_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> RecipeRead:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
@@ -1877,7 +2081,7 @@ def update_recipe_status(recipe_id: int, payload: StatusUpdate, session: Session
     "/orders",
     tags=["orders"],
     response_model=list[OrderRead],
-    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("orders.view"))],
 )
 def list_orders(
     status_filter: OrderStatus | None = None,
@@ -1897,7 +2101,7 @@ def list_orders(
     "/orders/{order_id}",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("orders.view"))],
 )
 def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRead:
     order = session.get(Order, order_id)
@@ -1911,7 +2115,7 @@ def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRe
     tags=["orders"],
     status_code=status.HTTP_201_CREATED,
     response_model=OrderRead,
-    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("orders.create"))],
 )
 def create_order(
     payload: OrderCreate,
@@ -1972,7 +2176,7 @@ def create_order(
     "/orders/{order_id}",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("orders.edit"))],
 )
 def update_order(
     order_id: int,
@@ -1983,8 +2187,7 @@ def update_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    role_name = _get_user_role_name(session, current_user)
-    is_admin = role_name == "ADMIN"
+    is_admin = _is_admin_account(current_user, session)
     allowed_statuses = {OrderStatus.DRAFT} if not is_admin else {
         OrderStatus.DRAFT,
         OrderStatus.SUBMITTED,
@@ -2117,7 +2320,7 @@ def update_order(
     "/orders/{order_id}/status",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("orders.edit"))],
 )
 def update_order_status(
     order_id: int,
@@ -2172,7 +2375,7 @@ def update_order_status(
     "/orders/{order_id}",
     tags=["orders"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("ADMIN", "SALES", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("orders.cancel"))],
 )
 def delete_order(
     order_id: int,
@@ -2201,7 +2404,7 @@ def delete_order(
     tags=["shipments"],
     status_code=status.HTTP_201_CREATED,
     response_model=ShipmentRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.create"))],
 )
 def create_shipment(
     payload: ShipmentCreate,
@@ -2233,7 +2436,7 @@ def create_shipment(
     "/shipments",
     tags=["shipments"],
     response_model=list[ShipmentRead],
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.view"))],
 )
 def list_shipments(
     deposit_id: int | None = None,
@@ -2259,7 +2462,7 @@ def list_shipments(
     "/shipments/{shipment_id}",
     tags=["shipments"],
     response_model=ShipmentDetail,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.view"))],
 )
 def get_shipment(shipment_id: int, session: Session = Depends(get_session)) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
@@ -2270,7 +2473,7 @@ def get_shipment(shipment_id: int, session: Session = Depends(get_session)) -> S
     "/shipments/{shipment_id}",
     tags=["shipments"],
     response_model=ShipmentRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def update_shipment(
     shipment_id: int,
@@ -2330,7 +2533,7 @@ def update_shipment(
     "/shipments/{shipment_id}/add-orders",
     tags=["shipments"],
     response_model=ShipmentDetail,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def add_orders_to_shipment(
     shipment_id: int,
@@ -2408,7 +2611,7 @@ def add_orders_to_shipment(
     "/shipments/{shipment_id}/items",
     tags=["shipments"],
     response_model=ShipmentDetail,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def update_shipment_items(
     shipment_id: int,
@@ -2486,7 +2689,7 @@ def update_shipment_items(
     "/shipments/{shipment_id}/cancel",
     tags=["shipments"],
     response_model=ShipmentRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.cancel"))],
 )
 def cancel_shipment(
     shipment_id: int,
@@ -2520,7 +2723,7 @@ def cancel_shipment(
     "/shipments/{shipment_id}/confirm",
     tags=["shipments"],
     response_model=ShipmentDetail,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def confirm_shipment(
     shipment_id: int,
@@ -2654,7 +2857,7 @@ def confirm_shipment(
     "/shipments/{shipment_id}/dispatch",
     tags=["shipments"],
     response_model=ShipmentRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def dispatch_shipment(
     shipment_id: int,
@@ -2685,7 +2888,7 @@ def dispatch_shipment(
     "/remitos",
     tags=["remitos"],
     response_model=list[RemitoRead],
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.view"))],
 )
 def list_remitos(
     status_filter: RemitoStatus | None = None,
@@ -2708,7 +2911,7 @@ def list_remitos(
     "/remitos/{remito_id}",
     tags=["remitos"],
     response_model=RemitoRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.view"))],
 )
 def get_remito(remito_id: int, session: Session = Depends(get_session)) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
@@ -2719,7 +2922,7 @@ def get_remito(remito_id: int, session: Session = Depends(get_session)) -> Remit
     "/remitos/{remito_id}/pdf",
     tags=["remitos"],
     response_class=FileResponse,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.view"))],
 )
 def get_remito_pdf(remito_id: int, session: Session = Depends(get_session)) -> FileResponse:
     remito = _get_remito_or_404(session, remito_id)
@@ -2736,7 +2939,7 @@ def get_remito_pdf(remito_id: int, session: Session = Depends(get_session)) -> F
     tags=["remitos"],
     response_model=RemitoRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.create"))],
 )
 def create_remito_from_order(
     order_id: int,
@@ -2752,7 +2955,7 @@ def create_remito_from_order(
     "/remitos/{remito_id}/dispatch",
     tags=["remitos"],
     response_model=RemitoRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def dispatch_remito(
     remito_id: int,
@@ -2834,7 +3037,7 @@ def dispatch_remito(
     "/remitos/{remito_id}/receive",
     tags=["remitos"],
     response_model=RemitoRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.edit"))],
 )
 def receive_remito(
     remito_id: int,
@@ -2895,7 +3098,7 @@ def receive_remito(
     "/remitos/{remito_id}/cancel",
     tags=["remitos"],
     response_model=RemitoRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "SALES"))],
+    dependencies=[Depends(require_permissions("remitos.cancel"))],
 )
 def cancel_remito(
     remito_id: int,
@@ -2921,7 +3124,12 @@ def cancel_remito(
     return _map_remito(remito, session)
 
 
-@router.get("/stock/movement-types", tags=["stock"], response_model=list[StockMovementTypeRead])
+@router.get(
+    "/stock/movement-types",
+    tags=["stock"],
+    response_model=list[StockMovementTypeRead],
+    dependencies=[Depends(require_permissions("movement_types.view"))],
+)
 def list_stock_movement_types(
     include_inactive: bool = False, session: Session = Depends(get_session)
 ) -> list[StockMovementTypeRead]:
@@ -2937,7 +3145,7 @@ def list_stock_movement_types(
     tags=["stock"],
     status_code=status.HTTP_201_CREATED,
     response_model=StockMovementTypeRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("movement_types.create_edit"))],
 )
 def create_stock_movement_type(
     payload: StockMovementTypeCreate,
@@ -2958,7 +3166,7 @@ def create_stock_movement_type(
     "/stock/movement-types/{movement_type_id}",
     tags=["stock"],
     response_model=StockMovementTypeRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("movement_types.create_edit"))],
 )
 def update_stock_movement_type(
     movement_type_id: int,
@@ -2982,7 +3190,7 @@ def update_stock_movement_type(
     "/stock/movement-types/{movement_type_id}",
     tags=["stock"],
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("movement_types.delete"))],
 )
 def delete_stock_movement_type(movement_type_id: int, session: Session = Depends(get_session)) -> None:
     record = session.get(StockMovementType, movement_type_id)
@@ -2998,7 +3206,12 @@ def delete_stock_movement_type(movement_type_id: int, session: Session = Depends
     session.commit()
 
 
-@router.get("/suppliers", tags=["purchases"], response_model=list[SupplierRead])
+@router.get(
+    "/suppliers",
+    tags=["purchases"],
+    response_model=list[SupplierRead],
+    dependencies=[Depends(require_permissions("suppliers.view"))],
+)
 def list_suppliers(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[SupplierRead]:
     statement = select(Supplier)
     if not include_inactive:
@@ -3012,7 +3225,7 @@ def list_suppliers(include_inactive: bool = False, session: Session = Depends(ge
     tags=["purchases"],
     status_code=status.HTTP_201_CREATED,
     response_model=SupplierRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("suppliers.create"))],
 )
 def create_supplier(payload: SupplierCreate, session: Session = Depends(get_session)) -> SupplierRead:
     duplicate = session.exec(select(Supplier).where(Supplier.name == payload.name.strip())).first()
@@ -3035,7 +3248,7 @@ def create_supplier(payload: SupplierCreate, session: Session = Depends(get_sess
     "/suppliers/{supplier_id}",
     tags=["purchases"],
     response_model=SupplierRead,
-    dependencies=[Depends(require_roles("ADMIN"))],
+    dependencies=[Depends(require_permissions("suppliers.edit"))],
 )
 def update_supplier(
     supplier_id: int,
@@ -3066,7 +3279,7 @@ def update_supplier(
     "/purchases/receipts",
     tags=["purchases"],
     response_model=list[PurchaseReceiptRead],
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("purchases.view"))],
 )
 def list_purchase_receipts(
     supplier_id: int | None = None,
@@ -3089,7 +3302,7 @@ def list_purchase_receipts(
     "/purchases/receipts/{receipt_id}",
     tags=["purchases"],
     response_model=PurchaseReceiptRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("purchases.view"))],
 )
 def get_purchase_receipt(receipt_id: int, session: Session = Depends(get_session)) -> PurchaseReceiptRead:
     receipt = session.get(PurchaseReceipt, receipt_id)
@@ -3103,7 +3316,7 @@ def get_purchase_receipt(receipt_id: int, session: Session = Depends(get_session
     tags=["purchases"],
     status_code=status.HTTP_201_CREATED,
     response_model=PurchaseReceiptRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("purchases.create"))],
 )
 def create_purchase_receipt(
     payload: PurchaseReceiptCreate,
@@ -3621,7 +3834,12 @@ def _map_merma_event(event: MermaEvent, session: Session) -> MermaEventRead:
     )
 
 
-@router.get("/stock-levels", tags=["stock"], response_model=list[StockLevelRead])
+@router.get(
+    "/stock-levels",
+    tags=["stock"],
+    response_model=list[StockLevelRead],
+    dependencies=[Depends(require_permissions("stock.view"))],
+)
 def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLevelRead]:
     stock_levels = session.exec(select(StockLevel)).all()
     return [_map_stock_level(level, session) for level in stock_levels]
@@ -3632,7 +3850,7 @@ def list_stock_levels(session: Session = Depends(get_session)) -> list[StockLeve
     tags=["stock"],
     status_code=status.HTTP_201_CREATED,
     response_model=StockLevelRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "PRODUCTION"))],
+    dependencies=[Depends(require_permissions("stock.register"))],
 )
 def register_stock_movement(
     payload: StockMovementCreate,
@@ -3647,7 +3865,12 @@ def register_stock_movement(
     return _map_stock_level(stock_level, session)
 
 
-@router.get("/stock/movements", tags=["stock"], response_model=StockMovementList)
+@router.get(
+    "/stock/movements",
+    tags=["stock"],
+    response_model=StockMovementList,
+    dependencies=[Depends(require_permissions("stock.view"))],
+)
 def list_stock_movements(
     sku_id: int | None = None,
     deposit_id: int | None = None,
@@ -3764,7 +3987,7 @@ def _replace_inventory_count_items(
     "/inventory-counts",
     tags=["inventory"],
     response_model=list[InventoryCountRead],
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "AUDIT"))],
+    dependencies=[Depends(require_permissions("inventory.view"))],
 )
 def list_inventory_counts(
     status_filter: InventoryCountStatus | None = None,
@@ -3790,7 +4013,7 @@ def list_inventory_counts(
     "/inventory-counts/{count_id}",
     tags=["inventory"],
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE", "AUDIT"))],
+    dependencies=[Depends(require_permissions("inventory.view"))],
 )
 def get_inventory_count(count_id: int, session: Session = Depends(get_session)) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
@@ -3804,7 +4027,7 @@ def get_inventory_count(count_id: int, session: Session = Depends(get_session)) 
     tags=["inventory"],
     status_code=status.HTTP_201_CREATED,
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("inventory.create"))],
 )
 def create_inventory_count(
     payload: InventoryCountCreate,
@@ -3838,7 +4061,7 @@ def create_inventory_count(
     "/inventory-counts/{count_id}",
     tags=["inventory"],
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("inventory.edit"))],
 )
 def update_inventory_count(
     count_id: int,
@@ -3876,7 +4099,7 @@ def update_inventory_count(
     "/inventory-counts/{count_id}/submit",
     tags=["inventory"],
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("inventory.close"))],
 )
 def submit_inventory_count(
     count_id: int,
@@ -3904,7 +4127,7 @@ def submit_inventory_count(
     "/inventory-counts/{count_id}/approve",
     tags=["inventory"],
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("inventory.close"))],
 )
 def approve_inventory_count(
     count_id: int,
@@ -3969,7 +4192,7 @@ def approve_inventory_count(
     "/inventory-counts/{count_id}/close",
     tags=["inventory"],
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("inventory.close"))],
 )
 def close_inventory_count(
     count_id: int,
@@ -3997,7 +4220,7 @@ def close_inventory_count(
     "/inventory-counts/{count_id}/cancel",
     tags=["inventory"],
     response_model=InventoryCountRead,
-    dependencies=[Depends(require_roles("ADMIN", "WAREHOUSE"))],
+    dependencies=[Depends(require_permissions("inventory.close"))],
 )
 def cancel_inventory_count(
     count_id: int,
@@ -4025,7 +4248,7 @@ def cancel_inventory_count(
     "/audit/logs",
     tags=["audit"],
     response_model=list[AuditLogRead],
-    dependencies=[Depends(require_roles("ADMIN", "AUDIT"))],
+    dependencies=[Depends(require_permissions("audit.view"))],
 )
 def list_audit_logs(
     entity_type: str | None = None,
@@ -4052,7 +4275,12 @@ def list_audit_logs(
     return [_map_audit_log(record, session) for record in records]
 
 
-@router.get("/production/lots", tags=["production"], response_model=list[ProductionLotRead])
+@router.get(
+    "/production/lots",
+    tags=["production"],
+    response_model=list[ProductionLotRead],
+    dependencies=[Depends(require_permissions("production.view"))],
+)
 def list_production_lots(
     deposit_id: int | None = None,
     sku_id: int | None = None,
@@ -4079,7 +4307,12 @@ def list_production_lots(
     return [_map_production_lot(lot, session) for lot in lots]
 
 
-@router.get("/production/lots/{lot_id}", tags=["production"], response_model=ProductionLotRead)
+@router.get(
+    "/production/lots/{lot_id}",
+    tags=["production"],
+    response_model=ProductionLotRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
 def get_production_lot(lot_id: int, session: Session = Depends(get_session)) -> ProductionLotRead:
     lot = session.get(ProductionLot, lot_id)
     if not lot:
@@ -4087,7 +4320,13 @@ def get_production_lot(lot_id: int, session: Session = Depends(get_session)) -> 
     return _map_production_lot(lot, session)
 
 
-@router.post("/mermas", tags=["mermas"], status_code=status.HTTP_201_CREATED, response_model=MermaEventRead)
+@router.post(
+    "/mermas",
+    tags=["mermas"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=MermaEventRead,
+    dependencies=[Depends(require_permissions("mermas.report"))],
+)
 def create_merma_event(
     payload: MermaEventCreate,
     session: Session = Depends(get_session),
@@ -4223,7 +4462,12 @@ def create_merma_event(
     return _map_merma_event(event, session)
 
 
-@router.get("/mermas", tags=["mermas"], response_model=list[MermaEventRead])
+@router.get(
+    "/mermas",
+    tags=["mermas"],
+    response_model=list[MermaEventRead],
+    dependencies=[Depends(require_permissions("mermas.view"))],
+)
 def list_merma_events(
     date_from: date | None = None,
     date_to: date | None = None,
@@ -4260,7 +4504,12 @@ def list_merma_events(
     return [_map_merma_event(event, session) for event in events]
 
 
-@router.get("/mermas/{merma_id}", tags=["mermas"], response_model=MermaEventRead)
+@router.get(
+    "/mermas/{merma_id}",
+    tags=["mermas"],
+    response_model=MermaEventRead,
+    dependencies=[Depends(require_permissions("mermas.view"))],
+)
 def get_merma_event(merma_id: int, session: Session = Depends(get_session)) -> MermaEventRead:
     event = session.get(MermaEvent, merma_id)
     if not event:
@@ -4268,7 +4517,12 @@ def get_merma_event(merma_id: int, session: Session = Depends(get_session)) -> M
     return _map_merma_event(event, session)
 
 
-@router.get("/reports/stock-summary", tags=["reports"], response_model=StockReportRead)
+@router.get(
+    "/reports/stock-summary",
+    tags=["reports"],
+    response_model=StockReportRead,
+    dependencies=[Depends(require_permissions("reports.view"))],
+)
 def stock_summary(session: Session = Depends(get_session)) -> StockReportRead:
     stock_levels = session.exec(select(StockLevel)).all()
     totals_by_tag: dict[str, float] = {}
@@ -4304,7 +4558,12 @@ def stock_summary(session: Session = Depends(get_session)) -> StockReportRead:
     )
 
 
-@router.get("/reports/stock-alerts", tags=["reports"], response_model=StockAlertReport)
+@router.get(
+    "/reports/stock-alerts",
+    tags=["reports"],
+    response_model=StockAlertReport,
+    dependencies=[Depends(require_permissions("reports.view"))],
+)
 def stock_alerts_report(
     sku_type_ids: list[int] | None = Query(None),
     deposit_ids: list[int] | None = Query(None),
@@ -4363,7 +4622,12 @@ def stock_alerts_report(
     return StockAlertReport(total=len(items), items=items)
 
 
-@router.get("/reports/stock-expirations", tags=["reports"], response_model=ExpiryReport)
+@router.get(
+    "/reports/stock-expirations",
+    tags=["reports"],
+    response_model=ExpiryReport,
+    dependencies=[Depends(require_permissions("reports.view"))],
+)
 def stock_expirations_report(
     sku_id: int | None = None,
     deposit_id: int | None = None,

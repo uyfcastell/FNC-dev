@@ -1,4 +1,6 @@
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import CheckBoxIcon from "@mui/icons-material/CheckBox";
+import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -15,6 +17,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Checkbox,
   Chip,
   Collapse,
   Divider,
@@ -50,6 +53,8 @@ import {
   deleteMermaType,
   deleteUser,
   Deposit,
+  fetchPermissions,
+  fetchRolePermissions,
   fetchDeposits,
   fetchRecipes,
   fetchRoles,
@@ -87,6 +92,8 @@ import {
   updateSkuStatus,
   updateSupplier,
   updateUser,
+  updateRolePermissions,
+  Permission,
   Role,
   User,
 } from "../lib/api";
@@ -103,7 +110,7 @@ const mermaStageLabel = (stage: MermaStage) => MERMA_STAGE_OPTIONS.find((s) => s
 
 type RecipeFormItem = { component_id: string; quantity: string };
 
-type TabKey = "productos" | "recetas" | "depositos" | "proveedores" | "usuarios" | "catalogos";
+type TabKey = "productos" | "recetas" | "depositos" | "proveedores" | "usuarios" | "catalogos" | "permisos";
 
 export function AdminPage() {
   const [tab, setTab] = useState<TabKey>("productos");
@@ -116,6 +123,9 @@ export function AdminPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [rolePermissions, setRolePermissions] = useState<Record<number, Set<string>>>({});
+  const [savingPermissions, setSavingPermissions] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +261,11 @@ export function AdminPage() {
     () => [...mermaCauses].sort((a, b) => a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code)),
     [mermaCauses]
   );
+  const sortedRoles = useMemo(() => [...roles].sort((a, b) => a.name.localeCompare(b.name)), [roles]);
+  const sortedPermissions = useMemo(
+    () => [...permissions].sort((a, b) => a.category.localeCompare(b.category) || a.action.localeCompare(b.action)),
+    [permissions]
+  );
 
   const matchesSearch = (text: string, search: string) => text.toLowerCase().includes(search.trim().toLowerCase());
 
@@ -305,7 +320,20 @@ export function AdminPage() {
 
   const loadData = async () => {
     try {
-      const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList, mermaTypeList, mermaCauseList, supplierList] = await Promise.all([
+      const [
+        skuList,
+        depositList,
+        recipeList,
+        roleList,
+        userList,
+        unitList,
+        skuTypeList,
+        movementTypeList,
+        mermaTypeList,
+        mermaCauseList,
+        supplierList,
+        permissionList,
+      ] = await Promise.all([
         fetchSkus({ include_inactive: true }),
         fetchDeposits({ include_inactive: true }),
         fetchRecipes({ include_inactive: true }),
@@ -317,6 +345,7 @@ export function AdminPage() {
         fetchMermaTypes({ include_inactive: true }),
         fetchMermaCauses({ include_inactive: true }),
         fetchSuppliers({ include_inactive: true }),
+        fetchPermissions(),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
@@ -329,6 +358,15 @@ export function AdminPage() {
       setMermaTypes(mermaTypeList);
       setMermaCauses(mermaCauseList);
       setSuppliers(supplierList);
+      setPermissions(permissionList);
+
+      const rolePermissionEntries = await Promise.all(
+        roleList.map(async (role) => {
+          const keys = await fetchRolePermissions(role.id);
+          return [role.id, new Set(keys)] as const;
+        })
+      );
+      setRolePermissions(Object.fromEntries(rolePermissionEntries));
 
       const defaultSkuType = skuTypeList.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.find((t) => t.is_active);
       if (defaultSkuType && !skuForm.sku_type_id) {
@@ -344,6 +382,35 @@ export function AdminPage() {
   const resetMessages = () => {
     setSuccess(null);
     setError(null);
+  };
+
+  const toggleRolePermission = (roleId: number, permissionKey: string) => {
+    setRolePermissions((prev) => {
+      const current = new Set(prev[roleId] ?? []);
+      if (current.has(permissionKey)) {
+        current.delete(permissionKey);
+      } else {
+        current.add(permissionKey);
+      }
+      return { ...prev, [roleId]: current };
+    });
+  };
+
+  const saveRolePermissions = async () => {
+    try {
+      setSavingPermissions(true);
+      resetMessages();
+      for (const role of sortedRoles) {
+        const keys = Array.from(rolePermissions[role.id] ?? []);
+        await updateRolePermissions(role.id, { permissions: keys });
+      }
+      setSuccess("Permisos actualizados correctamente.");
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos actualizar los permisos. Reintenta.");
+    } finally {
+      setSavingPermissions(false);
+    }
   };
 
   const handleSkuSubmit = async (event: FormEvent) => {
@@ -631,7 +698,13 @@ export function AdminPage() {
   };
   const toggleExpanded = (setter: Dispatch<SetStateAction<Record<number, boolean>>>, id: number) =>
     setter((prev) => ({ ...prev, [id]: !prev[id] }));
-  const isAdminUser = (user: User | undefined) => (user?.role_name ?? "").toUpperCase() === "ADMIN";
+  const normalizeRoleName = (value: string) =>
+    value
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "");
+  const isAdminUser = (user: User | undefined) =>
+    user?.email?.toLowerCase() === "admin@local" || ["ADMIN", "ADMINISTRACION"].includes(normalizeRoleName(user?.role_name ?? ""));
   const confirmInactivate = () => window.confirm("¿Confirmas inactivar el registro?");
 
   const recipeItemUnit = (componentId: string) => {
@@ -2132,6 +2205,62 @@ export function AdminPage() {
     );
   };
 
+  const renderPermisos = () => (
+    <Stack spacing={2}>
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "stretch", md: "center" }} justifyContent="space-between">
+        <Box>
+          <Typography variant="h6">Matriz de permisos</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Gestioná qué acciones puede realizar cada rol. Los cambios se aplican al guardar.
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          onClick={() => void saveRolePermissions()}
+          disabled={savingPermissions || !sortedRoles.length || !sortedPermissions.length}
+        >
+          {savingPermissions ? "Guardando..." : "Guardar cambios"}
+        </Button>
+      </Stack>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Módulo</TableCell>
+            <TableCell>Acción</TableCell>
+            <TableCell>Descripción</TableCell>
+            {sortedRoles.map((role) => (
+              <TableCell key={role.id} align="center">
+                {role.name}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {sortedPermissions.map((permission) => (
+            <TableRow key={permission.key} hover>
+              <TableCell>{permission.category}</TableCell>
+              <TableCell>{permission.action}</TableCell>
+              <TableCell>{permission.label}</TableCell>
+              {sortedRoles.map((role) => {
+                const checked = rolePermissions[role.id]?.has(permission.key) ?? false;
+                return (
+                  <TableCell key={`${role.id}-${permission.key}`} align="center">
+                    <Checkbox
+                      checked={checked}
+                      onChange={() => toggleRolePermission(role.id, permission.key)}
+                      icon={<CheckBoxOutlineBlankIcon fontSize="small" />}
+                      checkedIcon={<CheckBoxIcon fontSize="small" />}
+                    />
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Stack>
+  );
+
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -2160,6 +2289,7 @@ export function AdminPage() {
           <Tab label="Proveedores" value="proveedores" icon={<LocalMallIcon />} iconPosition="start" />
           <Tab label="Usuarios" value="usuarios" icon={<AdminPanelSettingsIcon />} iconPosition="start" />
           <Tab label="Catálogos" value="catalogos" icon={<LibraryAddIcon />} iconPosition="start" />
+          <Tab label="Permisos" value="permisos" icon={<AdminPanelSettingsIcon />} iconPosition="start" />
         </Tabs>
         <Divider />
         <CardContent>
@@ -2169,6 +2299,7 @@ export function AdminPage() {
           {tab === "proveedores" && renderProveedores()}
           {tab === "usuarios" && renderUsuarios()}
           {tab === "catalogos" && renderCatalogos()}
+          {tab === "permisos" && renderPermisos()}
         </CardContent>
       </Card>
       <Box sx={{ color: "text.secondary", fontSize: 12 }}>

@@ -15,7 +15,7 @@ from .shipment import Shipment, ShipmentItem
 from .sku import Recipe, RecipeItem, SKU, SKUType, SemiConversionRule
 from .merma import MermaCause, MermaEvent, MermaType, ProductionLine
 from .audit import AuditLog
-from .user import Role, User
+from .user import Permission, Role, RolePermission, User
 
 __all__ = [
     "AuditAction",
@@ -53,5 +53,7 @@ __all__ = [
     "SemiConversionRule",
     "AuditLog",
     "Role",
+    "Permission",
+    "RolePermission",
     "User",
 ]
