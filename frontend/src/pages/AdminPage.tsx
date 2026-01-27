@@ -107,6 +107,10 @@ const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
   { value: "ADMINISTRATIVA", label: "Administrativa" },
 ];
 const mermaStageLabel = (stage: MermaStage) => MERMA_STAGE_OPTIONS.find((s) => s.value === stage)?.label ?? stage;
+const LEGACY_ROLE_KEYS = new Set(["ADMIN", "WAREHOUSE", "AUDIT", "SALES", "PRODUCTION"]);
+const normalizeRoleKey = (value?: string | null) => value?.trim().toUpperCase() ?? "";
+const isLegacyRole = (role: Role) =>
+  LEGACY_ROLE_KEYS.has(normalizeRoleKey(role.name)) || LEGACY_ROLE_KEYS.has(normalizeRoleKey(role.code));
 
 type RecipeFormItem = { component_id: string; quantity: string };
 
@@ -261,7 +265,26 @@ export function AdminPage() {
     () => [...mermaCauses].sort((a, b) => a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code)),
     [mermaCauses]
   );
-  const sortedRoles = useMemo(() => [...roles].sort((a, b) => a.name.localeCompare(b.name)), [roles]);
+  const sortedRoles = useMemo(
+    () =>
+      [...roles]
+        .filter((role) => !isLegacyRole(role))
+        .sort((a, b) => {
+          const sortA = typeof a.sort_key === "number" ? a.sort_key : null;
+          const sortB = typeof b.sort_key === "number" ? b.sort_key : null;
+          if (sortA !== null && sortB !== null && sortA !== sortB) {
+            return sortA - sortB;
+          }
+          if (sortA !== null && sortB === null) {
+            return -1;
+          }
+          if (sortA === null && sortB !== null) {
+            return 1;
+          }
+          return a.name.localeCompare(b.name);
+        }),
+    [roles]
+  );
   const sortedPermissions = useMemo(
     () => [...permissions].sort((a, b) => a.category.localeCompare(b.category) || a.action.localeCompare(b.action)),
     [permissions]

@@ -273,6 +273,8 @@ export type Role = {
   id: number;
   name: string;
   description?: string | null;
+  code?: string | null;
+  sort_key?: number | null;
 };
 
 export type Permission = {
