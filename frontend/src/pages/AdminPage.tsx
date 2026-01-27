@@ -2310,22 +2310,30 @@ export function AdminPage() {
         <Table
           size="small"
           sx={{
+            width: "100%",
+            tableLayout: "fixed",
             minWidth: 720,
             "& th, & td": {
               px: 1,
-              py: 0.5,
-              fontSize: 12,
-              whiteSpace: "nowrap",
+              py: 0.75,
             },
           }}
         >
           <TableHead>
             <TableRow>
-              <TableCell>Módulo</TableCell>
-              <TableCell>Acción</TableCell>
-              <TableCell>Descripción</TableCell>
+              <TableCell sx={{ width: 140 }}>Módulo</TableCell>
+              <TableCell sx={{ width: 140 }}>Acción</TableCell>
+              <TableCell sx={{ width: 240 }}>Descripción</TableCell>
               {filteredRoles.map((role) => (
-                <TableCell key={role.id} align="center">
+                <TableCell
+                  key={role.id}
+                  align="center"
+                  sx={{
+                    width: 140,
+                    whiteSpace: "normal",
+                    wordBreak: "break-word",
+                  }}
+                >
                   {role.name}
                 </TableCell>
               ))}
@@ -2334,10 +2342,14 @@ export function AdminPage() {
           <TableBody>
             {filteredPermissions.map((permission) => (
               <TableRow key={permission.key} hover>
-                <TableCell>{permission.category}</TableCell>
-                <TableCell>{permission.action}</TableCell>
-                <TableCell sx={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {permission.label}
+                <TableCell sx={{ width: 140 }}>{permission.category}</TableCell>
+                <TableCell sx={{ width: 140 }}>{permission.action}</TableCell>
+                <TableCell sx={{ width: 240 }}>
+                  <Tooltip title={permission.label} placement="top-start">
+                    <Box component="span" sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {permission.label}
+                    </Box>
+                  </Tooltip>
                 </TableCell>
                 {filteredRoles.map((role) => {
                   const checked = rolePermissions[role.id]?.has(permission.key) ?? false;
