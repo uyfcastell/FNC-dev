@@ -3044,6 +3044,11 @@ def update_supplier(
     update_data = payload.model_dump(exclude_unset=True)
     if "name" in update_data and update_data["name"]:
         update_data["name"] = update_data["name"].strip()
+        duplicate = session.exec(
+            select(Supplier).where(Supplier.name == update_data["name"], Supplier.id != supplier_id)
+        ).first()
+        if duplicate:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un proveedor con ese nombre")
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()

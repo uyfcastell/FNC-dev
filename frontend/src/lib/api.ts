@@ -952,6 +952,10 @@ export async function createSupplier(payload: SupplierPayload): Promise<Supplier
   return apiRequest("/suppliers", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el proveedor");
 }
 
+export async function updateSupplier(id: number, payload: Partial<SupplierPayload>): Promise<Supplier> {
+  return apiRequest(`/suppliers/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el proveedor");
+}
+
 export async function fetchPurchaseReceipts(params?: {
   supplier_id?: number;
   date_from?: string;

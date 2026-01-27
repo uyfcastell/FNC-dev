@@ -5,6 +5,7 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InventoryIcon from "@mui/icons-material/Inventory2";
 import LibraryAddIcon from "@mui/icons-material/LibraryAdd";
+import LocalMallIcon from "@mui/icons-material/LocalMall";
 import RestaurantMenuIcon from "@mui/icons-material/RestaurantMenu";
 import StoreIcon from "@mui/icons-material/Store";
 import {
@@ -41,6 +42,7 @@ import {
   createDeposit,
   createRecipe,
   createSku,
+  createSupplier,
   createUser,
   createMermaCause,
   createMermaType,
@@ -56,6 +58,7 @@ import {
   fetchSkuTypes,
   fetchStockMovementTypes,
   fetchSkus,
+  fetchSuppliers,
   fetchUnits,
   fetchUsers,
   Recipe,
@@ -65,6 +68,7 @@ import {
   MermaType,
   SKUType,
   StockMovementType,
+  Supplier,
   UnitOfMeasure,
   UnitOption,
   createSkuType,
@@ -81,6 +85,7 @@ import {
   updateRecipeStatus,
   updateSku,
   updateSkuStatus,
+  updateSupplier,
   updateUser,
   Role,
   User,
@@ -98,7 +103,7 @@ const mermaStageLabel = (stage: MermaStage) => MERMA_STAGE_OPTIONS.find((s) => s
 
 type RecipeFormItem = { component_id: string; quantity: string };
 
-type TabKey = "productos" | "recetas" | "depositos" | "usuarios" | "catalogos";
+type TabKey = "productos" | "recetas" | "depositos" | "proveedores" | "usuarios" | "catalogos";
 
 export function AdminPage() {
   const [tab, setTab] = useState<TabKey>("productos");
@@ -109,6 +114,7 @@ export function AdminPage() {
   const [mermaCauses, setMermaCauses] = useState<MermaCause[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
@@ -117,17 +123,21 @@ export function AdminPage() {
   const [skuSearch, setSkuSearch] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
   const [depositSearch, setDepositSearch] = useState("");
+  const [supplierSearch, setSupplierSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
   const [showInactiveRecipes, setShowInactiveRecipes] = useState(false);
   const [showInactiveDeposits, setShowInactiveDeposits] = useState(false);
+  const [showInactiveSuppliers, setShowInactiveSuppliers] = useState(false);
   const [expandedSkus, setExpandedSkus] = useState<Record<number, boolean>>({});
   const [expandedRecipes, setExpandedRecipes] = useState<Record<number, boolean>>({});
   const [expandedDeposits, setExpandedDeposits] = useState<Record<number, boolean>>({});
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
+  const [expandedSuppliers, setExpandedSuppliers] = useState<Record<number, boolean>>({});
   const skuCodeRef = useRef<HTMLInputElement>(null);
   const recipeProductRef = useRef<HTMLInputElement>(null);
   const depositNameRef = useRef<HTMLInputElement>(null);
+  const supplierNameRef = useRef<HTMLInputElement>(null);
   const userEmailRef = useRef<HTMLInputElement>(null);
   const skuTypeCodeRef = useRef<HTMLInputElement>(null);
   const movementTypeCodeRef = useRef<HTMLInputElement>(null);
@@ -188,6 +198,15 @@ export function AdminPage() {
       full_name: "",
       password: "",
       role_id: "",
+      is_active: true,
+    }
+  );
+  const [supplierForm, setSupplierForm] = useState<{ id?: number; name: string; tax_id: string; email: string; phone: string; is_active: boolean }>(
+    {
+      name: "",
+      tax_id: "",
+      email: "",
+      phone: "",
       is_active: true,
     }
   );
@@ -271,12 +290,22 @@ export function AdminPage() {
       ),
     [users, userSearch]
   );
+  const filteredSuppliers = useMemo(
+    () =>
+      suppliers.filter((supplier) => {
+        if (!showInactiveSuppliers && !supplier.is_active) return false;
+        return supplierSearch
+          ? matchesSearch(`${supplier.name} ${supplier.tax_id ?? ""} ${supplier.email ?? ""}`, supplierSearch)
+          : true;
+      }),
+    [suppliers, supplierSearch, showInactiveSuppliers]
+  );
   const selectedSkuType = skuForm.sku_type_id ? skuTypeMap.get(Number(skuForm.sku_type_id)) : undefined;
   const isSemiSku = selectedSkuType?.code === "SEMI";
 
   const loadData = async () => {
     try {
-      const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList, mermaTypeList, mermaCauseList] = await Promise.all([
+      const [skuList, depositList, recipeList, roleList, userList, unitList, skuTypeList, movementTypeList, mermaTypeList, mermaCauseList, supplierList] = await Promise.all([
         fetchSkus({ include_inactive: true }),
         fetchDeposits({ include_inactive: true }),
         fetchRecipes({ include_inactive: true }),
@@ -287,6 +316,7 @@ export function AdminPage() {
         fetchStockMovementTypes({ include_inactive: true }),
         fetchMermaTypes({ include_inactive: true }),
         fetchMermaCauses({ include_inactive: true }),
+        fetchSuppliers({ include_inactive: true }),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
@@ -298,6 +328,7 @@ export function AdminPage() {
       setMovementTypes(movementTypeList);
       setMermaTypes(mermaTypeList);
       setMermaCauses(mermaCauseList);
+      setSuppliers(supplierList);
 
       const defaultSkuType = skuTypeList.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.find((t) => t.is_active);
       if (defaultSkuType && !skuForm.sku_type_id) {
@@ -464,6 +495,31 @@ export function AdminPage() {
     }
   };
 
+  const handleSupplierSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const payload = {
+        name: supplierForm.name,
+        tax_id: supplierForm.tax_id || null,
+        email: supplierForm.email || null,
+        phone: supplierForm.phone || null,
+        is_active: supplierForm.is_active,
+      };
+      if (supplierForm.id) {
+        await updateSupplier(supplierForm.id, payload);
+        setSuccess("Proveedor actualizado");
+      } else {
+        await createSupplier(payload);
+        setSuccess("Proveedor creado");
+      }
+      setSupplierForm({ id: undefined, name: "", tax_id: "", email: "", phone: "", is_active: true });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos guardar el proveedor. Revisa duplicados o datos requeridos.");
+    }
+  };
+
   const handleRecipeItemChange = (index: number, field: keyof RecipeFormItem, value: string) => {
     setRecipeForm((prev) => {
       const items = [...prev.items];
@@ -493,6 +549,30 @@ export function AdminPage() {
     });
     setTab("recetas");
     queueScrollToForm(recipeProductRef);
+  };
+
+  const startEditSupplier = (supplier: Supplier) => {
+    setSupplierForm({
+      id: supplier.id,
+      name: supplier.name,
+      tax_id: supplier.tax_id ?? "",
+      email: supplier.email ?? "",
+      phone: supplier.phone ?? "",
+      is_active: supplier.is_active,
+    });
+    setTab("proveedores");
+    queueScrollToForm(supplierNameRef);
+  };
+
+  const toggleSupplierStatus = async (supplier: Supplier) => {
+    try {
+      await updateSupplier(supplier.id, { is_active: !supplier.is_active });
+      setSuccess(`Proveedor ${supplier.is_active ? "desactivado" : "activado"}`);
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos actualizar el estado del proveedor.");
+    }
   };
 
   const startEditSku = (sku: SKU) => {
@@ -1534,6 +1614,155 @@ export function AdminPage() {
     </Grid>
   );
 
+  const renderProveedores = () => (
+    <Grid container spacing={2}>
+      <Grid item xs={12} md={4}>
+        <Card>
+          <CardHeader title={supplierForm.id ? `Editar proveedor #${supplierForm.id}` : "Nuevo proveedor"} avatar={<LocalMallIcon color="primary" />} />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleSupplierSubmit}>
+              <TextField
+                required
+                label="Nombre"
+                value={supplierForm.name}
+                inputRef={supplierNameRef}
+                onChange={(e) => setSupplierForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+              <TextField
+                label="CUIT / Tax ID"
+                value={supplierForm.tax_id}
+                onChange={(e) => setSupplierForm((prev) => ({ ...prev, tax_id: e.target.value }))}
+              />
+              <TextField
+                label="Email"
+                value={supplierForm.email}
+                onChange={(e) => setSupplierForm((prev) => ({ ...prev, email: e.target.value }))}
+              />
+              <TextField
+                label="Teléfono"
+                value={supplierForm.phone}
+                onChange={(e) => setSupplierForm((prev) => ({ ...prev, phone: e.target.value }))}
+              />
+              <TextField
+                select
+                label="Estado"
+                value={supplierForm.is_active ? "activo" : "inactivo"}
+                onChange={(e) => setSupplierForm((prev) => ({ ...prev, is_active: e.target.value === "activo" }))}
+              >
+                <MenuItem value="activo">Activo</MenuItem>
+                <MenuItem value="inactivo">Inactivo</MenuItem>
+              </TextField>
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" variant="contained">
+                  {supplierForm.id ? "Guardar cambios" : "Crear proveedor"}
+                </Button>
+                {supplierForm.id && (
+                  <Button
+                    onClick={() => setSupplierForm({ id: undefined, name: "", tax_id: "", email: "", phone: "", is_active: true })}
+                  >
+                    Cancelar edición
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid item xs={12} md={8}>
+        <Card>
+          <CardHeader title="Proveedores" subheader="Listado y edición" action={<Chip label={`${filteredSuppliers.length} de ${suppliers.length}`} />} />
+          <Divider />
+          <CardContent>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
+              <TextField
+                label="Buscar por nombre, CUIT o email"
+                value={supplierSearch}
+                onChange={(e) => setSupplierSearch(e.target.value)}
+                size="small"
+                sx={{ maxWidth: 320 }}
+              />
+              <FormControlLabel
+                control={<Switch checked={showInactiveSuppliers} onChange={(e) => setShowInactiveSuppliers(e.target.checked)} />}
+                label="Mostrar inactivos"
+              />
+            </Stack>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell />
+                  <TableCell>Proveedor</TableCell>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Teléfono</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredSuppliers.map((supplier) => (
+                  <Fragment key={supplier.id}>
+                    <TableRow hover>
+                      <TableCell>
+                        <Tooltip title={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}>
+                          <IconButton
+                            size="small"
+                            onClick={() =>
+                              setExpandedSuppliers((prev) => ({ ...prev, [supplier.id]: !prev[supplier.id] }))
+                            }
+                          >
+                            {expandedSuppliers[supplier.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell>{supplier.name}</TableCell>
+                      <TableCell>{supplier.email ?? "—"}</TableCell>
+                      <TableCell>{supplier.phone ?? "—"}</TableCell>
+                      <TableCell>{supplier.is_active ? "Activo" : "Inactivo"}</TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditSupplier(supplier)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Button size="small" onClick={() => toggleSupplierStatus(supplier)}>
+                          {supplier.is_active ? "Desactivar" : "Activar"}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ py: 0 }}>
+                        <Collapse in={expandedSuppliers[supplier.id]} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 1 }}>
+                            <Stack spacing={0.5}>
+                              <Typography variant="subtitle2">Detalle</Typography>
+                              <Typography variant="body2">
+                                <strong>ID:</strong> {supplier.id}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>CUIT / Tax ID:</strong> {supplier.tax_id ?? "—"}
+                              </Typography>
+                            </Stack>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
+                ))}
+                {filteredSuppliers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center">
+                      No hay proveedores para mostrar.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </Grid>
+    </Grid>
+  );
+
   const renderRecetas = () => (
     <Grid container spacing={2} alignItems="stretch">
       <Grid item xs={12}>
@@ -1900,6 +2129,7 @@ export function AdminPage() {
           <Tab label="Productos" value="productos" icon={<InventoryIcon />} iconPosition="start" />
           <Tab label="Recetas" value="recetas" icon={<RestaurantMenuIcon />} iconPosition="start" />
           <Tab label="Depósitos" value="depositos" icon={<StoreIcon />} iconPosition="start" />
+          <Tab label="Proveedores" value="proveedores" icon={<LocalMallIcon />} iconPosition="start" />
           <Tab label="Usuarios" value="usuarios" icon={<AdminPanelSettingsIcon />} iconPosition="start" />
           <Tab label="Catálogos" value="catalogos" icon={<LibraryAddIcon />} iconPosition="start" />
         </Tabs>
@@ -1908,12 +2138,13 @@ export function AdminPage() {
           {tab === "productos" && renderProductos()}
           {tab === "recetas" && renderRecetas()}
           {tab === "depositos" && renderDepositos()}
+          {tab === "proveedores" && renderProveedores()}
           {tab === "usuarios" && renderUsuarios()}
           {tab === "catalogos" && renderCatalogos()}
         </CardContent>
       </Card>
       <Box sx={{ color: "text.secondary", fontSize: 12 }}>
-        Pantalla única para altas, bajas y modificaciones de productos, recetas, depósitos, usuarios y catálogos base.
+        Pantalla única para altas, bajas y modificaciones de productos, recetas, depósitos, proveedores, usuarios y catálogos base.
       </Box>
     </Stack>
   );
