@@ -702,8 +702,8 @@ export function OrdersPage() {
                 const isShipmentDisabled = ["draft", "dispatched", "cancelled"].includes(order.status);
                 return (
                   <Card key={order.id} variant="outlined">
-                    <CardContent>
-                      <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
+                    <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                      <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={0.5} alignItems={{ sm: "center" }}>
                         <Box>
                           <Stack spacing={0.5}>
                             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
@@ -765,11 +765,12 @@ export function OrdersPage() {
                             Envío
                           </Button>
                           <Chip size="small" variant="outlined" label={ORDER_STATUS_LABELS[order.status]} />
-                          <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
+                          <Button variant="outlined" size="small" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
                             Editar
                           </Button>
                           <Button
                             color="error"
+                            size="small"
                             onClick={() => handleCancelOrder(order.id)}
                             disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
                           >
