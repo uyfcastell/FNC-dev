@@ -1,3 +1,4 @@
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
@@ -19,11 +20,14 @@ import {
   Typography,
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   createOrder,
   fetchDeposits,
   fetchOrders,
+  fetchShipment,
+  fetchShipments,
   fetchSkus,
   Order,
   OrderItem,
@@ -81,6 +85,7 @@ export function OrdersPage() {
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [requestedByFilter, setRequestedByFilter] = useState("");
+  const [shipmentAccessOrderId, setShipmentAccessOrderId] = useState<number | null>(null);
   const [header, setHeader] = useState<{
     destination_deposit_id: string;
     notes: string;
@@ -107,6 +112,7 @@ export function OrdersPage() {
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
+  const navigate = useNavigate();
   const today = useMemo(() => {
     const current = new Date();
     current.setHours(0, 0, 0, 0);
@@ -348,6 +354,64 @@ export function OrdersPage() {
     }
   };
 
+  const findActiveShipmentForOrder = async (order: Order) => {
+    const shipmentList = await fetchShipments(
+      order.destination_deposit_id ? { deposit_id: order.destination_deposit_id } : undefined,
+    );
+    const candidates = shipmentList.filter(
+      (shipment) =>
+        shipment.status !== "dispatched" &&
+        (!order.destination_deposit_id || shipment.deposit_id === order.destination_deposit_id),
+    );
+    const quickMatch = candidates.find(
+      (shipment) =>
+        shipment.orders?.some((summary) => summary.id === order.id) ||
+        shipment.items?.some((item) => item.order_id === order.id),
+    );
+    if (quickMatch) {
+      return quickMatch.id;
+    }
+    for (const shipment of candidates) {
+      if (shipment.orders || shipment.items) continue;
+      const details = await fetchShipment(shipment.id);
+      if (details.orders?.some((summary) => summary.id === order.id) || details.items?.some((item) => item.order_id === order.id)) {
+        return details.id;
+      }
+    }
+    return null;
+  };
+
+  const handleShipmentAccess = async (order: Order) => {
+    if (!order.destination_deposit_id) {
+      setError("El pedido no tiene un destino definido.");
+      return;
+    }
+    setShipmentAccessOrderId(order.id);
+    try {
+      const existingShipmentId = await findActiveShipmentForOrder(order);
+      if (existingShipmentId) {
+        navigate("/envios", { state: { prefillShipmentId: existingShipmentId } });
+        return;
+      }
+      navigate("/envios", {
+        state: { prefillDepositId: order.destination_deposit_id, prefillOrderId: order.id },
+      });
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos preparar el envío para este pedido.");
+    } finally {
+      setShipmentAccessOrderId(null);
+    }
+  };
+
+  const handleCreateShipmentForDestination = () => {
+    if (!destinationFilter) {
+      setError("Selecciona un destino para crear un envío.");
+      return;
+    }
+    navigate("/envios", { state: { prefillDepositId: Number(destinationFilter) } });
+  };
+
   const renderSection = (section: (typeof ORDER_SECTIONS)[number]) => {
     const sectionLines = lines[section.key];
     const options = optionsForSection(section.key);
@@ -529,6 +593,17 @@ export function OrdersPage() {
           <CardHeader
             title={`Bandeja de pedidos (${filteredOrders.length})`}
             subheader={`Mostrando ${filteredOrders.length} de ${orders.length}`}
+            action={
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<LocalShippingIcon />}
+                disabled={!destinationFilter}
+                onClick={handleCreateShipmentForDestination}
+              >
+                Crear envío para este local
+              </Button>
+            }
           />
           <Divider />
           <CardContent>
@@ -594,6 +669,7 @@ export function OrdersPage() {
               {filteredOrders.map((order) => {
                 const isCancelled = order.status === "cancelled";
                 const isEditable = ["draft", "submitted", "partially_prepared"].includes(order.status);
+                const isShipmentDisabled = ["draft", "dispatched", "cancelled"].includes(order.status);
                 return (
                   <Card key={order.id} variant="outlined">
                     <CardContent>
@@ -632,6 +708,15 @@ export function OrdersPage() {
                           </Stack>
                         </Box>
                         <Stack direction="row" spacing={1} alignItems="center">
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<LocalShippingIcon />}
+                            onClick={() => handleShipmentAccess(order)}
+                            disabled={isShipmentDisabled || shipmentAccessOrderId === order.id}
+                          >
+                            Envío
+                          </Button>
                           <TextField
                             select
                             size="small"
@@ -652,13 +737,13 @@ export function OrdersPage() {
                           <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
                             Editar
                           </Button>
-                        <Button
-                          color="error"
-                          onClick={() => handleCancelOrder(order.id)}
-                          disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
-                        >
-                          Cancelar
-                        </Button>
+                          <Button
+                            color="error"
+                            onClick={() => handleCancelOrder(order.id)}
+                            disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
+                          >
+                            Cancelar
+                          </Button>
                         </Stack>
                       </Stack>
                     </CardContent>
