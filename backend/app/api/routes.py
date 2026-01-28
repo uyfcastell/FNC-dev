@@ -205,6 +205,14 @@ def _normalize_role_name(name: str) -> str:
     )
 
 
+def _validate_sku_alert_thresholds(alert_green_min: float | None, alert_yellow_min: float | None) -> None:
+    if (alert_green_min is None) != (alert_yellow_min is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Las alertas deben configurarse en ambos niveles o en ninguno",
+        )
+
+
 def _is_admin_account(user: User, session: Session) -> bool:
     if user.email.strip().lower() == "admin@local":
         return True
@@ -1620,6 +1628,8 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
     if sku_type.code != SKU_SEMI_CODE:
         units_per_kg = None
 
+    _validate_sku_alert_thresholds(payload.alert_green_min, payload.alert_yellow_min)
+
     sku = SKU(
         code=payload.code,
         name=payload.name,
@@ -1661,6 +1671,10 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
         update_data["unit"] = UnitOfMeasure.KG
     if units_per_kg is None and sku_type.code == SKU_SEMI_CODE:
         units_per_kg = _get_semi_units_per_kg(session, sku_id)
+
+    effective_alert_green_min = update_data["alert_green_min"] if "alert_green_min" in update_data else sku.alert_green_min
+    effective_alert_yellow_min = update_data["alert_yellow_min"] if "alert_yellow_min" in update_data else sku.alert_yellow_min
+    _validate_sku_alert_thresholds(effective_alert_green_min, effective_alert_yellow_min)
 
     for field, value in update_data.items():
         setattr(sku, field, value)
