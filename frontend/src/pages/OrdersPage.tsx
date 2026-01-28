@@ -718,18 +718,30 @@ export function OrdersPage() {
                             {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
                             {order.estimated_delivery_date ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}` : ""}
                           </Typography>
-                          {(order.notes || order.plant_internal_note) && (
-                            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
-                              {order.notes && (
-                                <Typography variant="body2" color="text.secondary">
-                                  Notas: {order.notes}
+                          <Collapse in={expandedOrders[order.id]} timeout="auto" unmountOnExit>
+                            {(order.notes || order.plant_internal_note) && (
+                              <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                                {order.notes && (
+                                  <Typography variant="body2" color="text.secondary">
+                                    Notas: {order.notes}
+                                  </Typography>
+                                )}
+                                {order.plant_internal_note && (
+                                  <Typography variant="body2" color="text.secondary">
+                                    Nota interna de planta: {order.plant_internal_note}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            )}
+                            <Stack spacing={0.5} sx={{ mt: 1 }}>
+                              {order.items.map((item) => (
+                                <Typography key={item.id} variant="body2">
+                                  {skuLabel(item.sku_id)} — {item.quantity}
+                                  {item.current_stock != null && ` (stock: ${item.current_stock})`}
+                                  {(item.prepared_quantity ?? 0) > 0 && ` · En envío: ${item.prepared_quantity}`}
+                                  {(item.dispatched_quantity ?? 0) > 0 && ` · Despachado: ${item.dispatched_quantity}`}
                                 </Typography>
-                              )}
-                              {order.plant_internal_note && (
-                                <Typography variant="body2" color="text.secondary">
-                                  Nota interna de planta: {order.plant_internal_note}
-                                </Typography>
-                              )}
+                              ))}
                             </Stack>
                           )}
                           <Collapse in={expandedOrders[order.id]} timeout="auto" unmountOnExit>
