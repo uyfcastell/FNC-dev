@@ -810,6 +810,11 @@ def _order_locked_by_shipment(session: Session, order_id: int) -> bool:
     return session.exec(statement).first() is not None
 
 
+def _order_has_shipment_assignments(session: Session, order_id: int) -> bool:
+    statement = select(ShipmentItem.id).where(ShipmentItem.order_id == order_id).limit(1)
+    return session.exec(statement).first() is not None
+
+
 def _diff_order_items(before_items: list[dict], after_items: list[dict]) -> dict:
     before_map = {item["sku_id"]: item for item in before_items}
     after_map = {item["sku_id"]: item for item in after_items}
@@ -2232,6 +2237,11 @@ def update_order(
         update_data["requested_by"] = update_data["requested_by"].strip()
     if update_data.get("status"):
         _ensure_order_transition(order, update_data["status"])
+    if update_data.get("status") == OrderStatus.CANCELLED and _order_has_shipment_assignments(session, order.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede cancelar: el pedido ya está incluido en un envío.",
+        )
     for field, value in update_data.items():
         setattr(order, field, value)
     if update_data.get("status") == OrderStatus.CANCELLED:
@@ -2360,6 +2370,11 @@ def update_order_status(
                     detail="El stock actual debe ser un número entero",
                 )
     _ensure_order_transition(order, payload.status)
+    if payload.status == OrderStatus.CANCELLED and _order_has_shipment_assignments(session, order.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede cancelar: el pedido ya está incluido en un envío.",
+        )
     before_status = order.status
     order.status = payload.status
     if payload.status == OrderStatus.CANCELLED:
