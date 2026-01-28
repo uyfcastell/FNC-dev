@@ -165,7 +165,6 @@ export function MobileOrdersPage() {
     return statusFilter === "all" ? base.slice(0, 3) : base;
   }, [orders, statusFilter]);
 
-  const totalUnits = (order: Order) => order.items.reduce((sum, item) => sum + (item.quantity ?? 0), 0);
   const today = useMemo(() => {
     const current = new Date();
     current.setHours(0, 0, 0, 0);
@@ -521,7 +520,7 @@ export function MobileOrdersPage() {
                           <Chip label={ORDER_STATUS_LABELS[order.status]} color={statusColor(order.status)} />
                         </Stack>
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
-                          {formatDate(order.created_at)} · Ítems {order.items.length} · Unidades {totalUnits(order)}
+                          {formatDate(order.created_at)} · Ítems {order.items.length}
                           {order.estimated_delivery_date ? ` · Entrega est.: ${formatDate(order.estimated_delivery_date)}` : ""}
                         </Typography>
                       </CardContent>
@@ -572,7 +571,7 @@ export function MobileOrdersPage() {
                         <CardContent>
                           <Stack direction="row" justifyContent="space-between" alignItems="center">
                             <Typography sx={{ fontWeight: 700 }}>{item.sku_name ?? `SKU ${item.sku_id}`}</Typography>
-                            <Badge color="primary" badgeContent={item.quantity} />
+                            <Badge color="primary" badgeContent={item.quantity} max={9999} />
                           </Stack>
                           <Typography variant="body2" color="text.secondary">
                             Código: {item.sku_code ?? item.sku_id}
@@ -684,7 +683,7 @@ export function MobileOrdersPage() {
                 <Button variant="contained" color="secondary" startIcon={<SendIcon />} onClick={sendOrder}>
                   Enviar pedido
                 </Button>
-                {editingOrderId && editingOrderId > 0 && (
+                {editingOrderId !== null && editingOrderId > 0 && (
                   <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={() => cancelOrder(editingOrderId)}>
                     Cancelar pedido
                   </Button>
