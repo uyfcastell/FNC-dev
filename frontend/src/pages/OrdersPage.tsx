@@ -9,6 +9,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Chip,
   Divider,
   Grid,
   IconButton,
@@ -33,6 +34,7 @@ import {
   OrderItem,
   OrderStatus,
   Deposit,
+  Shipment,
   SKU,
   updateOrder,
   updateOrderStatus,
@@ -331,17 +333,6 @@ export function OrdersPage() {
     setTab("ingreso");
   };
 
-  const handleStatusChange = async (orderId: number, status: OrderStatus) => {
-    try {
-      await updateOrderStatus(orderId, status);
-      await loadData();
-      setSuccess("Estado actualizado");
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos actualizar el estado");
-    }
-  };
-
   const handleCancelOrder = async (orderId: number) => {
     if (!window.confirm("¿Cancelar el pedido?")) return;
     try {
@@ -354,15 +345,7 @@ export function OrdersPage() {
     }
   };
 
-  const findActiveShipmentForOrder = async (order: Order) => {
-    const shipmentList = await fetchShipments(
-      order.destination_deposit_id ? { deposit_id: order.destination_deposit_id } : undefined,
-    );
-    const candidates = shipmentList.filter(
-      (shipment) =>
-        shipment.status !== "dispatched" &&
-        (!order.destination_deposit_id || shipment.deposit_id === order.destination_deposit_id),
-    );
+  const findShipmentForOrder = async (order: Order, candidates: Shipment[]) => {
     const quickMatch = candidates.find(
       (shipment) =>
         shipment.orders?.some((summary) => summary.id === order.id) ||
@@ -381,6 +364,30 @@ export function OrdersPage() {
     return null;
   };
 
+  const findDraftShipmentForOrder = async (order: Order) => {
+    const shipmentList = await fetchShipments(
+      order.destination_deposit_id ? { deposit_id: order.destination_deposit_id } : undefined,
+    );
+    const candidates = shipmentList.filter(
+      (shipment) =>
+        shipment.status === "draft" &&
+        (!order.destination_deposit_id || shipment.deposit_id === order.destination_deposit_id),
+    );
+    return findShipmentForOrder(order, candidates);
+  };
+
+  const findAssociatedShipmentForOrder = async (order: Order) => {
+    const shipmentList = await fetchShipments(
+      order.destination_deposit_id ? { deposit_id: order.destination_deposit_id } : undefined,
+    );
+    const candidates = shipmentList.filter(
+      (shipment) =>
+        shipment.status !== "draft" &&
+        (!order.destination_deposit_id || shipment.deposit_id === order.destination_deposit_id),
+    );
+    return findShipmentForOrder(order, candidates);
+  };
+
   const handleShipmentAccess = async (order: Order) => {
     if (!order.destination_deposit_id) {
       setError("El pedido no tiene un destino definido.");
@@ -388,9 +395,14 @@ export function OrdersPage() {
     }
     setShipmentAccessOrderId(order.id);
     try {
-      const existingShipmentId = await findActiveShipmentForOrder(order);
-      if (existingShipmentId) {
-        navigate("/envios", { state: { prefillShipmentId: existingShipmentId } });
+      const draftShipmentId = await findDraftShipmentForOrder(order);
+      if (draftShipmentId) {
+        navigate("/envios", { state: { prefillShipmentId: draftShipmentId } });
+        return;
+      }
+      const associatedShipmentId = await findAssociatedShipmentForOrder(order);
+      if (associatedShipmentId) {
+        navigate(`/envios/${associatedShipmentId}`);
         return;
       }
       navigate("/envios", {
@@ -717,23 +729,7 @@ export function OrdersPage() {
                           >
                             Envío
                           </Button>
-                          <TextField
-                            select
-                            size="small"
-                            label="Estado"
-                            value={order.status}
-                            onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
-                            disabled={
-                              isCancelled ||
-                              ["prepared", "partially_prepared", "partially_dispatched", "dispatched"].includes(order.status)
-                            }
-                          >
-                            {Object.entries(ORDER_STATUS_LABELS).map(([status, label]) => (
-                              <MenuItem key={status} value={status}>
-                                {label}
-                              </MenuItem>
-                            ))}
-                          </TextField>
+                          <Chip size="small" variant="outlined" label={ORDER_STATUS_LABELS[order.status]} />
                           <Button variant="outlined" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
                             Editar
                           </Button>
