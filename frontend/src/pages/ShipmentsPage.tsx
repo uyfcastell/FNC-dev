@@ -21,7 +21,8 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import {
   addOrdersToShipment,
@@ -81,6 +82,38 @@ export function ShipmentsPage() {
   const [expandedShipmentId, setExpandedShipmentId] = useState<number | null>(null);
   const [shipmentDetails, setShipmentDetails] = useState<Record<number, Shipment>>({});
   const [detailLoadingIds, setDetailLoadingIds] = useState<Set<number>>(new Set());
+  const [prefillOrderId, setPrefillOrderId] = useState<number | null>(null);
+  const location = useLocation();
+  const lastPrefillKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const state = (location.state as { prefillDepositId?: number; prefillOrderId?: number; prefillShipmentId?: number } | null) ?? null;
+    if (!state || lastPrefillKeyRef.current === location.key) {
+      return;
+    }
+    lastPrefillKeyRef.current = location.key;
+    if (state.prefillShipmentId) {
+      void handleEditShipment(state.prefillShipmentId);
+      return;
+    }
+    if (state.prefillDepositId) {
+      setTab("crear");
+      setSelectedDepositId(String(state.prefillDepositId));
+      setPrefillOrderId(state.prefillOrderId ?? null);
+      if (!state.prefillOrderId) {
+        setSelectedOrderIds(new Set());
+        setQuantities({});
+      }
+    }
+  }, [location.key, location.state]);
+
+  useEffect(() => {
+    if (!prefillOrderId) return;
+    if (orders.some((order) => order.id === prefillOrderId)) {
+      setSelectedOrderIds(new Set([prefillOrderId]));
+      setPrefillOrderId(null);
+    }
+  }, [orders, prefillOrderId]);
 
   useEffect(() => {
     void loadCatalog();
