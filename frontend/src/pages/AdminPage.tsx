@@ -133,18 +133,18 @@ export function AdminPage() {
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [skuSearch, setSkuSearch] = useState("");
-  const [skuCodeSearch, setSkuCodeSearch] = useState("");
-  const [skuTypeSearch, setSkuTypeSearch] = useState("");
-  const [skuUnitSearch, setSkuUnitSearch] = useState("");
-  const [skuAlertSearch, setSkuAlertSearch] = useState("");
-  const [recipeSearch, setRecipeSearch] = useState("");
-  const [recipeProductSearch, setRecipeProductSearch] = useState("");
-  const [recipeIngredientSearch, setRecipeIngredientSearch] = useState("");
+  const [skuNameFilter, setSkuNameFilter] = useState("");
+  const [skuCodeFilter, setSkuCodeFilter] = useState("");
+  const [skuTypeFilter, setSkuTypeFilter] = useState("");
+  const [skuUnitFilter, setSkuUnitFilter] = useState("");
+  const [skuAlertFilter, setSkuAlertFilter] = useState<"todos" | "con_alerta" | "sin_alerta">("todos");
+  const [recipeNameFilter, setRecipeNameFilter] = useState("");
+  const [recipeProductFilter, setRecipeProductFilter] = useState("");
+  const [recipeIngredientFilter, setRecipeIngredientFilter] = useState("");
   const [depositSearch, setDepositSearch] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
-  const [userSearch, setUserSearch] = useState("");
-  const [userRoleSearch, setUserRoleSearch] = useState("");
+  const [userNameFilter, setUserNameFilter] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState<"todos" | "activos" | "inactivos">("todos");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
   const [showInactiveRecipes, setShowInactiveRecipes] = useState(false);
@@ -311,42 +311,65 @@ export function AdminPage() {
 
   const filteredSkus = useMemo(
     () =>
-      sortedSkus.filter(
-        (sku) =>
-          (showInactiveSkus || sku.is_active) &&
-          (!skuSearch || matchesSearch(sku.name, skuSearch)) &&
-          (!skuCodeSearch || matchesSearch(sku.code, skuCodeSearch)) &&
-          (!skuTypeSearch || matchesSearch(`${sku.sku_type_code} ${sku.sku_type_label}`, skuTypeSearch)) &&
-          (!skuUnitSearch || matchesSearch(unitLabel(sku.unit), skuUnitSearch)) &&
-          (!skuAlertSearch || matchesSearch(skuAlertSummary(sku), skuAlertSearch))
-      ),
-    [sortedSkus, showInactiveSkus, skuSearch, skuCodeSearch, skuTypeSearch, skuUnitSearch, skuAlertSearch, units]
+      sortedSkus.filter((sku) => {
+        if (!showInactiveSkus && !sku.is_active) return false;
+        if (skuNameFilter && sku.name !== skuNameFilter) return false;
+        if (skuCodeFilter && sku.code !== skuCodeFilter) return false;
+        if (skuTypeFilter && String(sku.sku_type_id ?? "") !== skuTypeFilter) return false;
+        if (skuUnitFilter && sku.unit !== skuUnitFilter) return false;
+        if (skuAlertFilter === "con_alerta" && sku.alert_green_min == null && sku.alert_yellow_min == null) return false;
+        if (skuAlertFilter === "sin_alerta" && (sku.alert_green_min != null || sku.alert_yellow_min != null)) return false;
+        return true;
+      }),
+    [sortedSkus, showInactiveSkus, skuNameFilter, skuCodeFilter, skuTypeFilter, skuUnitFilter, skuAlertFilter]
   );
   const recipeComponents = useMemo(
     () => sortedSkus.filter((sku) => RECIPE_PRODUCT_CODES.includes(sku.sku_type_code) && sku.is_active),
     [sortedSkus]
   );
+  const skuNameOptions = useMemo(
+    () => Array.from(new Set(sortedSkus.map((sku) => sku.name))).sort((a, b) => a.localeCompare(b)),
+    [sortedSkus]
+  );
+  const skuCodeOptions = useMemo(
+    () => Array.from(new Set(sortedSkus.map((sku) => sku.code))).sort((a, b) => a.localeCompare(b)),
+    [sortedSkus]
+  );
+  const skuTypeOptions = useMemo(
+    () => [...skuTypes].sort((a, b) => a.code.localeCompare(b.code)),
+    [skuTypes]
+  );
+  const unitOptions = useMemo(
+    () => [...units].sort((a, b) => a.label.localeCompare(b.label)),
+    [units]
+  );
+  const recipeNameOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          recipes
+            .map((recipe) => recipe.name)
+            .filter((name): name is string => Boolean(name && name.trim()))
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [recipes]
+  );
+  const userNameOptions = useMemo(
+    () => Array.from(new Set(users.map((user) => user.full_name))).sort((a, b) => a.localeCompare(b)),
+    [users]
+  );
   const filteredRecipes = useMemo(
     () =>
       recipes.filter((recipe) => {
         if (!showInactiveRecipes && !recipe.is_active) return false;
-        if (recipeSearch && !matchesSearch(recipe.name ?? "", recipeSearch)) return false;
-        const product = skuMap.get(recipe.product_id);
-        if (recipeProductSearch && !matchesSearch(`${product?.name ?? ""} ${product?.code ?? ""}`, recipeProductSearch)) {
+        if (recipeNameFilter && recipe.name !== recipeNameFilter) return false;
+        if (recipeProductFilter && String(recipe.product_id) !== recipeProductFilter) return false;
+        if (recipeIngredientFilter && !recipe.items.some((item) => String(item.component_id) === recipeIngredientFilter)) {
           return false;
-        }
-        if (recipeIngredientSearch) {
-          const ingredientText = recipe.items
-            .map((item) => {
-              const component = skuMap.get(item.component_id);
-              return `${item.component_name ?? component?.name ?? ""} ${component?.code ?? ""}`;
-            })
-            .join(" ");
-          if (!matchesSearch(ingredientText, recipeIngredientSearch)) return false;
         }
         return true;
       }),
-    [recipes, recipeSearch, recipeProductSearch, recipeIngredientSearch, skuMap, showInactiveRecipes]
+    [recipes, recipeNameFilter, recipeProductFilter, recipeIngredientFilter, showInactiveRecipes]
   );
   const filteredDeposits = useMemo(
     () =>
@@ -359,13 +382,16 @@ export function AdminPage() {
   const filteredUsers = useMemo(
     () =>
       users.filter((user) => {
-        if (userSearch && !matchesSearch(user.full_name, userSearch)) return false;
-        if (userRoleSearch && !matchesSearch(user.role_name ?? "", userRoleSearch)) return false;
+        if (userNameFilter && user.full_name !== userNameFilter) return false;
+        if (userRoleFilter) {
+          if (userRoleFilter === "sin_rol" && user.role_id != null) return false;
+          if (userRoleFilter !== "sin_rol" && String(user.role_id ?? "") !== userRoleFilter) return false;
+        }
         if (userStatusFilter === "activos" && !user.is_active) return false;
         if (userStatusFilter === "inactivos" && user.is_active) return false;
         return true;
       }),
-    [users, userSearch, userRoleSearch, userStatusFilter]
+    [users, userNameFilter, userRoleFilter, userStatusFilter]
   );
   const filteredSuppliers = useMemo(
     () =>
@@ -1143,40 +1169,77 @@ export function AdminPage() {
             >
               <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap" useFlexGap>
                 <TextField
+                  select
                   label="Nombre"
-                  value={skuSearch}
-                  onChange={(e) => setSkuSearch(e.target.value)}
+                  value={skuNameFilter}
+                  onChange={(e) => setSkuNameFilter(e.target.value)}
+                  size="small"
+                  sx={{ width: 220 }}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {skuNameOptions.map((name) => (
+                    <MenuItem key={name} value={name}>
+                      {name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Código"
+                  value={skuCodeFilter}
+                  onChange={(e) => setSkuCodeFilter(e.target.value)}
+                  size="small"
+                  sx={{ width: 180 }}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {skuCodeOptions.map((code) => (
+                    <MenuItem key={code} value={code}>
+                      {code}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Tipo"
+                  value={skuTypeFilter}
+                  onChange={(e) => setSkuTypeFilter(e.target.value)}
                   size="small"
                   sx={{ width: 200 }}
-                />
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {skuTypeOptions.map((type) => (
+                    <MenuItem key={type.id} value={String(type.id)}>
+                      {type.code} — {type.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <TextField
-                  label="Código"
-                  value={skuCodeSearch}
-                  onChange={(e) => setSkuCodeSearch(e.target.value)}
-                  size="small"
-                  sx={{ width: 160 }}
-                />
-                <TextField
-                  label="Tipo"
-                  value={skuTypeSearch}
-                  onChange={(e) => setSkuTypeSearch(e.target.value)}
-                  size="small"
-                  sx={{ width: 180 }}
-                />
-                <TextField
+                  select
                   label="Unidad"
-                  value={skuUnitSearch}
-                  onChange={(e) => setSkuUnitSearch(e.target.value)}
-                  size="small"
-                  sx={{ width: 160 }}
-                />
-                <TextField
-                  label="Alerta"
-                  value={skuAlertSearch}
-                  onChange={(e) => setSkuAlertSearch(e.target.value)}
+                  value={skuUnitFilter}
+                  onChange={(e) => setSkuUnitFilter(e.target.value)}
                   size="small"
                   sx={{ width: 180 }}
-                />
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {unitOptions.map((unit) => (
+                    <MenuItem key={unit.code} value={unit.code}>
+                      {unit.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  label="Alerta"
+                  value={skuAlertFilter}
+                  onChange={(e) => setSkuAlertFilter(e.target.value as "todos" | "con_alerta" | "sin_alerta")}
+                  size="small"
+                  sx={{ width: 180 }}
+                >
+                  <MenuItem value="todos">Todos</MenuItem>
+                  <MenuItem value="con_alerta">Con alerta</MenuItem>
+                  <MenuItem value="sin_alerta">Sin alerta</MenuItem>
+                </TextField>
               </Stack>
               <FormControlLabel
                 control={<Switch checked={showInactiveSkus} onChange={(e) => setShowInactiveSkus(e.target.checked)} />}
@@ -2042,26 +2105,50 @@ export function AdminPage() {
             >
               <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap" useFlexGap>
                 <TextField
+                  select
                   label="Nombre receta"
-                  value={recipeSearch}
-                  onChange={(e) => setRecipeSearch(e.target.value)}
+                  value={recipeNameFilter}
+                  onChange={(e) => setRecipeNameFilter(e.target.value)}
                   size="small"
-                  sx={{ width: 200 }}
-                />
+                  sx={{ width: 220 }}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {recipeNameOptions.map((name) => (
+                    <MenuItem key={name} value={name}>
+                      {name}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <TextField
+                  select
                   label="Producto"
-                  value={recipeProductSearch}
-                  onChange={(e) => setRecipeProductSearch(e.target.value)}
+                  value={recipeProductFilter}
+                  onChange={(e) => setRecipeProductFilter(e.target.value)}
                   size="small"
-                  sx={{ width: 200 }}
-                />
+                  sx={{ width: 220 }}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {recipeComponents.map((sku) => (
+                    <MenuItem key={sku.id} value={String(sku.id)}>
+                      {skuLabel(sku)}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <TextField
+                  select
                   label="Ingrediente"
-                  value={recipeIngredientSearch}
-                  onChange={(e) => setRecipeIngredientSearch(e.target.value)}
+                  value={recipeIngredientFilter}
+                  onChange={(e) => setRecipeIngredientFilter(e.target.value)}
                   size="small"
-                  sx={{ width: 200 }}
-                />
+                  sx={{ width: 220 }}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {recipeComponents.map((sku) => (
+                    <MenuItem key={sku.id} value={String(sku.id)}>
+                      {skuLabel(sku)}
+                    </MenuItem>
+                  ))}
+                </TextField>
               </Stack>
               <FormControlLabel
                 control={<Switch checked={showInactiveRecipes} onChange={(e) => setShowInactiveRecipes(e.target.checked)} />}
@@ -2229,19 +2316,36 @@ export function AdminPage() {
           <CardContent>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
               <TextField
+                select
                 label="Nombre"
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
+                value={userNameFilter}
+                onChange={(e) => setUserNameFilter(e.target.value)}
                 size="small"
-                sx={{ width: 200 }}
-              />
+                sx={{ width: 220 }}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {userNameOptions.map((name) => (
+                  <MenuItem key={name} value={name}>
+                    {name}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
+                select
                 label="Rol"
-                value={userRoleSearch}
-                onChange={(e) => setUserRoleSearch(e.target.value)}
+                value={userRoleFilter}
+                onChange={(e) => setUserRoleFilter(e.target.value)}
                 size="small"
-                sx={{ width: 200 }}
-              />
+                sx={{ width: 220 }}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                <MenuItem value="sin_rol">Sin rol</MenuItem>
+                {roles.map((role) => (
+                  <MenuItem key={role.id} value={String(role.id)}>
+                    {role.name}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
                 select
                 label="Estado"
