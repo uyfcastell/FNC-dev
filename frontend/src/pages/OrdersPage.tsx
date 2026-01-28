@@ -274,6 +274,7 @@ export function OrdersPage() {
       if (editingId) {
         await updateOrder(editingId, payload);
         setSuccess("Pedido actualizado");
+        setTab("bandeja");
       } else {
         await createOrder(payload);
         setSuccess("Pedido creado");
@@ -321,6 +322,7 @@ export function OrdersPage() {
       plant_internal_note: order.plant_internal_note || "",
     });
     setLines(filledLines);
+    setTab("ingreso");
   };
 
   const handleStatusChange = async (orderId: number, status: OrderStatus) => {
@@ -604,6 +606,20 @@ export function OrdersPage() {
                             {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
                             {order.estimated_delivery_date ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}` : ""}
                           </Typography>
+                          {(order.notes || order.plant_internal_note) && (
+                            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                              {order.notes && (
+                                <Typography variant="body2" color="text.secondary">
+                                  Notas: {order.notes}
+                                </Typography>
+                              )}
+                              {order.plant_internal_note && (
+                                <Typography variant="body2" color="text.secondary">
+                                  Nota interna de planta: {order.plant_internal_note}
+                                </Typography>
+                              )}
+                            </Stack>
+                          )}
                           <Stack spacing={0.5} sx={{ mt: 1 }}>
                             {order.items.map((item) => (
                               <Typography key={item.id} variant="body2">
