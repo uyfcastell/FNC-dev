@@ -308,6 +308,14 @@ export function AdminPage() {
   );
 
   const matchesSearch = (text: string, search: string) => text.toLowerCase().includes(search.trim().toLowerCase());
+  const skuLabel = (sku: SKU) => `${sku.name} (${sku.code})`;
+  const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label || unitCode || "";
+  const skuAlertSummary = (sku: SKU) => {
+    const parts: string[] = [];
+    if (sku.alert_green_min != null) parts.push(`Verde >= ${sku.alert_green_min}`);
+    if (sku.alert_yellow_min != null) parts.push(`Amarillo >= ${sku.alert_yellow_min}`);
+    return parts.length ? parts.join(" · ") : "Sin alerta";
+  };
 
   const filteredSkus = useMemo(
     () =>
@@ -769,15 +777,6 @@ export function AdminPage() {
       is_active: user.is_active,
     });
     queueScrollToForm(userEmailRef);
-  };
-
-  const skuLabel = (sku: SKU) => `${sku.name} (${sku.code})`;
-  const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label || unitCode || "";
-  const skuAlertSummary = (sku: SKU) => {
-    const parts: string[] = [];
-    if (sku.alert_green_min != null) parts.push(`Verde >= ${sku.alert_green_min}`);
-    if (sku.alert_yellow_min != null) parts.push(`Amarillo >= ${sku.alert_yellow_min}`);
-    return parts.length ? parts.join(" · ") : "Sin alerta";
   };
   const toggleExpanded = (setter: Dispatch<SetStateAction<Record<number, boolean>>>, id: number) =>
     setter((prev) => ({ ...prev, [id]: !prev[id] }));
