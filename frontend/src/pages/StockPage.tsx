@@ -210,7 +210,6 @@ export function StockPage() {
     const parts = [
       row.alert_green_min != null ? `Verde >= ${row.alert_green_min}` : null,
       row.alert_yellow_min != null ? `Amarillo >= ${row.alert_yellow_min}` : null,
-      row.alert_red_max != null ? `Rojo <= ${row.alert_red_max}` : null,
     ].filter(Boolean);
     return parts.length ? parts.join(" · ") : "Sin umbrales configurados";
   };

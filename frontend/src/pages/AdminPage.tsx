@@ -168,7 +168,6 @@ export function AdminPage() {
     is_active: boolean;
     alert_green_min?: number | "";
     alert_yellow_min?: number | "";
-    alert_red_max?: number | "";
   }>(
     {
       code: "",
@@ -180,7 +179,6 @@ export function AdminPage() {
       is_active: true,
       alert_green_min: "",
       alert_yellow_min: "",
-      alert_red_max: "",
     }
   );
   const [depositForm, setDepositForm] = useState<{
@@ -467,24 +465,23 @@ export function AdminPage() {
       }
       const alertGreen = skuForm.alert_green_min === "" ? null : Number(skuForm.alert_green_min);
       const alertYellow = skuForm.alert_yellow_min === "" ? null : Number(skuForm.alert_yellow_min);
-      const alertRed = skuForm.alert_red_max === "" ? null : Number(skuForm.alert_red_max);
-      if ([alertGreen, alertYellow, alertRed].some((value) => value !== null && Number.isNaN(value))) {
+      if ([alertGreen, alertYellow].some((value) => value !== null && Number.isNaN(value))) {
         setError("Los umbrales de alerta deben ser numéricos");
         return;
       }
-      if ([alertGreen, alertYellow, alertRed].some((value) => value !== null && value < 0)) {
+      if ([alertGreen, alertYellow].some((value) => value !== null && value < 0)) {
         setError("Los umbrales de alerta no pueden ser negativos");
+        return;
+      }
+      if ((alertGreen === null) !== (alertYellow === null)) {
+        setError("Configura ambos umbrales de alerta (verde y amarillo)");
         return;
       }
       if (alertGreen !== null && alertYellow !== null && alertYellow >= alertGreen) {
         setError("El umbral amarillo debe ser menor al verde");
         return;
       }
-      if (alertRed !== null && alertYellow !== null && alertRed > alertYellow) {
-        setError("El umbral rojo debe ser menor o igual al amarillo");
-        return;
-      }
-      const { id, units_per_kg, alert_green_min, alert_yellow_min, alert_red_max, ...rest } = skuForm;
+      const { id, units_per_kg, alert_green_min, alert_yellow_min, ...rest } = skuForm;
       const payload = {
         ...rest,
         unit: isSemi ? "kg" : skuForm.unit,
@@ -494,7 +491,6 @@ export function AdminPage() {
         is_active: skuForm.is_active,
         alert_green_min: alertGreen,
         alert_yellow_min: alertYellow,
-        alert_red_max: alertRed,
       };
       if (skuForm.id) {
         await updateSku(skuForm.id, payload);
@@ -514,7 +510,6 @@ export function AdminPage() {
         is_active: true,
         alert_green_min: "",
         alert_yellow_min: "",
-        alert_red_max: "",
       });
       await loadData();
     } catch (err) {
@@ -694,7 +689,6 @@ export function AdminPage() {
       is_active: sku.is_active,
       alert_green_min: sku.alert_green_min ?? "",
       alert_yellow_min: sku.alert_yellow_min ?? "",
-      alert_red_max: sku.alert_red_max ?? "",
     });
     queueScrollToForm(skuCodeRef);
   };
@@ -727,7 +721,6 @@ export function AdminPage() {
     const parts: string[] = [];
     if (sku.alert_green_min != null) parts.push(`Verde >= ${sku.alert_green_min}`);
     if (sku.alert_yellow_min != null) parts.push(`Amarillo >= ${sku.alert_yellow_min}`);
-    if (sku.alert_red_max != null) parts.push(`Rojo <= ${sku.alert_red_max}`);
     return parts.length ? parts.join(" · ") : "Sin alerta";
   };
   const toggleExpanded = (setter: Dispatch<SetStateAction<Record<number, boolean>>>, id: number) =>
@@ -1067,14 +1060,6 @@ export function AdminPage() {
                   onChange={(e) => setSkuForm((prev) => ({ ...prev, alert_yellow_min: e.target.value === "" ? "" : Number(e.target.value) }))}
                   helperText="Opcional. Ej: 20"
                 />
-                <TextField
-                  label="Umbral rojo (<=)"
-                  type="number"
-                  inputProps={{ min: "0", step: "0.01" }}
-                  value={skuForm.alert_red_max}
-                  onChange={(e) => setSkuForm((prev) => ({ ...prev, alert_red_max: e.target.value === "" ? "" : Number(e.target.value) }))}
-                  helperText="Opcional. Si se define amarillo, rojo suele coincidir con ese valor."
-                />
               </Stack>
               <FormControlLabel
                 control={<Switch checked={skuForm.is_active} onChange={(e) => setSkuForm((prev) => ({ ...prev, is_active: e.target.checked }))} />}
@@ -1099,7 +1084,6 @@ export function AdminPage() {
                         is_active: true,
                         alert_green_min: "",
                         alert_yellow_min: "",
-                        alert_red_max: "",
                       });
                     }}
                   >

@@ -354,7 +354,6 @@ export function ReportsPage() {
                           {[
                             row.alert_green_min != null ? `Verde >= ${row.alert_green_min}` : null,
                             row.alert_yellow_min != null ? `Amarillo >= ${row.alert_yellow_min}` : null,
-                            row.alert_red_max != null ? `Rojo <= ${row.alert_red_max}` : null,
                           ]
                             .filter(Boolean)
                             .join(" · ") || "Sin alerta"}
