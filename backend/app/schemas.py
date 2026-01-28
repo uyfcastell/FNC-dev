@@ -43,7 +43,6 @@ class SKUBase(SQLModel):
     units_per_kg: float | None = None  # Solo aplica a SEMI; base kg
     alert_green_min: float | None = None
     alert_yellow_min: float | None = None
-    alert_red_max: float | None = None
 
 
 class SKUCreate(SKUBase):
@@ -59,7 +58,6 @@ class SKUUpdate(SQLModel):
     units_per_kg: float | None = None
     alert_green_min: float | None = None
     alert_yellow_min: float | None = None
-    alert_red_max: float | None = None
 
 
 class SKURead(SKUBase):
@@ -177,7 +175,6 @@ class StockLevelRead(SQLModel):
     alert_status: str | None = None
     alert_green_min: float | None = None
     alert_yellow_min: float | None = None
-    alert_red_max: float | None = None
 
 
 class StockAlertRead(SQLModel):
@@ -194,7 +191,6 @@ class StockAlertRead(SQLModel):
     alert_status: str
     alert_green_min: float | None = None
     alert_yellow_min: float | None = None
-    alert_red_max: float | None = None
 
 
 class StockAlertReport(SQLModel):

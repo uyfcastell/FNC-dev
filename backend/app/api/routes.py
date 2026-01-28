@@ -454,20 +454,19 @@ def _map_sku(sku: SKU, session: Session) -> SKURead:
         is_active=sku.is_active,
         alert_green_min=sku.alert_green_min,
         alert_yellow_min=sku.alert_yellow_min,
-        alert_red_max=sku.alert_red_max,
     )
 
 
 def _has_alert_thresholds(sku: SKU) -> bool:
-    return any(value is not None for value in (sku.alert_green_min, sku.alert_yellow_min, sku.alert_red_max))
+    return sku.alert_green_min is not None and sku.alert_yellow_min is not None
 
 
 def _get_stock_alert_status(quantity: float, sku: SKU) -> str:
-    if sku.alert_green_min is not None and quantity >= sku.alert_green_min:
+    if sku.alert_green_min is not None and sku.alert_yellow_min is not None and quantity >= sku.alert_green_min:
         return "green"
-    if sku.alert_yellow_min is not None and quantity >= sku.alert_yellow_min:
+    if sku.alert_green_min is not None and sku.alert_yellow_min is not None and quantity >= sku.alert_yellow_min:
         return "yellow"
-    if sku.alert_red_max is not None and quantity <= sku.alert_red_max:
+    if sku.alert_green_min is not None and sku.alert_yellow_min is not None:
         return "red"
     return "none"
 
@@ -499,7 +498,6 @@ def _map_stock_level(level: StockLevel, session: Session) -> StockLevelRead:
         alert_status=_get_stock_alert_status(level.quantity, level.sku),
         alert_green_min=level.sku.alert_green_min,
         alert_yellow_min=level.sku.alert_yellow_min,
-        alert_red_max=level.sku.alert_red_max,
     )
 
 
@@ -1631,7 +1629,6 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
         is_active=payload.is_active,
         alert_green_min=payload.alert_green_min,
         alert_yellow_min=payload.alert_yellow_min,
-        alert_red_max=payload.alert_red_max,
     )
     session.add(sku)
     session.commit()
@@ -4615,7 +4612,6 @@ def stock_alerts_report(
                 alert_status=status,
                 alert_green_min=level.sku.alert_green_min,
                 alert_yellow_min=level.sku.alert_yellow_min,
-                alert_red_max=level.sku.alert_red_max,
             )
         )
 

@@ -77,7 +77,6 @@ export type SKU = {
   is_active: boolean;
   alert_green_min?: number | null;
   alert_yellow_min?: number | null;
-  alert_red_max?: number | null;
 };
 
 export type SkuPayload = {
@@ -90,7 +89,6 @@ export type SkuPayload = {
   is_active: boolean;
   alert_green_min?: number | null;
   alert_yellow_min?: number | null;
-  alert_red_max?: number | null;
 };
 
 export type Deposit = {
@@ -112,7 +110,6 @@ export type StockLevel = {
   alert_status?: StockAlertStatus | null;
   alert_green_min?: number | null;
   alert_yellow_min?: number | null;
-  alert_red_max?: number | null;
 };
 
 export type StockAlertStatus = "green" | "yellow" | "red" | "none";
@@ -131,7 +128,6 @@ export type StockAlertRow = {
   alert_status: StockAlertStatus;
   alert_green_min?: number | null;
   alert_yellow_min?: number | null;
-  alert_red_max?: number | null;
 };
 
 export type StockAlertReport = {
