@@ -745,19 +745,19 @@ export function OrdersPage() {
                             </Stack>
                           )}
                           <Collapse in={expandedOrders[order.id]} timeout="auto" unmountOnExit>
-                            <Typography fontWeight={600} sx={{ mt: 1 }}>
-                              Pedido #{order.id}
-                            </Typography>
-                            <Stack spacing={0.5} sx={{ mt: 1 }}>
-                              {order.items.map((item) => (
-                                <Typography key={item.id} variant="body2">
-                                  {skuLabel(item.sku_id)} — {item.quantity}
-                                  {item.current_stock != null && ` (stock: ${item.current_stock})`}
-                                  {(item.prepared_quantity ?? 0) > 0 && ` · En envío: ${item.prepared_quantity}`}
-                                  {(item.dispatched_quantity ?? 0) > 0 && ` · Despachado: ${item.dispatched_quantity}`}
-                                </Typography>
-                              ))}
-                            </Stack>
+                            <Box sx={{ mt: 1 }}>
+                              <Typography fontWeight={600}>Pedido #{order.id}</Typography>
+                              <Stack spacing={0.5} sx={{ mt: 1 }}>
+                                {order.items.map((item) => (
+                                  <Typography key={item.id} variant="body2">
+                                    {skuLabel(item.sku_id)} — {item.quantity}
+                                    {item.current_stock != null && ` (stock: ${item.current_stock})`}
+                                    {(item.prepared_quantity ?? 0) > 0 && ` · En envío: ${item.prepared_quantity}`}
+                                    {(item.dispatched_quantity ?? 0) > 0 && ` · Despachado: ${item.dispatched_quantity}`}
+                                  </Typography>
+                                ))}
+                              </Stack>
+                            </Box>
                           </Collapse>
                         </Box>
                         <Stack direction="row" spacing={1} alignItems="center">
