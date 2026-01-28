@@ -705,22 +705,26 @@ export function OrdersPage() {
                     <CardContent>
                       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
                         <Box>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Tooltip title={expandedOrders[order.id] ? "Ocultar detalle" : "Ver detalle"}>
-                              <IconButton size="small" onClick={() => toggleExpandedOrder(order.id)}>
-                                {expandedOrders[order.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                          <Typography variant="body2" color="text.secondary">
-                            Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
-                            {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
-                            {order.required_delivery_date ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}` : ""}
-                            {order.estimated_delivery_date ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}` : ""}
-                          </Typography>
-                          <Collapse in={expandedOrders[order.id]} timeout="auto" unmountOnExit>
+                          <Stack spacing={0.5}>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                              <Tooltip title={expandedOrders[order.id] ? "Ocultar detalle" : "Ver detalle"}>
+                                <IconButton size="small" onClick={() => toggleExpandedOrder(order.id)}>
+                                  {expandedOrders[order.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                              <Typography variant="body2" color="text.secondary">
+                                Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
+                                {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
+                                {order.required_delivery_date
+                                  ? ` · Req. entrega: ${new Date(order.required_delivery_date).toLocaleDateString()}`
+                                  : ""}
+                                {order.estimated_delivery_date
+                                  ? ` · Entrega estimada: ${new Date(order.estimated_delivery_date).toLocaleDateString()}`
+                                  : ""}
+                              </Typography>
+                            </Stack>
                             {(order.notes || order.plant_internal_note) && (
-                              <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                              <Stack spacing={0.5}>
                                 {order.notes && (
                                   <Typography variant="body2" color="text.secondary">
                                     Notas: {order.notes}
@@ -733,6 +737,8 @@ export function OrdersPage() {
                                 )}
                               </Stack>
                             )}
+                          </Stack>
+                          <Collapse in={expandedOrders[order.id]} timeout="auto" unmountOnExit>
                             <Box sx={{ mt: 1 }}>
                               <Typography fontWeight={600}>Pedido #{order.id}</Typography>
                               <Stack spacing={0.5} sx={{ mt: 1 }}>
