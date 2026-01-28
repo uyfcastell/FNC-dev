@@ -1,3 +1,5 @@
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -10,6 +12,7 @@ import {
   CardContent,
   CardHeader,
   Chip,
+  Collapse,
   Divider,
   Grid,
   IconButton,
@@ -18,6 +21,7 @@ import {
   Tab,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -88,6 +92,7 @@ export function OrdersPage() {
   const [dateToFilter, setDateToFilter] = useState("");
   const [requestedByFilter, setRequestedByFilter] = useState("");
   const [shipmentAccessOrderId, setShipmentAccessOrderId] = useState<number | null>(null);
+  const [expandedOrders, setExpandedOrders] = useState<Record<number, boolean>>({});
   const [header, setHeader] = useState<{
     destination_deposit_id: string;
     notes: string;
@@ -228,6 +233,15 @@ export function OrdersPage() {
       return true;
     });
   }, [orders, statusFilter, destinationFilter, dateFromFilter, dateToFilter, requestedByFilter]);
+
+  const hasEligibleOrdersForDestination = useMemo(() => {
+    if (!destinationFilter) return false;
+    return orders.some(
+      (order) =>
+        String(order.destination_deposit_id ?? "") === destinationFilter &&
+        ["submitted", "partially_prepared", "prepared", "partially_dispatched"].includes(order.status),
+    );
+  }, [orders, destinationFilter]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -424,6 +438,10 @@ export function OrdersPage() {
     navigate("/envios", { state: { prefillDepositId: Number(destinationFilter) } });
   };
 
+  const toggleExpandedOrder = (orderId: number) => {
+    setExpandedOrders((prev) => ({ ...prev, [orderId]: !prev[orderId] }));
+  };
+
   const renderSection = (section: (typeof ORDER_SECTIONS)[number]) => {
     const sectionLines = lines[section.key];
     const options = optionsForSection(section.key);
@@ -610,7 +628,7 @@ export function OrdersPage() {
                 variant="contained"
                 size="small"
                 startIcon={<LocalShippingIcon />}
-                disabled={!destinationFilter}
+                disabled={!destinationFilter || !hasEligibleOrdersForDestination}
                 onClick={handleCreateShipmentForDestination}
               >
                 Crear envío para este local
@@ -687,7 +705,13 @@ export function OrdersPage() {
                     <CardContent>
                       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1} alignItems={{ sm: "center" }}>
                         <Box>
-                          <Typography fontWeight={700}>Pedido #{order.id}</Typography>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Tooltip title={expandedOrders[order.id] ? "Ocultar detalle" : "Ver detalle"}>
+                              <IconButton size="small" onClick={() => toggleExpandedOrder(order.id)}>
+                                {expandedOrders[order.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
                           <Typography variant="body2" color="text.secondary">
                             Destino: {order.destination} · Creado: {new Date(order.created_at).toLocaleDateString()}
                             {order.requested_by ? ` · Ingresado por: ${order.requested_by}` : ""}
@@ -708,16 +732,21 @@ export function OrdersPage() {
                               )}
                             </Stack>
                           )}
-                          <Stack spacing={0.5} sx={{ mt: 1 }}>
-                            {order.items.map((item) => (
-                              <Typography key={item.id} variant="body2">
-                                {skuLabel(item.sku_id)} — {item.quantity}
-                                {item.current_stock != null && ` (stock: ${item.current_stock})`}
-                                {(item.prepared_quantity ?? 0) > 0 && ` · En envío: ${item.prepared_quantity}`}
-                                {(item.dispatched_quantity ?? 0) > 0 && ` · Despachado: ${item.dispatched_quantity}`}
-                              </Typography>
-                            ))}
-                          </Stack>
+                          <Collapse in={expandedOrders[order.id]} timeout="auto" unmountOnExit>
+                            <Box sx={{ mt: 1 }}>
+                              <Typography fontWeight={600}>Pedido #{order.id}</Typography>
+                              <Stack spacing={0.5} sx={{ mt: 1 }}>
+                                {order.items.map((item) => (
+                                  <Typography key={item.id} variant="body2">
+                                    {skuLabel(item.sku_id)} — {item.quantity}
+                                    {item.current_stock != null && ` (stock: ${item.current_stock})`}
+                                    {(item.prepared_quantity ?? 0) > 0 && ` · En envío: ${item.prepared_quantity}`}
+                                    {(item.dispatched_quantity ?? 0) > 0 && ` · Despachado: ${item.dispatched_quantity}`}
+                                  </Typography>
+                                ))}
+                              </Stack>
+                            </Box>
+                          </Collapse>
                         </Box>
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Button
