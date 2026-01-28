@@ -134,10 +134,18 @@ export function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [skuSearch, setSkuSearch] = useState("");
+  const [skuCodeSearch, setSkuCodeSearch] = useState("");
+  const [skuTypeSearch, setSkuTypeSearch] = useState("");
+  const [skuUnitSearch, setSkuUnitSearch] = useState("");
+  const [skuAlertSearch, setSkuAlertSearch] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
+  const [recipeProductSearch, setRecipeProductSearch] = useState("");
+  const [recipeIngredientSearch, setRecipeIngredientSearch] = useState("");
   const [depositSearch, setDepositSearch] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
+  const [userRoleSearch, setUserRoleSearch] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<"todos" | "activos" | "inactivos">("todos");
   const [showInactiveSkus, setShowInactiveSkus] = useState(false);
   const [showInactiveRecipes, setShowInactiveRecipes] = useState(false);
   const [showInactiveDeposits, setShowInactiveDeposits] = useState(false);
@@ -304,9 +312,15 @@ export function AdminPage() {
   const filteredSkus = useMemo(
     () =>
       sortedSkus.filter(
-        (sku) => (showInactiveSkus || sku.is_active) && (!skuSearch || matchesSearch(`${sku.name} ${sku.code}`, skuSearch))
+        (sku) =>
+          (showInactiveSkus || sku.is_active) &&
+          (!skuSearch || matchesSearch(sku.name, skuSearch)) &&
+          (!skuCodeSearch || matchesSearch(sku.code, skuCodeSearch)) &&
+          (!skuTypeSearch || matchesSearch(`${sku.sku_type_code} ${sku.sku_type_label}`, skuTypeSearch)) &&
+          (!skuUnitSearch || matchesSearch(unitLabel(sku.unit), skuUnitSearch)) &&
+          (!skuAlertSearch || matchesSearch(skuAlertSummary(sku), skuAlertSearch))
       ),
-    [sortedSkus, showInactiveSkus, skuSearch]
+    [sortedSkus, showInactiveSkus, skuSearch, skuCodeSearch, skuTypeSearch, skuUnitSearch, skuAlertSearch, units]
   );
   const recipeComponents = useMemo(
     () => sortedSkus.filter((sku) => RECIPE_PRODUCT_CODES.includes(sku.sku_type_code) && sku.is_active),
@@ -316,11 +330,23 @@ export function AdminPage() {
     () =>
       recipes.filter((recipe) => {
         if (!showInactiveRecipes && !recipe.is_active) return false;
-        if (!recipeSearch) return true;
+        if (recipeSearch && !matchesSearch(recipe.name ?? "", recipeSearch)) return false;
         const product = skuMap.get(recipe.product_id);
-        return matchesSearch(`${recipe.name} ${product?.name ?? ""}`, recipeSearch);
+        if (recipeProductSearch && !matchesSearch(`${product?.name ?? ""} ${product?.code ?? ""}`, recipeProductSearch)) {
+          return false;
+        }
+        if (recipeIngredientSearch) {
+          const ingredientText = recipe.items
+            .map((item) => {
+              const component = skuMap.get(item.component_id);
+              return `${item.component_name ?? component?.name ?? ""} ${component?.code ?? ""}`;
+            })
+            .join(" ");
+          if (!matchesSearch(ingredientText, recipeIngredientSearch)) return false;
+        }
+        return true;
       }),
-    [recipes, recipeSearch, skuMap, showInactiveRecipes]
+    [recipes, recipeSearch, recipeProductSearch, recipeIngredientSearch, skuMap, showInactiveRecipes]
   );
   const filteredDeposits = useMemo(
     () =>
@@ -332,10 +358,14 @@ export function AdminPage() {
   );
   const filteredUsers = useMemo(
     () =>
-      users.filter((user) =>
-        userSearch ? matchesSearch(`${user.full_name} ${user.email} ${user.role_name ?? ""}`, userSearch) : true
-      ),
-    [users, userSearch]
+      users.filter((user) => {
+        if (userSearch && !matchesSearch(user.full_name, userSearch)) return false;
+        if (userRoleSearch && !matchesSearch(user.role_name ?? "", userRoleSearch)) return false;
+        if (userStatusFilter === "activos" && !user.is_active) return false;
+        if (userStatusFilter === "inactivos" && user.is_active) return false;
+        return true;
+      }),
+    [users, userSearch, userRoleSearch, userStatusFilter]
   );
   const filteredSuppliers = useMemo(
     () =>
@@ -1104,14 +1134,50 @@ export function AdminPage() {
           />
           <Divider />
           <CardContent>
-            <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
-              <TextField
-                label="Buscar por nombre o código"
-                value={skuSearch}
-                onChange={(e) => setSkuSearch(e.target.value)}
-                size="small"
-                sx={{ maxWidth: 320 }}
-              />
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={2}
+              justifyContent="space-between"
+              alignItems={{ md: "center" }}
+              sx={{ mb: 2 }}
+            >
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap" useFlexGap>
+                <TextField
+                  label="Nombre"
+                  value={skuSearch}
+                  onChange={(e) => setSkuSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 200 }}
+                />
+                <TextField
+                  label="Código"
+                  value={skuCodeSearch}
+                  onChange={(e) => setSkuCodeSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 160 }}
+                />
+                <TextField
+                  label="Tipo"
+                  value={skuTypeSearch}
+                  onChange={(e) => setSkuTypeSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 180 }}
+                />
+                <TextField
+                  label="Unidad"
+                  value={skuUnitSearch}
+                  onChange={(e) => setSkuUnitSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 160 }}
+                />
+                <TextField
+                  label="Alerta"
+                  value={skuAlertSearch}
+                  onChange={(e) => setSkuAlertSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 180 }}
+                />
+              </Stack>
               <FormControlLabel
                 control={<Switch checked={showInactiveSkus} onChange={(e) => setShowInactiveSkus(e.target.checked)} />}
                 label="Mostrar inactivos"
@@ -1967,14 +2033,36 @@ export function AdminPage() {
           />
           <Divider />
           <CardContent>
-            <Stack direction={{ xs: "column", md: "row" }} spacing={2} justifyContent="space-between" alignItems={{ md: "center" }} sx={{ mb: 2 }}>
-              <TextField
-                label="Buscar por nombre o producto"
-                value={recipeSearch}
-                onChange={(e) => setRecipeSearch(e.target.value)}
-                size="small"
-                sx={{ maxWidth: 320 }}
-              />
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={2}
+              justifyContent="space-between"
+              alignItems={{ md: "center" }}
+              sx={{ mb: 2 }}
+            >
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap" useFlexGap>
+                <TextField
+                  label="Nombre receta"
+                  value={recipeSearch}
+                  onChange={(e) => setRecipeSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 200 }}
+                />
+                <TextField
+                  label="Producto"
+                  value={recipeProductSearch}
+                  onChange={(e) => setRecipeProductSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 200 }}
+                />
+                <TextField
+                  label="Ingrediente"
+                  value={recipeIngredientSearch}
+                  onChange={(e) => setRecipeIngredientSearch(e.target.value)}
+                  size="small"
+                  sx={{ width: 200 }}
+                />
+              </Stack>
               <FormControlLabel
                 control={<Switch checked={showInactiveRecipes} onChange={(e) => setShowInactiveRecipes(e.target.checked)} />}
                 label="Mostrar inactivos"
@@ -2139,15 +2227,34 @@ export function AdminPage() {
           />
           <Divider />
           <CardContent>
-            <Box sx={{ mb: 2 }}>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
               <TextField
-                label="Buscar por nombre, email o rol"
+                label="Nombre"
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
                 size="small"
-                sx={{ maxWidth: 320 }}
+                sx={{ width: 200 }}
               />
-            </Box>
+              <TextField
+                label="Rol"
+                value={userRoleSearch}
+                onChange={(e) => setUserRoleSearch(e.target.value)}
+                size="small"
+                sx={{ width: 200 }}
+              />
+              <TextField
+                select
+                label="Estado"
+                value={userStatusFilter}
+                onChange={(e) => setUserStatusFilter(e.target.value as "todos" | "activos" | "inactivos")}
+                size="small"
+                sx={{ width: 180 }}
+              >
+                <MenuItem value="todos">Todos</MenuItem>
+                <MenuItem value="activos">Activos</MenuItem>
+                <MenuItem value="inactivos">Inactivos</MenuItem>
+              </TextField>
+            </Stack>
             <Table size="small">
               <TableHead>
                 <TableRow>

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
+import { getDeviceProfile } from "../lib/device";
 
 export function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -13,7 +14,9 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTo = (location.state as { from?: { pathname?: string } })?.from?.pathname ?? "/";
+  const deviceProfile = getDeviceProfile();
+  const redirectTo =
+    deviceProfile.mode === "desktop" ? "/" : ((location.state as { from?: { pathname?: string } })?.from?.pathname ?? "/");
 
   useEffect(() => {
     if (user && !submitting) {
