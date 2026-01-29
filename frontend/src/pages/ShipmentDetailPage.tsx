@@ -6,6 +6,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Chip,
   Divider,
   Grid,
   Stack,
@@ -31,6 +32,12 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   partially_dispatched: "Parcialmente despachado",
   dispatched: "Despachado",
   cancelled: "Cancelado",
+};
+
+const PREP_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  partial: "Parcial",
+  ready: "Listo",
 };
 
 export function ShipmentDetailPage() {
@@ -67,9 +74,19 @@ export function ShipmentDetailPage() {
         <Typography variant="h5" fontWeight={700}>
           Detalle de envío
         </Typography>
-        <Button component={RouterLink} to="/envios" startIcon={<ArrowBackIcon />} variant="outlined">
-          Volver a envíos
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          {shipment?.prep_status && (
+            <Chip label={`Preparación: ${PREP_STATUS_LABELS[shipment.prep_status] ?? shipment.prep_status}`} />
+          )}
+          {shipment?.id && (
+            <Button component={RouterLink} to={`/envios/${shipment.id}/preparar`} variant="contained">
+              Preparar envío
+            </Button>
+          )}
+          <Button component={RouterLink} to="/envios" startIcon={<ArrowBackIcon />} variant="outlined">
+            Volver a envíos
+          </Button>
+        </Stack>
       </Box>
 
       {error && <Alert severity="error">{error}</Alert>}
