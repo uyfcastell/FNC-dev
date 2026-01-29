@@ -1398,7 +1398,7 @@ def update_role_permissions(
     payload: RolePermissionsUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> list[str]:
     role = session.get(Role, role_id)
     if not role:
@@ -1459,7 +1459,7 @@ def create_user(
     payload: UserCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> UserRead:
     existing = session.exec(select(User).where(User.email == payload.email)).first()
     if existing:
@@ -1512,7 +1512,7 @@ def update_user(
     payload: UserUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> UserRead:
     user = session.get(User, user_id)
     if not user:
@@ -1581,7 +1581,7 @@ def delete_user(
     user_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     user = session.get(User, user_id)
     if not user:
@@ -1652,7 +1652,7 @@ def create_sku_type(
     payload: SKUTypeCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SKUTypeRead:
     code = payload.code.strip().upper()
     duplicate = session.exec(select(SKUType).where(SKUType.code == code)).first()
@@ -1689,7 +1689,7 @@ def update_sku_type(
     payload: SKUTypeUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SKUTypeRead:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
@@ -1728,7 +1728,7 @@ def delete_sku_type(
     sku_type_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
@@ -1796,7 +1796,7 @@ def create_merma_type(
     payload: MermaTypeCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> MermaTypeRead:
     duplicate = session.exec(
         select(MermaType).where(MermaType.stage == payload.stage, MermaType.code == payload.code)
@@ -1839,7 +1839,7 @@ def update_merma_type(
     payload: MermaTypeUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> MermaTypeRead:
     record = session.get(MermaType, type_id)
     if not record:
@@ -1896,7 +1896,7 @@ def delete_merma_type(
     type_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     record = session.get(MermaType, type_id)
     if not record:
@@ -1950,7 +1950,7 @@ def create_merma_cause(
     payload: MermaCauseCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> MermaCauseRead:
     duplicate = session.exec(
         select(MermaCause).where(MermaCause.stage == payload.stage, MermaCause.code == payload.code)
@@ -1993,7 +1993,7 @@ def update_merma_cause(
     payload: MermaCauseUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> MermaCauseRead:
     record = session.get(MermaCause, cause_id)
     if not record:
@@ -2050,7 +2050,7 @@ def delete_merma_cause(
     cause_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     record = session.get(MermaCause, cause_id)
     if not record:
@@ -2109,7 +2109,7 @@ def create_sku(
     payload: SKUCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SKURead:
     existing = session.exec(select(SKU).where(SKU.code == payload.code)).first()
     if existing:
@@ -2183,7 +2183,7 @@ def update_sku(
     payload: SKUUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
@@ -2265,7 +2265,7 @@ def delete_sku(
     sku_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     sku = session.get(SKU, sku_id)
     if not sku:
@@ -2323,7 +2323,7 @@ def update_sku_status(
     payload: StatusUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
@@ -2368,7 +2368,7 @@ def create_deposit(
     payload: DepositCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> Deposit:
     existing = session.exec(select(Deposit).where(Deposit.name == payload.name)).first()
     if existing:
@@ -2414,7 +2414,7 @@ def update_deposit(
     payload: DepositUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> Deposit:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
@@ -2465,7 +2465,7 @@ def delete_deposit(
     deposit_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
@@ -2521,7 +2521,7 @@ def update_deposit_status(
     payload: StatusUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> Deposit:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
@@ -2569,7 +2569,7 @@ def create_production_line(
     payload: ProductionLineCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ProductionLineRead:
     existing = session.exec(select(ProductionLine).where(ProductionLine.name == payload.name)).first()
     if existing:
@@ -2602,7 +2602,7 @@ def update_production_line(
     payload: ProductionLineUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ProductionLineRead:
     line = session.get(ProductionLine, line_id)
     if not line:
@@ -2696,7 +2696,7 @@ def create_recipe(
     payload: RecipeCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> RecipeRead:
     product = session.get(SKU, payload.product_id)
     if not product:
@@ -2766,7 +2766,7 @@ def update_recipe(
     payload: RecipeUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> RecipeRead:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
@@ -2843,7 +2843,7 @@ def delete_recipe(
     recipe_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
@@ -2881,7 +2881,7 @@ def update_recipe_status(
     payload: StatusUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> RecipeRead:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
@@ -2951,7 +2951,7 @@ def create_order(
     payload: OrderCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> OrderRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
@@ -3037,7 +3037,7 @@ def update_order(
     payload: OrderUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -3196,7 +3196,7 @@ def update_order_status(
     payload: OrderStatusUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -3256,7 +3256,7 @@ def delete_order(
     order_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     order = session.get(Order, order_id)
     if not order:
@@ -3304,7 +3304,7 @@ def create_shipment(
     payload: ShipmentCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentRead:
     destination = _ensure_store_destination(session, payload.deposit_id)
     shipment = Shipment(
@@ -3383,7 +3383,7 @@ def update_shipment(
     payload: ShipmentUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentRead:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -3447,7 +3447,7 @@ def add_orders_to_shipment(
     payload: ShipmentAddOrders,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -3538,7 +3538,7 @@ def update_shipment_items(
     payload: list[ShipmentItemUpdate],
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -3631,7 +3631,7 @@ def prep_shipment_items(
     payload: ShipmentPrepItemsRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -3706,7 +3706,7 @@ def cancel_shipment(
     shipment_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentRead:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -3744,7 +3744,7 @@ def confirm_shipment(
     shipment_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -3906,7 +3906,7 @@ def dispatch_shipment(
     shipment_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> ShipmentRead:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.CONFIRMED:
@@ -4013,7 +4013,7 @@ def dispatch_remito(
     payload: RemitoDispatchRequest | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
@@ -4117,7 +4117,7 @@ def receive_remito(
     payload: RemitoReceiveRequest | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
@@ -4193,7 +4193,7 @@ def cancel_remito(
     remito_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     if remito.shipment_id:
@@ -4250,7 +4250,7 @@ def create_stock_movement_type(
     payload: StockMovementTypeCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> StockMovementTypeRead:
     code = payload.code.strip().upper()
     duplicate = session.exec(select(StockMovementType).where(StockMovementType.code == code)).first()
@@ -4295,7 +4295,7 @@ def update_stock_movement_type(
     payload: StockMovementTypeUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> StockMovementTypeRead:
     record = session.get(StockMovementType, movement_type_id)
     if not record:
@@ -4342,7 +4342,7 @@ def delete_stock_movement_type(
     movement_type_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> None:
     record = session.get(StockMovementType, movement_type_id)
     if not record:
@@ -4420,7 +4420,7 @@ def create_supplier(
     payload: SupplierCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SupplierRead:
     duplicate = session.exec(select(Supplier).where(Supplier.name == payload.name.strip())).first()
     if duplicate:
@@ -4468,7 +4468,7 @@ def update_supplier(
     payload: SupplierUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> SupplierRead:
     record = session.get(Supplier, supplier_id)
     if not record:
@@ -4563,7 +4563,7 @@ def create_purchase_receipt(
     payload: PurchaseReceiptCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> PurchaseReceiptRead:
     supplier = session.get(Supplier, payload.supplier_id)
     if not supplier or not supplier.is_active:
@@ -5155,7 +5155,7 @@ def register_stock_movement(
     payload: StockMovementCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> StockLevelRead:
     payload.created_by_user_id = payload.created_by_user_id or current_user.id
     audit_context = _build_audit_context(request)
@@ -5346,7 +5346,7 @@ def create_inventory_count(
     payload: InventoryCountCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> InventoryCountRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debes cargar al menos un ítem")
@@ -5399,7 +5399,7 @@ def update_inventory_count(
     payload: InventoryCountUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -5459,7 +5459,7 @@ def submit_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -5496,7 +5496,7 @@ def approve_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -5576,7 +5576,7 @@ def close_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -5613,7 +5613,7 @@ def cancel_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -5728,7 +5728,7 @@ def create_merma_event(
     payload: MermaEventCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request | None = None,
+    request: Request,
 ) -> MermaEventRead:
     merma_type = session.get(MermaType, payload.type_id)
     cause = session.get(MermaCause, payload.cause_id)
