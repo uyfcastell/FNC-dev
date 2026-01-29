@@ -1,6 +1,7 @@
 import HistoryIcon from "@mui/icons-material/History";
 import {
   Alert,
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -18,7 +19,8 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 
-import { AuditAction, AuditLog, fetchAuditLogs, fetchUsers, User } from "../lib/api";
+import { ApiError, AuditAction, AuditLog, fetchAuditLogs, fetchAuditLogsExport, fetchUsers, User } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 
 const actionLabels: Record<AuditAction, string> = {
   create: "Alta",
@@ -33,6 +35,7 @@ export function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [filters, setFilters] = useState({
     entity_type: "",
@@ -93,6 +96,29 @@ export function AuditPage() {
     return () => window.clearTimeout(timeout);
   }, [filters]);
 
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const { blob, filename } = await fetchAuditLogsExport({
+        entity_type: filters.entity_type || undefined,
+        user_id: filters.user_id ? Number(filters.user_id) : undefined,
+        date_from: filters.date_from || undefined,
+        date_to: filters.date_to || undefined,
+        detail_q: filters.detail_q || undefined,
+      });
+      downloadBlob(blob, filename);
+    } catch (err) {
+      console.error(err);
+      if (err instanceof ApiError) {
+        setError(err.message || "No pudimos exportar la auditoría.");
+      } else {
+        setError("No pudimos exportar la auditoría.");
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -103,7 +129,14 @@ export function AuditPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Card>
-        <CardHeader title="Filtros" />
+        <CardHeader
+          title="Filtros"
+          action={
+            <Button variant="outlined" onClick={handleExport} disabled={loading || exporting}>
+              Exportar Excel
+            </Button>
+          }
+        />
         <Divider />
         <CardContent>
           <Grid container spacing={2}>

@@ -1,14 +1,17 @@
+import io
+import json
 import re
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from openpyxl import Workbook
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from sqlalchemy import String, and_, case, cast, func, nulls_last, or_
-from sqlmodel import Session, select
+from sqlmodel import Session, select, Select
 
 from ..core.config import get_settings
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
@@ -133,6 +136,8 @@ from ..schemas import (
 public_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_active_user)])
 api_router = APIRouter()
+
+AUDIT_EXPORT_LIMIT = 10000
 
 SKU_PRODUCTION_TYPES = {"PT", "SEMI"}
 SKU_CONSUMABLE_CODE = "CON"
@@ -1281,6 +1286,99 @@ def _generate_remito_pdf(session: Session, remito: Remito, remito_items: list[Re
     return str(file_path)
 
 
+def _format_pick_list_quantity(value: float | int | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _generate_pick_list_pdf(
+    shipment: Shipment,
+    items: list[ShipmentItem],
+    orders: list[OrderSummaryRead],
+    sku_map: dict[int, SKU],
+    deposit_name: str | None,
+    current_user: User | None,
+) -> io.BytesIO:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    x_margin = 20 * mm
+    y = height - 25 * mm
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(x_margin, y, f"Pick List – Envío #{shipment.id}")
+    y -= 8 * mm
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(x_margin, y, f"Generado: {datetime.utcnow().strftime('%d/%m/%Y %H:%M')} UTC")
+    y -= 6 * mm
+    pdf.drawString(x_margin, y, f"Estado: {shipment.status}")
+    y -= 6 * mm
+    pdf.drawString(x_margin, y, f"Depósito destino: {deposit_name or shipment.deposit_id}")
+    y -= 10 * mm
+
+    if orders:
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(x_margin, y, "Pedidos incluidos")
+        y -= 6 * mm
+        pdf.setFont("Helvetica", 10)
+        for order in orders:
+            if y < 25 * mm:
+                pdf.showPage()
+                y = height - 25 * mm
+            pdf.drawString(x_margin, y, f"Pedido #{order.id}")
+            y -= 5 * mm
+        y -= 4 * mm
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(x_margin, y, "Ítems a preparar")
+    y -= 8 * mm
+    pdf.setFont("Helvetica", 10)
+
+    headers = ["Código SKU", "Nombre", "Cantidad", "UoM", "OK", "Observaciones"]
+    col_widths = [30 * mm, 70 * mm, 25 * mm, 15 * mm, 10 * mm, 30 * mm]
+    pdf.drawString(x_margin, y, headers[0])
+    pdf.drawString(x_margin + col_widths[0], y, headers[1])
+    pdf.drawRightString(x_margin + col_widths[0] + col_widths[1] + col_widths[2], y, headers[2])
+    pdf.drawString(x_margin + col_widths[0] + col_widths[1] + col_widths[2] + 4 * mm, y, headers[3])
+    pdf.drawString(x_margin + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + 8 * mm, y, headers[4])
+    pdf.drawString(
+        x_margin + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + col_widths[4] + 6 * mm,
+        y,
+        headers[5],
+    )
+    y -= 5 * mm
+    pdf.line(x_margin, y, width - x_margin, y)
+    y -= 6 * mm
+
+    for item in items:
+        sku = sku_map.get(item.sku_id)
+        sku_code = sku.code if sku else ""
+        sku_name = sku.name if sku else f"SKU {item.sku_id}"
+        quantity = _format_pick_list_quantity(item.quantity)
+        unit = sku.unit.value if sku and isinstance(sku.unit, UnitOfMeasure) else (sku.unit if sku else "")
+        if y < 25 * mm:
+            pdf.showPage()
+            y = height - 25 * mm
+        pdf.drawString(x_margin, y, sku_code)
+        pdf.drawString(x_margin + col_widths[0], y, sku_name[:40])
+        pdf.drawRightString(x_margin + col_widths[0] + col_widths[1] + col_widths[2], y, quantity)
+        pdf.drawString(x_margin + col_widths[0] + col_widths[1] + col_widths[2] + 4 * mm, y, unit)
+        box_x = x_margin + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + 8 * mm
+        pdf.rect(box_x, y - 2 * mm, 4 * mm, 4 * mm)
+        y -= 6 * mm
+
+    if current_user:
+        footer_text = f"Generado por {current_user.full_name or current_user.email}"
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(x_margin, 15 * mm, footer_text)
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
 @public_router.post("/auth/login", tags=["auth"], response_model=TokenResponse)
 def login(payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
     user = session.exec(select(User).where(User.email == payload.username)).first()
@@ -2018,6 +2116,87 @@ def list_skus(
     statement = statement.order_by(SKU.name, SKU.code)
     skus = session.exec(statement).all()
     return [_map_sku(item, session) for item in skus]
+
+
+@router.get("/skus/export.xlsx", tags=["sku"], dependencies=[Depends(require_permissions("skus.view"))])
+def export_skus(
+    sku_type_ids: list[int] | None = Query(None),
+    tags: list[str] | None = Query(None, description="Alias para sku_type_code"),
+    include_inactive: bool = True,
+    search: str | None = None,
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    statement = select(SKU).join(SKUType)
+    if sku_type_ids:
+        statement = statement.where(SKU.sku_type_id.in_(sku_type_ids))
+    if tags:
+        normalized_tags = [tag.upper() for tag in tags]
+        statement = statement.where(SKUType.code.in_(normalized_tags))
+    if not include_inactive:
+        statement = statement.where(SKU.is_active.is_(True), SKUType.is_active.is_(True))
+    if search:
+        like = f"%{search.lower()}%"
+        statement = statement.where((SKU.name.ilike(like)) | (SKU.code.ilike(like)))
+    statement = statement.order_by(SKU.name, SKU.code)
+    skus = session.exec(statement).all()
+    sku_type_ids_set = {sku.sku_type_id for sku in skus}
+    sku_types = session.exec(select(SKUType).where(SKUType.id.in_(sku_type_ids_set))).all() if sku_type_ids_set else []
+    sku_type_map = {sku_type.id: sku_type for sku_type in sku_types}
+    sku_ids = [sku.id for sku in skus if sku.id]
+    rules = (
+        session.exec(select(SemiConversionRule).where(SemiConversionRule.sku_id.in_(sku_ids))).all() if sku_ids else []
+    )
+    rule_map = {rule.sku_id: rule for rule in rules}
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "SKUs"
+    sheet.append(
+        [
+            "id",
+            "code",
+            "name",
+            "sku_type_id",
+            "sku_type_code",
+            "sku_type_label",
+            "unit",
+            "secondary_unit",
+            "units_per_kg",
+            "notes",
+            "is_active",
+            "alert_green_min",
+            "alert_yellow_min",
+            "created_at",
+            "updated_at",
+        ]
+    )
+    for sku in skus:
+        sku_type = sku_type_map.get(sku.sku_type_id)
+        type_code = sku_type.code if sku_type else ""
+        type_label = sku_type.label if sku_type else ""
+        secondary_unit = UnitOfMeasure.UNIT if type_code == SKU_SEMI_CODE else None
+        sku_id = sku.id
+        units_per_kg = rule_map.get(sku_id).units_per_kg if sku_id and sku_id in rule_map else None
+        sheet.append(
+            [
+                sku.id,
+                sku.code,
+                sku.name,
+                sku.sku_type_id,
+                type_code,
+                type_label,
+                sku.unit.value if isinstance(sku.unit, UnitOfMeasure) else sku.unit,
+                secondary_unit.value if isinstance(secondary_unit, UnitOfMeasure) else secondary_unit,
+                float(units_per_kg) if units_per_kg is not None else None,
+                sku.notes,
+                sku.is_active,
+                sku.alert_green_min,
+                sku.alert_yellow_min,
+                sku.created_at.isoformat() if sku.created_at else None,
+                sku.updated_at.isoformat() if sku.updated_at else None,
+            ]
+        )
+    filename = f"skus_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
+    return _build_excel_response(workbook, filename)
 
 
 @router.post(
@@ -3244,6 +3423,31 @@ def list_shipments(
 def get_shipment(shipment_id: int, session: Session = Depends(get_session)) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     return _map_shipment(shipment, session, include_items=True)
+
+
+@router.get(
+    "/shipments/{shipment_id}/pick-list.pdf",
+    tags=["shipments"],
+    dependencies=[Depends(require_permissions("remitos.view"))],
+)
+def get_shipment_pick_list(
+    shipment_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    session.refresh(shipment, attribute_names=["items", "deposit"])
+    orders = _get_shipment_orders(session, shipment.id)
+    items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+    order_item_ids = [item.order_item_id for item in items]
+    order_items = session.exec(select(OrderItem).where(OrderItem.id.in_(order_item_ids))).all() if order_item_ids else []
+    sku_ids = {order_item.sku_id for order_item in order_items}
+    skus = session.exec(select(SKU).where(SKU.id.in_(sku_ids))).all() if sku_ids else []
+    sku_map = {sku.id: sku for sku in skus}
+    buffer = _generate_pick_list_pdf(shipment, items, orders, sku_map, shipment.deposit.name if shipment.deposit else None, current_user)
+    filename = f"pick_list_shipment_{shipment.id}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(buffer, media_type="application/pdf", headers=headers)
 
 
 @router.put(
@@ -4943,6 +5147,52 @@ def _map_audit_log(record: AuditLog, session: Session) -> AuditLogRead:
     )
 
 
+def _build_audit_logs_statement(
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    user_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    detail_q: str | None = None,
+) -> Select:
+    statement = select(AuditLog)
+    if entity_type:
+        statement = statement.where(AuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        statement = statement.where(AuditLog.entity_id == entity_id)
+    if user_id:
+        statement = statement.where(AuditLog.user_id == user_id)
+    if date_from:
+        statement = statement.where(AuditLog.created_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        statement = statement.where(AuditLog.created_at <= datetime.combine(date_to, datetime.max.time()))
+    if detail_q:
+        statement = statement.where(cast(AuditLog.changes, String).ilike(f"%{detail_q}%"))
+    return statement
+
+
+def _summarize_audit_log(record: AuditLog, user: User | None, changes: dict | None) -> str:
+    action_labels = {
+        AuditAction.CREATE: "Alta",
+        AuditAction.UPDATE: "Edición",
+        AuditAction.DELETE: "Borrado",
+        AuditAction.STATUS: "Cambio de estado",
+        AuditAction.APPROVE: "Aprobación",
+        AuditAction.CANCEL: "Cancelación",
+    }
+    action_label = action_labels.get(record.action, str(record.action))
+    entity_part = record.entity_type
+    entity_id = f"#{record.entity_id}" if record.entity_id is not None else ""
+    event = ""
+    if isinstance(changes, dict):
+        event = str(changes.get("event") or "")
+    user_part = ""
+    if user:
+        user_part = user.full_name or user.email
+    summary_parts = [part for part in [action_label, event, entity_part, entity_id, user_part] if part]
+    return " ".join(summary_parts)
+
+
 def _map_merma_event(event: MermaEvent, session: Session) -> MermaEventRead:
     session.refresh(
         event,
@@ -5516,22 +5766,128 @@ def list_audit_logs(
     limit: int = 200,
     session: Session = Depends(get_session),
 ) -> list[AuditLogRead]:
-    statement = select(AuditLog)
-    if entity_type:
-        statement = statement.where(AuditLog.entity_type == entity_type)
-    if entity_id is not None:
-        statement = statement.where(AuditLog.entity_id == entity_id)
-    if user_id:
-        statement = statement.where(AuditLog.user_id == user_id)
-    if date_from:
-        statement = statement.where(AuditLog.created_at >= datetime.combine(date_from, datetime.min.time()))
-    if date_to:
-        statement = statement.where(AuditLog.created_at <= datetime.combine(date_to, datetime.max.time()))
-    if detail_q:
-        statement = statement.where(cast(AuditLog.changes, String).ilike(f"%{detail_q}%"))
+    statement = _build_audit_logs_statement(entity_type, entity_id, user_id, date_from, date_to, detail_q)
     safe_limit = max(1, min(limit, 500))
     records = session.exec(statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(safe_limit)).all()
     return [_map_audit_log(record, session) for record in records]
+
+
+def _build_excel_response(workbook: Workbook, filename: str) -> StreamingResponse:
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get(
+    "/audit/logs/export.xlsx",
+    tags=["audit"],
+    dependencies=[Depends(require_permissions("audit.view"))],
+)
+def export_audit_logs(
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    user_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    detail_q: str | None = None,
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    statement = _build_audit_logs_statement(entity_type, entity_id, user_id, date_from, date_to, detail_q)
+    records = session.exec(
+        statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(AUDIT_EXPORT_LIMIT + 1)
+    ).all()
+    if len(records) > AUDIT_EXPORT_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Demasiados registros para exportar; acotá filtros.",
+        )
+    user_ids = {record.user_id for record in records if record.user_id}
+    users = session.exec(select(User).where(User.id.in_(user_ids))).all() if user_ids else []
+    user_map = {user.id: user for user in users}
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "AuditLogs"
+    headers = [
+        "created_at",
+        "user",
+        "user_id",
+        "action",
+        "entity_type",
+        "entity_id",
+        "ip",
+        "request_id",
+        "summary",
+        "detail",
+    ]
+    sheet.append(headers)
+    changes_rows: list[tuple] = []
+    for record in records:
+        user = user_map.get(record.user_id) if record.user_id else None
+        user_label = user.full_name or user.email if user else ""
+        changes = record.changes if isinstance(record.changes, dict) else {}
+        metadata = changes.get("metadata") if isinstance(changes, dict) else {}
+        metadata = metadata if isinstance(metadata, dict) else {}
+        ip_address = record.ip_address or metadata.get("ip")
+        request_id = metadata.get("request_id")
+        summary = _summarize_audit_log(record, user, changes)
+        detail = json.dumps(changes, ensure_ascii=False, separators=(",", ":"), default=str) if changes else ""
+        sheet.append(
+            [
+                record.created_at.isoformat(),
+                user_label,
+                record.user_id,
+                record.action.value if isinstance(record.action, AuditAction) else str(record.action),
+                record.entity_type,
+                record.entity_id,
+                ip_address,
+                request_id,
+                summary,
+                detail,
+            ]
+        )
+        diff = changes.get("diff") if isinstance(changes, dict) else None
+        if isinstance(diff, dict):
+            for field, values in diff.items():
+                if not isinstance(values, dict):
+                    continue
+                changes_rows.append(
+                    (
+                        record.id,
+                        record.created_at.isoformat(),
+                        record.entity_type,
+                        record.entity_id,
+                        record.action.value if isinstance(record.action, AuditAction) else str(record.action),
+                        user_label,
+                        field,
+                        values.get("before"),
+                        values.get("after"),
+                    )
+                )
+    if changes_rows:
+        changes_sheet = workbook.create_sheet(title="ChangesFlatten")
+        changes_sheet.append(
+            [
+                "audit_log_id",
+                "created_at",
+                "entity_type",
+                "entity_id",
+                "action",
+                "user",
+                "field",
+                "before",
+                "after",
+            ]
+        )
+        for row in changes_rows:
+            changes_sheet.append(list(row))
+    filename = f"audit_logs_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
+    return _build_excel_response(workbook, filename)
 
 
 @router.get(

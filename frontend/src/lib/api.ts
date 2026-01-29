@@ -10,6 +10,11 @@ export class ApiError extends Error {
   }
 }
 
+export type FileDownload = {
+  blob: Blob;
+  filename: string;
+};
+
 export function getStoredToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY);
 }
@@ -42,6 +47,33 @@ async function apiRequest<T>(path: string, options: RequestInit, defaultError: s
     throw new ApiError(response.status, detail || defaultError);
   }
   return response.json() as Promise<T>;
+}
+
+function getFilenameFromDisposition(headerValue: string | null): string | null {
+  if (!headerValue) return null;
+  const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const asciiMatch = headerValue.match(/filename=\"?([^\";]+)\"?/i);
+  return asciiMatch?.[1] ?? null;
+}
+
+function formatExportTimestamp(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+async function fetchFile(path: string, defaultFilename: string): Promise<FileDownload> {
+  const response = await apiFetch(path);
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ApiError(response.status, detail || "No pudimos descargar el archivo.");
+  }
+  const blob = await response.blob();
+  const filename = getFilenameFromDisposition(response.headers.get("content-disposition")) ?? defaultFilename;
+  return { blob, filename };
 }
 
 export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
@@ -672,6 +704,29 @@ export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: strin
   return apiRequest(`/skus${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener la lista de SKUs");
 }
 
+export async function fetchSkusExport(params?: {
+  sku_type_ids?: number[];
+  tags?: string[];
+  include_inactive?: boolean;
+  search?: string;
+}): Promise<FileDownload> {
+  const query = new URLSearchParams();
+  if (params?.sku_type_ids?.length) {
+    params.sku_type_ids.forEach((typeId) => query.append("sku_type_ids", typeId.toString()));
+  }
+  if (params?.tags?.length) {
+    params.tags.forEach((tag) => query.append("tags", tag));
+  }
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  if (params?.search) {
+    query.append("search", params.search);
+  }
+  const queryString = query.toString();
+  return fetchFile(`/skus/export.xlsx${queryString ? `?${queryString}` : ""}`, `skus_${formatExportTimestamp()}.xlsx`);
+}
+
 export async function fetchDeposits(params?: { include_inactive?: boolean }): Promise<Deposit[]> {
   const query = new URLSearchParams();
   if (params?.include_inactive) {
@@ -844,6 +899,25 @@ export async function fetchAuditLogs(params?: {
   if (params?.limit) query.set("limit", String(params.limit));
   const path = query.toString() ? `/audit/logs?${query.toString()}` : "/audit/logs";
   return apiRequest<AuditLog[]>(path, {}, "No pudimos obtener la auditoría");
+}
+
+export async function fetchAuditLogsExport(params?: {
+  entity_type?: string;
+  entity_id?: number;
+  user_id?: number;
+  date_from?: string;
+  date_to?: string;
+  detail_q?: string;
+}): Promise<FileDownload> {
+  const query = new URLSearchParams();
+  if (params?.entity_type) query.set("entity_type", params.entity_type);
+  if (params?.entity_id) query.set("entity_id", String(params.entity_id));
+  if (params?.user_id) query.set("user_id", String(params.user_id));
+  if (params?.date_from) query.set("date_from", params.date_from);
+  if (params?.date_to) query.set("date_to", params.date_to);
+  if (params?.detail_q) query.set("detail_q", params.detail_q);
+  const path = query.toString() ? `/audit/logs/export.xlsx?${query.toString()}` : "/audit/logs/export.xlsx";
+  return fetchFile(path, `audit_logs_${formatExportTimestamp()}.xlsx`);
 }
 
 export async function createStockMovementType(payload: Omit<StockMovementType, "id">): Promise<StockMovementType> {
@@ -1082,6 +1156,10 @@ export async function fetchShipments(params?: {
 
 export async function fetchShipment(id: number): Promise<Shipment> {
   return apiRequest(`/shipments/${id}`, {}, "No se pudo obtener el envío");
+}
+
+export async function fetchShipmentPickListBlob(shipmentId: number): Promise<FileDownload> {
+  return fetchFile(`/shipments/${shipmentId}/pick-list.pdf`, `pick_list_shipment_${shipmentId}.pdf`);
 }
 
 export async function createShipment(payload: { deposit_id: number; estimated_delivery_date: string }): Promise<Shipment> {
