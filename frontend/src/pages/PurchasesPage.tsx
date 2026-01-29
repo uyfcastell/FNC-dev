@@ -315,17 +315,6 @@ export function PurchasesPage() {
     }
   };
 
-  const receiptTotals = useMemo(() => {
-    const totalItems = receipts.reduce((acc, receipt) => acc + receipt.items.length, 0);
-    const totalCost = receipts.reduce(
-      (acc, receipt) =>
-        acc +
-        receipt.items.reduce((itemAcc, item) => itemAcc + (item.unit_cost ? item.unit_cost * item.quantity : 0), 0),
-      0,
-    );
-    return { totalItems, totalCost };
-  }, [receipts]);
-
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -504,33 +493,44 @@ export function PurchasesPage() {
             <Divider />
             <CardContent>
               <Stack spacing={2}>
-                <TextField
-                  select
-                  label="Proveedor"
-                  value={receiptFilters.supplier_id}
-                  onChange={(e) => setReceiptFilters((prev) => ({ ...prev, supplier_id: e.target.value }))}
-                >
-                  <MenuItem value="">Todos</MenuItem>
-                  {suppliers.map((supplier) => (
-                    <MenuItem key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Desde"
-                  type="date"
-                  value={receiptFilters.date_from}
-                  onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_from: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                />
-                <TextField
-                  label="Hasta"
-                  type="date"
-                  value={receiptFilters.date_to}
-                  onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_to: e.target.value }))}
-                  InputLabelProps={{ shrink: true }}
-                />
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      select
+                      label="Proveedor"
+                      value={receiptFilters.supplier_id}
+                      onChange={(e) => setReceiptFilters((prev) => ({ ...prev, supplier_id: e.target.value }))}
+                      fullWidth
+                    >
+                      <MenuItem value="">Todos</MenuItem>
+                      {suppliers.map((supplier) => (
+                        <MenuItem key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      label="Desde"
+                      type="date"
+                      value={receiptFilters.date_from}
+                      onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_from: e.target.value }))}
+                      InputLabelProps={{ shrink: true }}
+                      fullWidth
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      label="Hasta"
+                      type="date"
+                      value={receiptFilters.date_to}
+                      onChange={(e) => setReceiptFilters((prev) => ({ ...prev, date_to: e.target.value }))}
+                      InputLabelProps={{ shrink: true }}
+                      fullWidth
+                    />
+                  </Grid>
+                </Grid>
                 <Stack direction="row" spacing={1}>
                   <Button variant="contained" onClick={handleReceiptFilter}>
                     Aplicar
@@ -539,17 +539,6 @@ export function PurchasesPage() {
                     Limpiar
                   </Button>
                 </Stack>
-              </Stack>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader title="Totales" subheader="Resumen del período filtrado" />
-            <Divider />
-            <CardContent>
-              <Stack spacing={1}>
-                <Typography variant="body2">Ingresos: {receipts.length}</Typography>
-                <Typography variant="body2">Ítems totales: {receiptTotals.totalItems}</Typography>
-                <Typography variant="body2">Costo estimado: ${receiptTotals.totalCost.toFixed(2)}</Typography>
               </Stack>
             </CardContent>
           </Card>
