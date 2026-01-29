@@ -5785,6 +5785,14 @@ def _build_excel_response(workbook: Workbook, filename: str) -> StreamingRespons
     )
 
 
+def _excel_safe_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool, datetime, date)):
+        return value
+    if isinstance(value, (dict, list, tuple, set)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+    return str(value)
+
+
 @router.get(
     "/audit/logs/export.xlsx",
     tags=["audit"],
@@ -5866,8 +5874,8 @@ def export_audit_logs(
                         record.action.value if isinstance(record.action, AuditAction) else str(record.action),
                         user_label,
                         field,
-                        values.get("before"),
-                        values.get("after"),
+                        _excel_safe_value(values.get("before")),
+                        _excel_safe_value(values.get("after")),
                     )
                 )
     if changes_rows:
