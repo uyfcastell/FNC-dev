@@ -23,7 +23,7 @@ import {
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useEffect, useMemo, useState } from "react";
-import { Link as RouterLink, useParams } from "react-router-dom";
+import { Link as RouterLink, useLocation, useParams } from "react-router-dom";
 
 import { fetchShipment, prepShipmentItems, Shipment, ShipmentItem, ShipmentPrepStatus } from "../lib/api";
 
@@ -65,6 +65,7 @@ const getGroupStatus = (items: ShipmentItem[]): ShipmentPrepStatus => {
 
 export function ShipmentPrepPage() {
   const { shipmentId } = useParams<{ shipmentId: string }>();
+  const location = useLocation();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [mode, setMode] = useState<PrepMode>(getPrepMode);
   const [filter, setFilter] = useState<PrepFilter>("all");
@@ -204,6 +205,10 @@ export function ShipmentPrepPage() {
     await updateShipmentItems(updates);
   };
 
+  const isMobileRoute = location.pathname.startsWith("/mobile");
+  const backTo = isMobileRoute ? "/mobile/envios" : `/envios/${shipment?.id ?? ""}`;
+  const backLabel = isMobileRoute ? "Volver a envíos" : "Volver al envío";
+
   return (
     <Stack spacing={3}>
       <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
@@ -220,8 +225,8 @@ export function ShipmentPrepPage() {
           {shipment?.prep_status && (
             <Chip label={`Preparación: ${PREP_STATUS_LABELS[shipment.prep_status]}`} color={shipment.prep_status === "ready" ? "success" : "default"} />
           )}
-          <Button component={RouterLink} to={`/envios/${shipment?.id ?? ""}`} startIcon={<ArrowBackIcon />} variant="outlined">
-            Volver al envío
+          <Button component={RouterLink} to={backTo} startIcon={<ArrowBackIcon />} variant="outlined">
+            {backLabel}
           </Button>
         </Stack>
       </Box>

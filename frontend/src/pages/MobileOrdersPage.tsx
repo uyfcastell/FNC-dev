@@ -26,6 +26,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { SearchableSelect } from "../components/SearchableSelect";
+import { useAuth } from "../lib/auth";
 import {
   createOrder,
   fetchDeposits,
@@ -39,6 +40,7 @@ import {
   SKU,
 } from "../lib/api";
 import { ORDER_SECTIONS, OrderSectionKey, sectionForSku } from "../lib/orderSections";
+import { isLocalUser } from "../lib/roles";
 
 type OrderLine = { sku_id: string; quantity: string; current_stock: string };
 
@@ -97,6 +99,8 @@ export function MobileOrdersPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { user } = useAuth();
+  const localUser = isLocalUser(user);
 
   useEffect(() => {
     void loadCatalog();
@@ -595,7 +599,7 @@ export function MobileOrdersPage() {
                       </Card>
                     ))}
                   </Stack>
-                  {["draft", "submitted", "prepared", "partially_prepared"].includes(activeOrder.status) && (
+                  {["draft", "submitted"].includes(activeOrder.status) && (
                     <Stack spacing={1} direction="row" flexWrap="wrap">
                       {activeOrder.status === "draft" && (
                         <Button
@@ -606,14 +610,16 @@ export function MobileOrdersPage() {
                           Editar
                         </Button>
                       )}
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        startIcon={<CancelIcon />}
-                        onClick={() => cancelOrder(activeOrder.id)}
-                      >
-                        Cancelar pedido
-                      </Button>
+                      {(!localUser || activeOrder.status === "draft") && (
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          startIcon={<CancelIcon />}
+                          onClick={() => cancelOrder(activeOrder.id)}
+                        >
+                          Cancelar pedido
+                        </Button>
+                      )}
                     </Stack>
                   )}
                 </Stack>
