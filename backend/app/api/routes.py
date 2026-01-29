@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
-from sqlalchemy import and_, func, nulls_last, or_
+from sqlalchemy import and_, case, func, nulls_last, or_
 from sqlmodel import Session, select
 
 from ..core.config import get_settings
@@ -50,7 +50,7 @@ from ..models import (
     PurchaseReceiptItem,
     User,
 )
-from ..models.common import OrderStatus, RemitoStatus, ShipmentStatus, UnitOfMeasure
+from ..models.common import OrderStatus, RemitoStatus, ShipmentPrepStatus, ShipmentStatus, UnitOfMeasure
 from ..schemas import (
     DepositCreate,
     DepositRead,
@@ -109,6 +109,7 @@ from ..schemas import (
     ShipmentDetail,
     ShipmentItemRead,
     ShipmentItemUpdate,
+    ShipmentPrepItemsRequest,
     ShipmentRead,
     ShipmentUpdate,
     MermaCauseCreate,
@@ -1046,17 +1047,41 @@ def _map_shipment_item(item: ShipmentItem, session: Session, dispatched_quantiti
         ordered_quantity=ordered_quantity,
         dispatched_quantity=dispatched_quantity,
         remaining_quantity=remaining_quantity,
+        is_ready=item.is_ready,
     )
+
+
+def _calculate_prep_status(total_count: int, ready_count: int) -> ShipmentPrepStatus:
+    if total_count <= 0 or ready_count == 0:
+        return ShipmentPrepStatus.PENDING
+    if ready_count >= total_count:
+        return ShipmentPrepStatus.READY
+    return ShipmentPrepStatus.PARTIAL
+
+
+def _get_prep_counts(session: Session, shipment_id: int) -> tuple[int, int]:
+    statement = select(
+        func.count(ShipmentItem.id),
+        func.coalesce(func.sum(case((ShipmentItem.is_ready == True, 1), else_=0)), 0),  # noqa: E712
+    ).where(ShipmentItem.shipment_id == shipment_id)
+    total_count, ready_count = session.exec(statement).one()
+    return int(total_count or 0), int(ready_count or 0)
 
 
 def _map_shipment(shipment: Shipment, session: Session, include_items: bool = False) -> ShipmentRead | ShipmentDetail:
     session.refresh(shipment, attribute_names=["items", "deposit"])
+    if include_items:
+        total_count = len(shipment.items)
+        ready_count = sum(1 for item in shipment.items if item.is_ready)
+    else:
+        total_count, ready_count = _get_prep_counts(session, shipment.id)
     base = ShipmentRead(
         id=shipment.id,
         deposit_id=shipment.deposit_id,
         deposit_name=shipment.deposit.name if shipment.deposit else None,
         estimated_delivery_date=shipment.estimated_delivery_date,
         status=shipment.status,
+        prep_status=_calculate_prep_status(total_count, ready_count),
         created_at=shipment.created_at,
         updated_at=shipment.updated_at,
     )
@@ -2583,6 +2608,11 @@ def add_orders_to_shipment(
     order_item_ids = []
     order_items_by_order: dict[int, list[OrderItem]] = {}
     for order in orders:
+        if order.status == OrderStatus.DRAFT:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El pedido {order.id} está en borrador y no puede incluirse en envíos.",
+            )
         if order.status not in {
             OrderStatus.SUBMITTED,
             OrderStatus.PARTIALLY_PREPARED,
@@ -2706,6 +2736,62 @@ def update_shipment_items(
     _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
     order_ids = {item.order_id for item in items}
     _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
+    session.commit()
+    session.refresh(shipment)
+    return _map_shipment(shipment, session, include_items=True)
+
+
+@router.post(
+    "/shipments/{shipment_id}/prep-items",
+    tags=["shipments"],
+    response_model=ShipmentDetail,
+    dependencies=[Depends(require_permissions("remitos.edit"))],
+)
+def prep_shipment_items(
+    shipment_id: int,
+    payload: ShipmentPrepItemsRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ShipmentDetail:
+    shipment = _get_shipment_or_404(session, shipment_id)
+    if shipment.status != ShipmentStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden preparar envíos en borrador")
+    if not payload.items:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No hay ítems para actualizar")
+
+    item_ids = {item.shipment_item_id for item in payload.items}
+    items = session.exec(
+        select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id, ShipmentItem.id.in_(item_ids))
+    ).all()
+    item_map = {item.id: item for item in items}
+    if len(item_map) != len(item_ids):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún ítem no pertenece al envío")
+
+    changes = []
+    for update in payload.items:
+        shipment_item = item_map[update.shipment_item_id]
+        if shipment_item.is_ready == update.is_ready:
+            continue
+        changes.append(
+            {
+                "shipment_item_id": update.shipment_item_id,
+                "before": shipment_item.is_ready,
+                "after": update.is_ready,
+            }
+        )
+        shipment_item.is_ready = update.is_ready
+        shipment_item.updated_at = datetime.utcnow()
+        session.add(shipment_item)
+
+    if changes:
+        audit_changes = {
+            "event": "shipment_items_prepared",
+            "shipment_id": shipment.id,
+            "deposit_id": shipment.deposit_id,
+            "changes": changes,
+        }
+        _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)

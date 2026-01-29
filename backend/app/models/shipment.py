@@ -32,6 +32,7 @@ class ShipmentItem(TimestampedModel, table=True):
     order_id: int = Field(foreign_key="orders.id")
     order_item_id: int = Field(foreign_key="order_items.id")
     quantity: int = Field(gt=0)
+    is_ready: bool = Field(default=False, nullable=False)
 
     shipment: Shipment = Relationship(back_populates="items")
     order: Optional["Order"] = Relationship()
