@@ -767,15 +767,6 @@ export function ShipmentsPage() {
                           gap: 1,
                         }}
                       >
-                        <Box>
-                          <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
-                          </Typography>
-                        </Box>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                           <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
                             <IconButton
@@ -787,6 +778,17 @@ export function ShipmentsPage() {
                               {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                             </IconButton>
                           </Tooltip>
+                          <Box>
+                            <Typography fontWeight={600}>Envío #{shipment.id}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Local: {shipment.deposit_name ?? shipment.deposit_id} · Estado: {shipment.status}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Fecha estimada: {formatDate(shipment.estimated_delivery_date)}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                           <Tooltip
                             title={
                               shipment.status === "draft"

@@ -238,12 +238,24 @@ export function MobileShipmentsPage() {
                     <CardContent>
                       <Stack spacing={1}>
                         <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
-                          <Box>
-                            <Typography fontWeight={700}>Envío #{shipment.id}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Destino: {shipment.deposit_name ?? shipment.deposit_id}
-                            </Typography>
-                          </Box>
+                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                            <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
+                              <IconButton
+                                size="small"
+                                aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                                onClick={() => void handleToggleDetails(shipment.id)}
+                                disabled={isDetailLoading}
+                              >
+                                {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              </IconButton>
+                            </Tooltip>
+                            <Box>
+                              <Typography fontWeight={700}>Envío #{shipment.id}</Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Destino: {shipment.deposit_name ?? shipment.deposit_id}
+                              </Typography>
+                            </Box>
+                          </Stack>
                           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                             <Chip label={SHIPMENT_STATUS_LABELS[shipment.status]} size="small" />
                             <Chip
@@ -267,16 +279,6 @@ export function MobileShipmentsPage() {
                           >
                             Preparar
                           </Button>
-                          <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
-                            <IconButton
-                              size="small"
-                              aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
-                              onClick={() => void handleToggleDetails(shipment.id)}
-                              disabled={isDetailLoading}
-                            >
-                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
                         </Stack>
                       </Stack>
                       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
@@ -382,12 +384,24 @@ export function MobileShipmentsPage() {
                     <CardContent>
                       <Stack spacing={1}>
                         <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
-                          <Box>
-                            <Typography fontWeight={700}>Envío #{shipment.id}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Destino: {shipment.deposit_name ?? shipment.deposit_id}
-                            </Typography>
-                          </Box>
+                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                            <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
+                              <IconButton
+                                size="small"
+                                aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                                onClick={() => void handleToggleDetails(shipment.id)}
+                                disabled={isDetailLoading}
+                              >
+                                {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              </IconButton>
+                            </Tooltip>
+                            <Box>
+                              <Typography fontWeight={700}>Envío #{shipment.id}</Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Destino: {shipment.deposit_name ?? shipment.deposit_id}
+                              </Typography>
+                            </Box>
+                          </Stack>
                           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                             <Chip label={SHIPMENT_STATUS_LABELS[shipment.status]} color={statusColor(shipment.status)} size="small" />
                             <Chip
@@ -410,16 +424,6 @@ export function MobileShipmentsPage() {
                           >
                             {isDraft ? "Preparar" : "Ver"}
                           </Button>
-                          <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
-                            <IconButton
-                              size="small"
-                              aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
-                              onClick={() => void handleToggleDetails(shipment.id)}
-                              disabled={isDetailLoading}
-                            >
-                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
                           {shipment.status === "confirmed" && (
                             <Button
                               size="small"
