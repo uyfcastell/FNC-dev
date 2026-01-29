@@ -1396,9 +1396,9 @@ def list_role_permissions(role_id: int, session: Session = Depends(get_session))
 def update_role_permissions(
     role_id: int,
     payload: RolePermissionsUpdate,
+    request: Request,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    request: Request,
 ) -> list[str]:
     role = session.get(Role, role_id)
     if not role:
