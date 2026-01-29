@@ -354,23 +354,7 @@ export function RemitosPage() {
                 <Card key={remito.id} variant="outlined">
                   <CardContent>
                     <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2}>
-                      <Box>
-                        <Typography fontWeight={700}>Remito #{remito.id}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Destino: {remito.destination_deposit_name ?? remito.destination}
-                          {remito.source_deposit_name ? ` · Origen: ${remito.source_deposit_name}` : ""}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Emisión: {formatDate(remito.issue_date)} · Estado: {REMITO_STATUS_LABELS[remito.status]}
-                        </Typography>
-                      </Box>
-                      <Stack spacing={1} alignItems={{ sm: "flex-end" }}>
-                        <Chip label={REMITO_STATUS_LABELS[remito.status]} variant="outlined" />
-                        {remito.pdf_path && (
-                          <Button variant="outlined" onClick={() => openRemitoPdf(remito.id)}>
-                            Ver PDF
-                          </Button>
-                        )}
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                         <Tooltip title={expandedRemitoId === remito.id ? "Ocultar detalle" : "Ver detalle"}>
                           <IconButton
                             size="small"
@@ -386,6 +370,24 @@ export function RemitosPage() {
                             )}
                           </IconButton>
                         </Tooltip>
+                        <Box>
+                          <Typography fontWeight={700}>Remito #{remito.id}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Destino: {remito.destination_deposit_name ?? remito.destination}
+                            {remito.source_deposit_name ? ` · Origen: ${remito.source_deposit_name}` : ""}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Emisión: {formatDate(remito.issue_date)} · Estado: {REMITO_STATUS_LABELS[remito.status]}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Stack spacing={1} alignItems={{ sm: "flex-end" }}>
+                        <Chip label={REMITO_STATUS_LABELS[remito.status]} variant="outlined" />
+                        {remito.pdf_path && (
+                          <Button variant="outlined" onClick={() => openRemitoPdf(remito.id)}>
+                            Ver PDF
+                          </Button>
+                        )}
                       </Stack>
                     </Stack>
                     <Collapse in={expandedRemitoId === remito.id} timeout="auto" unmountOnExit>
