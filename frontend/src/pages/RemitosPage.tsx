@@ -1,5 +1,7 @@
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -369,14 +371,21 @@ export function RemitosPage() {
                             Ver PDF
                           </Button>
                         )}
-                        <Button
-                          variant="text"
-                          onClick={() =>
-                            setExpandedRemitoId((prev) => (prev === remito.id ? null : remito.id))
-                          }
-                        >
-                          {expandedRemitoId === remito.id ? "Ocultar detalle" : "Ver detalle"}
-                        </Button>
+                        <Tooltip title={expandedRemitoId === remito.id ? "Ocultar detalle" : "Ver detalle"}>
+                          <IconButton
+                            size="small"
+                            aria-label={expandedRemitoId === remito.id ? "Ocultar detalle" : "Ver detalle"}
+                            onClick={() =>
+                              setExpandedRemitoId((prev) => (prev === remito.id ? null : remito.id))
+                            }
+                          >
+                            {expandedRemitoId === remito.id ? (
+                              <ExpandLessIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
                       </Stack>
                     </Stack>
                     <Collapse in={expandedRemitoId === remito.id} timeout="auto" unmountOnExit>

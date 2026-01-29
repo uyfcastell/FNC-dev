@@ -1265,7 +1265,11 @@ export function AdminPage() {
                     <TableRow hover>
                       <TableCell>
                         <Tooltip title={expandedSkus[sku.id] ? "Ocultar detalle" : "Ver detalle"}>
-                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedSkus, sku.id)}>
+                          <IconButton
+                            size="small"
+                            aria-label={expandedSkus[sku.id] ? "Ocultar detalle" : "Ver detalle"}
+                            onClick={() => toggleExpanded(setExpandedSkus, sku.id)}
+                          >
                             {expandedSkus[sku.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
@@ -1785,7 +1789,11 @@ export function AdminPage() {
                     <TableRow hover>
                       <TableCell>
                         <Tooltip title={expandedDeposits[deposit.id] ? "Ocultar detalle" : "Ver detalle"}>
-                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedDeposits, deposit.id)}>
+                          <IconButton
+                            size="small"
+                            aria-label={expandedDeposits[deposit.id] ? "Ocultar detalle" : "Ver detalle"}
+                            onClick={() => toggleExpanded(setExpandedDeposits, deposit.id)}
+                          >
                             {expandedDeposits[deposit.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
@@ -1938,6 +1946,7 @@ export function AdminPage() {
                       <Tooltip title={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}>
                         <IconButton
                           size="small"
+                          aria-label={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}
                           onClick={() =>
                             setExpandedSuppliers((prev) => ({ ...prev, [supplier.id]: !prev[supplier.id] }))
                           }
@@ -2170,7 +2179,11 @@ export function AdminPage() {
                     <TableRow hover>
                       <TableCell>
                         <Tooltip title={expandedRecipes[recipe.id] ? "Ocultar detalle" : "Ver detalle"}>
-                          <IconButton size="small" onClick={() => toggleExpanded(setExpandedRecipes, recipe.id)}>
+                          <IconButton
+                            size="small"
+                            aria-label={expandedRecipes[recipe.id] ? "Ocultar detalle" : "Ver detalle"}
+                            onClick={() => toggleExpanded(setExpandedRecipes, recipe.id)}
+                          >
                             {expandedRecipes[recipe.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
@@ -2377,7 +2390,11 @@ export function AdminPage() {
                       <TableRow hover>
                         <TableCell>
                           <Tooltip title={expandedUsers[user.id] ? "Ocultar detalle" : "Ver detalle"}>
-                            <IconButton size="small" onClick={() => toggleExpanded(setExpandedUsers, user.id)}>
+                            <IconButton
+                              size="small"
+                              aria-label={expandedUsers[user.id] ? "Ocultar detalle" : "Ver detalle"}
+                              onClick={() => toggleExpanded(setExpandedUsers, user.id)}
+                            >
                               {expandedUsers[user.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                             </IconButton>
                           </Tooltip>

@@ -576,6 +576,7 @@ export function PurchasesPage() {
                             <Tooltip title={expandedReceiptId === receipt.id ? "Ocultar detalle" : "Ver detalle"}>
                               <IconButton
                                 size="small"
+                                aria-label={expandedReceiptId === receipt.id ? "Ocultar detalle" : "Ver detalle"}
                                 onClick={() => setExpandedReceiptId((prev) => (prev === receipt.id ? null : receipt.id))}
                               >
                                 {expandedReceiptId === receipt.id ? (
@@ -724,6 +725,7 @@ export function PurchasesPage() {
                             <Tooltip title={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}>
                               <IconButton
                                 size="small"
+                                aria-label={expandedSuppliers[supplier.id] ? "Ocultar detalle" : "Ver detalle"}
                                 onClick={() =>
                                   setExpandedSuppliers((prev) => ({ ...prev, [supplier.id]: !prev[supplier.id] }))
                                 }
