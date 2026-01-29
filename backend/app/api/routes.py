@@ -223,6 +223,13 @@ def _is_admin_account(user: User, session: Session) -> bool:
     return _normalize_role_name(role_name) in {"ADMIN", "ADMINISTRACION"}
 
 
+def _is_local_account(user: User, session: Session) -> bool:
+    role_name = _get_user_role_name(session, user)
+    if not role_name:
+        return False
+    return _normalize_role_name(role_name) in {"ENCARGADO DE LOCALES", "LOCALES", "LOCAL"}
+
+
 def _get_sku_type_or_404(session: Session, sku_type_id: int) -> SKUType:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
@@ -625,8 +632,6 @@ def _ensure_order_transition(order: Order, next_status: OrderStatus) -> None:
     if next_status == OrderStatus.CANCELLED and order.status not in {
         OrderStatus.DRAFT,
         OrderStatus.SUBMITTED,
-        OrderStatus.PREPARED,
-        OrderStatus.PARTIALLY_PREPARED,
     }:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido no puede cancelarse en este estado")
 
@@ -696,6 +701,31 @@ def _get_prepared_quantities(
     if not order_item_ids:
         return {}
     statement = (
+        select(
+            ShipmentItem.order_item_id,
+            func.coalesce(func.sum(case((ShipmentItem.is_ready == True, ShipmentItem.quantity), else_=0)), 0),  # noqa: E712
+        )
+        .join(Shipment)
+        .where(
+            ShipmentItem.order_item_id.in_(order_item_ids),
+            Shipment.status.in_({ShipmentStatus.DRAFT, ShipmentStatus.CONFIRMED}),
+        )
+    )
+    if exclude_shipment_id is not None:
+        statement = statement.where(ShipmentItem.shipment_id != exclude_shipment_id)
+    statement = statement.group_by(ShipmentItem.order_item_id)
+    rows = session.exec(statement).all()
+    return {row[0]: float(row[1] or 0) for row in rows}
+
+
+def _get_assigned_shipment_quantities(
+    session: Session,
+    order_item_ids: list[int],
+    exclude_shipment_id: int | None = None,
+) -> dict[int, float]:
+    if not order_item_ids:
+        return {}
+    statement = (
         select(ShipmentItem.order_item_id, func.sum(ShipmentItem.quantity))
         .join(Shipment)
         .where(
@@ -715,7 +745,7 @@ def _get_assigned_quantities(
     order_item_ids: list[int],
     exclude_shipment_id: int | None = None,
 ) -> dict[int, float]:
-    prepared = _get_prepared_quantities(session, order_item_ids, exclude_shipment_id=exclude_shipment_id)
+    prepared = _get_assigned_shipment_quantities(session, order_item_ids, exclude_shipment_id=exclude_shipment_id)
     dispatched = _get_dispatched_quantities(session, order_item_ids)
     combined = prepared.copy()
     for order_item_id, quantity in dispatched.items():
@@ -814,6 +844,47 @@ def _order_locked_by_shipment(session: Session, order_id: int) -> bool:
 def _order_has_shipment_assignments(session: Session, order_id: int) -> bool:
     statement = select(ShipmentItem.id).where(ShipmentItem.order_id == order_id).limit(1)
     return session.exec(statement).first() is not None
+
+
+def _order_has_ready_picking(session: Session, order_id: int) -> bool:
+    statement = (
+        select(ShipmentItem.id)
+        .join(Shipment)
+        .where(
+            ShipmentItem.order_id == order_id,
+            ShipmentItem.is_ready.is_(True),
+            Shipment.status.in_({ShipmentStatus.DRAFT, ShipmentStatus.CONFIRMED, ShipmentStatus.DISPATCHED}),
+        )
+        .limit(1)
+    )
+    return session.exec(statement).first() is not None
+
+
+def _remove_order_from_draft_shipments(session: Session, order_id: int) -> None:
+    items = session.exec(
+        select(ShipmentItem)
+        .join(Shipment)
+        .where(ShipmentItem.order_id == order_id, Shipment.status == ShipmentStatus.DRAFT)
+    ).all()
+    for item in items:
+        session.delete(item)
+
+
+def _ensure_order_cancel_allowed(session: Session, order: Order) -> None:
+    if order.status == OrderStatus.DRAFT:
+        return
+    if order.status == OrderStatus.SUBMITTED:
+        if _order_has_ready_picking(session, order.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se puede cancelar: el pedido ya tiene picking iniciado.",
+            )
+        if _order_locked_by_shipment(session, order.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se puede cancelar: el pedido está en un envío confirmado o despachado.",
+            )
+        return
 
 
 def _diff_order_items(before_items: list[dict], after_items: list[dict]) -> dict:
@@ -2228,6 +2299,11 @@ def update_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    if _is_local_account(current_user, session) and order.status != OrderStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El pedido ya fue enviado. El local no puede modificarlo.",
+        )
     is_admin = _is_admin_account(current_user, session)
     allowed_statuses = {OrderStatus.DRAFT} if not is_admin else {
         OrderStatus.DRAFT,
@@ -2262,11 +2338,10 @@ def update_order(
         update_data["requested_by"] = update_data["requested_by"].strip()
     if update_data.get("status"):
         _ensure_order_transition(order, update_data["status"])
-    if update_data.get("status") == OrderStatus.CANCELLED and _order_has_shipment_assignments(session, order.id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede cancelar: el pedido ya está incluido en un envío.",
-        )
+    if update_data.get("status") == OrderStatus.CANCELLED:
+        _ensure_order_cancel_allowed(session, order)
+        if order.status == OrderStatus.SUBMITTED:
+            _remove_order_from_draft_shipments(session, order.id)
     for field, value in update_data.items():
         setattr(order, field, value)
     if update_data.get("status") == OrderStatus.CANCELLED:
@@ -2395,11 +2470,10 @@ def update_order_status(
                     detail="El stock actual debe ser un número entero",
                 )
     _ensure_order_transition(order, payload.status)
-    if payload.status == OrderStatus.CANCELLED and _order_has_shipment_assignments(session, order.id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede cancelar: el pedido ya está incluido en un envío.",
-        )
+    if payload.status == OrderStatus.CANCELLED:
+        _ensure_order_cancel_allowed(session, order)
+        if order.status == OrderStatus.SUBMITTED:
+            _remove_order_from_draft_shipments(session, order.id)
     before_status = order.status
     order.status = payload.status
     if payload.status == OrderStatus.CANCELLED:
@@ -2436,6 +2510,15 @@ def delete_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    if _is_local_account(current_user, session) and order.status != OrderStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El pedido ya fue enviado. El local no puede modificarlo.",
+        )
+    _ensure_order_transition(order, OrderStatus.CANCELLED)
+    _ensure_order_cancel_allowed(session, order)
+    if order.status == OrderStatus.SUBMITTED:
+        _remove_order_from_draft_shipments(session, order.id)
     items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
     for item in items:
         session.delete(item)
@@ -2792,6 +2875,8 @@ def prep_shipment_items(
         }
         _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
 
+    order_ids = {item.order_id for item in items}
+    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)

@@ -27,6 +27,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { useAuth } from "../lib/auth";
 import {
   createOrder,
   fetchDeposits,
@@ -44,6 +45,7 @@ import {
   updateOrderStatus,
 } from "../lib/api";
 import { ORDER_SECTIONS, OrderSectionKey, sectionForSku } from "../lib/orderSections";
+import { isLocalUser } from "../lib/roles";
 
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Borrador",
@@ -112,6 +114,8 @@ export function OrdersPage() {
     papeleria: [initialLine],
     limpieza: [initialLine],
   });
+  const { user } = useAuth();
+  const localUser = isLocalUser(user);
 
   useEffect(() => {
     void loadData();
@@ -698,7 +702,10 @@ export function OrdersPage() {
             <Stack spacing={1}>
               {filteredOrders.map((order) => {
                 const isCancelled = order.status === "cancelled";
-                const isEditable = ["draft", "submitted", "partially_prepared"].includes(order.status);
+                const isEditable = localUser
+                  ? order.status === "draft"
+                  : ["draft", "submitted", "partially_prepared"].includes(order.status);
+                const canCancel = localUser ? order.status === "draft" : ["draft", "submitted"].includes(order.status);
                 const isShipmentDisabled = ["draft", "dispatched", "cancelled"].includes(order.status);
                 return (
                   <Card key={order.id} variant="outlined">
@@ -772,7 +779,7 @@ export function OrdersPage() {
                             color="error"
                             size="small"
                             onClick={() => handleCancelOrder(order.id)}
-                            disabled={isCancelled || ["partially_dispatched", "dispatched"].includes(order.status)}
+                            disabled={isCancelled || !canCancel}
                           >
                             Cancelar
                           </Button>

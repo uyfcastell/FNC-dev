@@ -44,6 +44,7 @@ function MobileRoutes() {
         <Route path="/mobile/produccion" element={<MobileProductionPage />} />
         <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
         <Route path="/mobile/envios" element={<MobileShipmentsPage />} />
+        <Route path="/mobile/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />
         <Route path="*" element={<MobileHomePage />} />
       </Routes>
     </MobileShell>
