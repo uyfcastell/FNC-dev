@@ -1,6 +1,7 @@
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import {
   Alert,
@@ -15,6 +16,7 @@ import {
   FormControlLabel,
   Grid,
   IconButton,
+  Menu,
   MenuItem,
   Stack,
   Tab,
@@ -23,7 +25,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
 import {
@@ -85,6 +87,8 @@ export function ShipmentsPage() {
   const [shipmentDetails, setShipmentDetails] = useState<Record<number, Shipment>>({});
   const [detailLoadingIds, setDetailLoadingIds] = useState<Set<number>>(new Set());
   const [prefillOrderId, setPrefillOrderId] = useState<number | null>(null);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [menuShipmentId, setMenuShipmentId] = useState<number | null>(null);
   const location = useLocation();
   const lastPrefillKeyRef = useRef<string | null>(null);
 
@@ -452,25 +456,70 @@ export function ShipmentsPage() {
       return acc;
     }, {});
 
-  const getShipmentActionState = (status: ShipmentStatus) => {
-    const canEdit = status === "draft";
-    const canConfirm = status === "draft";
-    const canDispatch = status === "confirmed";
-    const canCancel = status !== "dispatched";
-    return {
-      canEdit,
-      canConfirm,
-      canDispatch,
-      canCancel,
-      editReason: canEdit ? "" : "Solo los envíos en borrador pueden editarse.",
-      confirmReason: canConfirm ? "" : "Solo los envíos en borrador pueden confirmarse.",
-      dispatchReason: canDispatch ? "" : "Solo los envíos confirmados pueden despacharse.",
-      cancelReason:
-        status === "dispatched"
-          ? "Los envíos despachados no se pueden cancelar."
-          : "Solo los envíos en borrador o confirmados pueden cancelarse.",
-    };
+  const getPrimaryActionType = (shipment: Shipment) => {
+    if (shipment.status === "confirmed") {
+      return "dispatch";
+    }
+    if (shipment.status === "draft" && shipment.prep_status === "ready") {
+      return "confirm";
+    }
+    if (shipment.status === "draft") {
+      return "prepare";
+    }
+    return null;
   };
+
+  const getSecondaryActions = (shipment: Shipment, primaryActionType: ReturnType<typeof getPrimaryActionType>) => {
+    const actions: Array<
+      | { key: "prepare"; label: string; to: string }
+      | { key: "edit"; label: string; onClick: () => void }
+      | { key: "cancel"; label: string; onClick: () => void }
+      | { key: "view"; label: string; to: string }
+    > = [];
+
+    if (shipment.status === "draft" && primaryActionType !== "prepare") {
+      actions.push({
+        key: "prepare",
+        label: "Preparar",
+        to: `/envios/${shipment.id}/preparar`,
+      });
+    }
+
+    if (shipment.status === "draft") {
+      actions.push({
+        key: "edit",
+        label: "Editar",
+        onClick: () => handleEditShipment(shipment.id),
+      });
+      actions.push({
+        key: "cancel",
+        label: "Cancelar envío",
+        onClick: () => handleCancelShipment(shipment.id),
+      });
+    }
+
+    actions.push({
+      key: "view",
+      label: "Ver detalle",
+      to: `/envios/${shipment.id}`,
+    });
+
+    return actions;
+  };
+
+  const handleOpenMenu = (event: MouseEvent<HTMLButtonElement>, shipmentId: number) => {
+    setMenuAnchorEl(event.currentTarget);
+    setMenuShipmentId(shipmentId);
+  };
+
+  const handleCloseMenu = () => {
+    setMenuAnchorEl(null);
+    setMenuShipmentId(null);
+  };
+
+  const menuShipment = menuShipmentId ? shipments.find((shipment) => shipment.id === menuShipmentId) : null;
+  const menuPrimaryActionType = menuShipment ? getPrimaryActionType(menuShipment) : null;
+  const menuActions = menuShipment ? getSecondaryActions(menuShipment, menuPrimaryActionType) : [];
 
   return (
     <Stack spacing={3}>
@@ -738,19 +787,21 @@ export function ShipmentsPage() {
                 Aún no hay envíos registrados.
               </Typography>
             ) : (
-              <Stack spacing={1}>
-                {filteredShipments.map((shipment) => {
-                  const actionState = getShipmentActionState(shipment.status);
-                  const details = shipmentDetails[shipment.id] ?? shipment;
-                  const isExpanded = expandedShipmentId === shipment.id;
-                  const isDetailLoading = detailLoadingIds.has(shipment.id);
-                  const detailOrders = details.orders ?? [];
-                  const detailItems = details.items ?? [];
-                  const itemsByOrder = groupItemsByOrder(detailItems);
-                  const fallbackOrderIds = detailOrders.length
-                    ? []
-                    : Array.from(new Set(detailItems.map((item) => item.order_id)));
-                  return (
+              <>
+                <Stack spacing={1}>
+                  {filteredShipments.map((shipment) => {
+                    const details = shipmentDetails[shipment.id] ?? shipment;
+                    const isExpanded = expandedShipmentId === shipment.id;
+                    const isDetailLoading = detailLoadingIds.has(shipment.id);
+                    const detailOrders = details.orders ?? [];
+                    const detailItems = details.items ?? [];
+                    const itemsByOrder = groupItemsByOrder(detailItems);
+                    const fallbackOrderIds = detailOrders.length
+                      ? []
+                      : Array.from(new Set(detailItems.map((item) => item.order_id)));
+                    const primaryActionType = getPrimaryActionType(shipment);
+                    const secondaryActions = getSecondaryActions(shipment, primaryActionType);
+                    return (
                     <Box
                       key={shipment.id}
                       sx={{
@@ -789,76 +840,46 @@ export function ShipmentsPage() {
                           </Box>
                         </Stack>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                          <Tooltip
-                            title={
-                              shipment.status === "draft"
-                                ? "Preparar envío"
-                                : "Solo se pueden preparar envíos en borrador"
-                            }
-                            disableHoverListener={shipment.status === "draft"}
-                          >
-                            <span>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                component={RouterLink}
-                                to={`/envios/${shipment.id}/preparar`}
-                                disabled={shipment.status !== "draft"}
-                              >
-                                Preparar
-                              </Button>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
-                            <span>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => handleEditShipment(shipment.id)}
-                                disabled={!actionState.canEdit || loading}
-                              >
-                                Editar
-                              </Button>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={actionState.confirmReason} disableHoverListener={actionState.canConfirm}>
-                            <span>
-                              <Button
-                                size="small"
-                                variant="contained"
-                                onClick={() => handleConfirmShipment(shipment.id)}
-                                disabled={!actionState.canConfirm || loading}
-                              >
-                                Confirmar
-                              </Button>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={actionState.dispatchReason} disableHoverListener={actionState.canDispatch}>
-                            <span>
-                              <Button
-                                size="small"
-                                variant="contained"
-                                color="success"
-                                onClick={() => handleDispatchShipment(shipment.id)}
-                                disabled={!actionState.canDispatch || loading}
-                              >
-                                Despachar
-                              </Button>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title={actionState.cancelReason} disableHoverListener={actionState.canCancel}>
-                            <span>
-                              <Button
-                                size="small"
-                                variant="text"
-                                color="error"
-                                onClick={() => handleCancelShipment(shipment.id)}
-                                disabled={!actionState.canCancel || loading}
-                              >
-                                Cancelar envío
-                              </Button>
-                            </span>
-                          </Tooltip>
+                          {primaryActionType === "prepare" && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              component={RouterLink}
+                              to={`/envios/${shipment.id}/preparar`}
+                            >
+                              Preparar
+                            </Button>
+                          )}
+                          {primaryActionType === "confirm" && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              onClick={() => handleConfirmShipment(shipment.id)}
+                              disabled={loading}
+                            >
+                              Confirmar
+                            </Button>
+                          )}
+                          {primaryActionType === "dispatch" && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="success"
+                              onClick={() => handleDispatchShipment(shipment.id)}
+                              disabled={loading}
+                            >
+                              Despachar
+                            </Button>
+                          )}
+                          {secondaryActions.length > 0 && (
+                            <IconButton
+                              size="small"
+                              aria-label="Más acciones"
+                              onClick={(event) => handleOpenMenu(event, shipment.id)}
+                            >
+                              <MoreVertIcon fontSize="small" />
+                            </IconButton>
+                          )}
                         </Stack>
                       </Box>
                       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
@@ -905,7 +926,7 @@ export function ShipmentsPage() {
                                       <Typography variant="body2" fontWeight={600}>
                                         Pedido #{order.id}
                                       </Typography>
-                                    <Typography variant="caption" color="text.secondary">
+                                      <Typography variant="caption" color="text.secondary">
                                         Estado: {ORDER_STATUS_LABELS[order.status]} · Destino: {order.destination}
                                         {order.required_delivery_date
                                           ? ` · Req. entrega: ${formatDate(order.required_delivery_date)}`
@@ -959,8 +980,36 @@ export function ShipmentsPage() {
                       </Collapse>
                     </Box>
                   );
-                })}
-              </Stack>
+                  })}
+                </Stack>
+                <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={handleCloseMenu}>
+                  {menuActions.map((action) => {
+                    if ("to" in action) {
+                      return (
+                        <MenuItem
+                          key={action.key}
+                          component={RouterLink}
+                          to={action.to}
+                          onClick={handleCloseMenu}
+                        >
+                          {action.label}
+                        </MenuItem>
+                      );
+                    }
+                    return (
+                      <MenuItem
+                        key={action.key}
+                        onClick={() => {
+                          action.onClick();
+                          handleCloseMenu();
+                        }}
+                      >
+                        {action.label}
+                      </MenuItem>
+                    );
+                  })}
+                </Menu>
+              </>
             )}
           </CardContent>
         </Card>
