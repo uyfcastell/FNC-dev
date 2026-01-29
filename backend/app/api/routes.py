@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
-from sqlalchemy import and_, case, func, nulls_last, or_
+from sqlalchemy import String, and_, case, cast, func, nulls_last, or_
 from sqlmodel import Session, select
 
 from ..core.config import get_settings
@@ -5512,6 +5512,7 @@ def list_audit_logs(
     user_id: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    detail_q: str | None = None,
     limit: int = 200,
     session: Session = Depends(get_session),
 ) -> list[AuditLogRead]:
@@ -5526,6 +5527,8 @@ def list_audit_logs(
         statement = statement.where(AuditLog.created_at >= datetime.combine(date_from, datetime.min.time()))
     if date_to:
         statement = statement.where(AuditLog.created_at <= datetime.combine(date_to, datetime.max.time()))
+    if detail_q:
+        statement = statement.where(cast(AuditLog.changes, String).ilike(f"%{detail_q}%"))
     safe_limit = max(1, min(limit, 500))
     records = session.exec(statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(safe_limit)).all()
     return [_map_audit_log(record, session) for record in records]

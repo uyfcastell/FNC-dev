@@ -831,6 +831,7 @@ export async function fetchAuditLogs(params?: {
   user_id?: number;
   date_from?: string;
   date_to?: string;
+  detail_q?: string;
   limit?: number;
 }): Promise<AuditLog[]> {
   const query = new URLSearchParams();
@@ -839,6 +840,7 @@ export async function fetchAuditLogs(params?: {
   if (params?.user_id) query.set("user_id", String(params.user_id));
   if (params?.date_from) query.set("date_from", params.date_from);
   if (params?.date_to) query.set("date_to", params.date_to);
+  if (params?.detail_q) query.set("detail_q", params.detail_q);
   if (params?.limit) query.set("limit", String(params.limit));
   const path = query.toString() ? `/audit/logs?${query.toString()}` : "/audit/logs";
   return apiRequest<AuditLog[]>(path, {}, "No pudimos obtener la auditoría");

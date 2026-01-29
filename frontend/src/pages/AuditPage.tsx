@@ -1,7 +1,6 @@
 import HistoryIcon from "@mui/icons-material/History";
 import {
   Alert,
-  Button,
   Card,
   CardContent,
   CardHeader,
@@ -19,7 +18,7 @@ import {
 } from "@mui/material";
 import { useEffect, useState } from "react";
 
-import { AuditAction, AuditLog, fetchAuditLogs } from "../lib/api";
+import { AuditAction, AuditLog, fetchAuditLogs, fetchUsers, User } from "../lib/api";
 
 const actionLabels: Record<AuditAction, string> = {
   create: "Alta",
@@ -34,17 +33,24 @@ export function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({ entity_type: "", entity_id: "", user_id: "", date_from: "", date_to: "" });
+  const [users, setUsers] = useState<User[]>([]);
+  const [filters, setFilters] = useState({
+    entity_type: "",
+    user_id: "",
+    date_from: "",
+    date_to: "",
+    detail_q: "",
+  });
 
   const loadLogs = async () => {
     try {
       setLoading(true);
       const data = await fetchAuditLogs({
         entity_type: filters.entity_type || undefined,
-        entity_id: filters.entity_id ? Number(filters.entity_id) : undefined,
         user_id: filters.user_id ? Number(filters.user_id) : undefined,
         date_from: filters.date_from || undefined,
         date_to: filters.date_to || undefined,
+        detail_q: filters.detail_q || undefined,
         limit: 200,
       });
       setLogs(data);
@@ -68,8 +74,24 @@ export function AuditPage() {
   };
 
   useEffect(() => {
-    void loadLogs();
+    const loadUsers = async () => {
+      try {
+        const data = await fetchUsers();
+        setUsers(data);
+      } catch (err) {
+        console.error(err);
+        setError("No pudimos cargar usuarios.");
+      }
+    };
+    void loadUsers();
   }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadLogs();
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [filters]);
 
   return (
     <Stack spacing={2}>
@@ -101,23 +123,34 @@ export function AuditPage() {
                 <MenuItem value="mermas">Mermas</MenuItem>
               </TextField>
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} md={3}>
               <TextField
-                label="ID entidad"
+                select
                 fullWidth
-                value={filters.entity_id}
-                onChange={(e) => setFilters((prev) => ({ ...prev, entity_id: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <TextField
-                label="Usuario (ID)"
-                fullWidth
+                label="Usuario"
                 value={filters.user_id}
                 onChange={(e) => setFilters((prev) => ({ ...prev, user_id: e.target.value }))}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {users.map((user) => (
+                  <MenuItem key={user.id} value={String(user.id)}>
+                    {user.full_name ? `${user.full_name} (${user.email})` : user.email}
+                    {!user.is_active ? " (Inactivo)" : ""}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                type="search"
+                label="Buscar en detalle…"
+                placeholder="Buscar en detalle…"
+                fullWidth
+                value={filters.detail_q}
+                onChange={(e) => setFilters((prev) => ({ ...prev, detail_q: e.target.value }))}
               />
             </Grid>
-            <Grid item xs={12} md={2.5}>
+            <Grid item xs={12} md={1.5}>
               <TextField
                 type="date"
                 fullWidth
@@ -127,7 +160,7 @@ export function AuditPage() {
                 onChange={(e) => handleFilterChange({ date_from: e.target.value })}
               />
             </Grid>
-            <Grid item xs={12} md={2.5}>
+            <Grid item xs={12} md={1.5}>
               <TextField
                 type="date"
                 fullWidth
@@ -139,11 +172,6 @@ export function AuditPage() {
               />
             </Grid>
           </Grid>
-          <Stack direction="row" spacing={2} mt={2}>
-            <Button variant="contained" onClick={loadLogs} disabled={loading}>
-              Aplicar filtros
-            </Button>
-          </Stack>
         </CardContent>
       </Card>
 
