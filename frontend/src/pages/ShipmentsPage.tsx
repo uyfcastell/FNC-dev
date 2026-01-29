@@ -22,7 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link as RouterLink, useLocation } from "react-router-dom";
 
 import {
   addOrdersToShipment,
@@ -783,6 +783,26 @@ export function ShipmentsPage() {
                           >
                             {isExpanded ? "Ocultar detalle" : "Ver detalle"}
                           </Button>
+                          <Tooltip
+                            title={
+                              shipment.status === "draft"
+                                ? "Preparar envío"
+                                : "Solo se pueden preparar envíos en borrador"
+                            }
+                            disableHoverListener={shipment.status === "draft"}
+                          >
+                            <span>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                component={RouterLink}
+                                to={`/envios/${shipment.id}/preparar`}
+                                disabled={shipment.status !== "draft"}
+                              >
+                                Preparar
+                              </Button>
+                            </span>
+                          </Tooltip>
                           <Tooltip title={actionState.editReason} disableHoverListener={actionState.canEdit}>
                             <span>
                               <Button
