@@ -20,7 +20,8 @@ import {
 import { useEffect, useState } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 
-import { fetchShipment, OrderStatus, Shipment } from "../lib/api";
+import { ApiError, fetchShipment, fetchShipmentPickListBlob, OrderStatus, Shipment } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleDateString("es-AR") : "-");
 
@@ -45,6 +46,7 @@ export function ShipmentDetailPage() {
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     const id = Number(shipmentId);
@@ -68,6 +70,24 @@ export function ShipmentDetailPage() {
     void loadShipment();
   }, [shipmentId]);
 
+  const handlePickListPrint = async () => {
+    if (!shipment?.id) return;
+    try {
+      setPrinting(true);
+      const { blob, filename } = await fetchShipmentPickListBlob(shipment.id);
+      downloadBlob(blob, filename);
+    } catch (err) {
+      console.error(err);
+      if (err instanceof ApiError) {
+        setError(err.message || "No pudimos descargar el PDF.");
+      } else {
+        setError("No pudimos descargar el PDF.");
+      }
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   return (
     <Stack spacing={3}>
       <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
@@ -81,6 +101,11 @@ export function ShipmentDetailPage() {
           {shipment?.id && (
             <Button component={RouterLink} to={`/envios/${shipment.id}/preparar`} variant="contained">
               Preparar envío
+            </Button>
+          )}
+          {shipment?.id && (
+            <Button variant="outlined" onClick={handlePickListPrint} disabled={printing}>
+              Imprimir pick list (PDF)
             </Button>
           )}
           <Button component={RouterLink} to="/envios" startIcon={<ArrowBackIcon />} variant="outlined">

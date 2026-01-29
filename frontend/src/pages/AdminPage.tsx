@@ -61,6 +61,7 @@ import {
   fetchMermaCauses,
   fetchMermaTypes,
   fetchSkuTypes,
+  fetchSkusExport,
   fetchStockMovementTypes,
   fetchSkus,
   fetchSuppliers,
@@ -97,6 +98,7 @@ import {
   Role,
   User,
 } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 
 const RECIPE_PRODUCT_CODES = ["PT", "SEMI", "MP"];
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
@@ -133,6 +135,7 @@ export function AdminPage() {
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [exportingSkus, setExportingSkus] = useState(false);
   const [skuNameFilter, setSkuNameFilter] = useState("");
   const [skuCodeFilter, setSkuCodeFilter] = useState("");
   const [skuTypeFilter, setSkuTypeFilter] = useState("");
@@ -478,6 +481,30 @@ export function AdminPage() {
   const resetMessages = () => {
     setSuccess(null);
     setError(null);
+  };
+
+  const handleSkuExport = async () => {
+    try {
+      setExportingSkus(true);
+      resetMessages();
+      const typeIds = skuTypeFilter ? [Number(skuTypeFilter)] : undefined;
+      const search = skuCodeFilter || skuNameFilter || undefined;
+      const { blob, filename } = await fetchSkusExport({
+        sku_type_ids: typeIds,
+        include_inactive: true,
+        search,
+      });
+      downloadBlob(blob, filename);
+    } catch (err) {
+      console.error(err);
+      if (err instanceof ApiError) {
+        setError(err.message || "No pudimos exportar los SKUs.");
+      } else {
+        setError("No pudimos exportar los SKUs.");
+      }
+    } finally {
+      setExportingSkus(false);
+    }
   };
 
   const toggleRolePermission = (roleId: number, permissionKey: string) => {
@@ -1155,7 +1182,14 @@ export function AdminPage() {
           <CardHeader
             title="Productos"
             subheader="Listado compacto"
-            action={<Chip label={`${filteredSkus.length} de ${skus.length}`} />}
+            action={
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip label={`${filteredSkus.length} de ${skus.length}`} />
+                <Button variant="outlined" size="small" onClick={handleSkuExport} disabled={exportingSkus}>
+                  Exportar Excel
+                </Button>
+              </Stack>
+            }
           />
           <Divider />
           <CardContent>
