@@ -1,4 +1,6 @@
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import {
   Alert,
@@ -10,9 +12,11 @@ import {
   Chip,
   Collapse,
   Divider,
+  IconButton,
   Stack,
   Tab,
   Tabs,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
@@ -263,14 +267,16 @@ export function MobileShipmentsPage() {
                           >
                             Preparar
                           </Button>
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => void handleToggleDetails(shipment.id)}
-                            disabled={isDetailLoading}
-                          >
-                            {isExpanded ? "Ocultar detalle" : "Ver detalle"}
-                          </Button>
+                          <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
+                            <IconButton
+                              size="small"
+                              aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                              onClick={() => void handleToggleDetails(shipment.id)}
+                              disabled={isDetailLoading}
+                            >
+                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
                         </Stack>
                       </Stack>
                       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
@@ -404,14 +410,16 @@ export function MobileShipmentsPage() {
                           >
                             {isDraft ? "Preparar" : "Ver"}
                           </Button>
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => void handleToggleDetails(shipment.id)}
-                            disabled={isDetailLoading}
-                          >
-                            {isExpanded ? "Ocultar detalle" : "Ver detalle"}
-                          </Button>
+                          <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
+                            <IconButton
+                              size="small"
+                              aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                              onClick={() => void handleToggleDetails(shipment.id)}
+                              disabled={isDetailLoading}
+                            >
+                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
                           {shipment.status === "confirmed" && (
                             <Button
                               size="small"

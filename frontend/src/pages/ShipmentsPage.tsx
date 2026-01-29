@@ -1,3 +1,5 @@
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import {
@@ -775,14 +777,16 @@ export function ShipmentsPage() {
                           </Typography>
                         </Box>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => void handleToggleDetails(shipment.id)}
-                            disabled={isDetailLoading}
-                          >
-                            {isExpanded ? "Ocultar detalle" : "Ver detalle"}
-                          </Button>
+                          <Tooltip title={isExpanded ? "Ocultar detalle" : "Ver detalle"}>
+                            <IconButton
+                              size="small"
+                              aria-label={isExpanded ? "Ocultar detalle" : "Ver detalle"}
+                              onClick={() => void handleToggleDetails(shipment.id)}
+                              disabled={isDetailLoading}
+                            >
+                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip
                             title={
                               shipment.status === "draft"

@@ -715,7 +715,11 @@ export function OrdersPage() {
                           <Stack spacing={0.5}>
                             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                               <Tooltip title={expandedOrders[order.id] ? "Ocultar detalle" : "Ver detalle"}>
-                                <IconButton size="small" onClick={() => toggleExpandedOrder(order.id)}>
+                                <IconButton
+                                  size="small"
+                                  aria-label={expandedOrders[order.id] ? "Ocultar detalle" : "Ver detalle"}
+                                  onClick={() => toggleExpandedOrder(order.id)}
+                                >
                                   {expandedOrders[order.id] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                                 </IconButton>
                               </Tooltip>
