@@ -10,6 +10,7 @@ from .models.common import (
     MermaStage,
     OrderStatus,
     RemitoStatus,
+    ShipmentPrepStatus,
     ShipmentStatus,
     UnitOfMeasure,
 )
@@ -547,6 +548,15 @@ class ShipmentItemUpdate(SQLModel):
     quantity: int
 
 
+class ShipmentPrepItemUpdate(SQLModel):
+    shipment_item_id: int
+    is_ready: bool
+
+
+class ShipmentPrepItemsRequest(SQLModel):
+    items: list[ShipmentPrepItemUpdate]
+
+
 class ShipmentItemRead(SQLModel):
     id: int
     shipment_id: int
@@ -559,6 +569,7 @@ class ShipmentItemRead(SQLModel):
     ordered_quantity: float
     dispatched_quantity: float
     remaining_quantity: float
+    is_ready: bool
 
 
 class ShipmentRead(SQLModel):
@@ -567,6 +578,7 @@ class ShipmentRead(SQLModel):
     deposit_name: str | None = None
     estimated_delivery_date: date
     status: ShipmentStatus
+    prep_status: ShipmentPrepStatus
     created_at: datetime
     updated_at: datetime
 

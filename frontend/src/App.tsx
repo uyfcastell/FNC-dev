@@ -9,6 +9,7 @@ import { StockPage } from "./pages/StockPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { ShipmentsPage } from "./pages/ShipmentsPage";
 import { ShipmentDetailPage } from "./pages/ShipmentDetailPage";
+import { ShipmentPrepPage } from "./pages/ShipmentPrepPage";
 import { RemitosPage } from "./pages/RemitosPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
@@ -62,6 +63,7 @@ function DesktopRoutes() {
         <Route path="/pedidos" element={<OrdersPage />} />
         <Route path="/envios" element={<ShipmentsPage />} />
         <Route path="/envios/:shipmentId" element={<ShipmentDetailPage />} />
+        <Route path="/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />
         <Route path="/remitos" element={<RemitosPage />} />
         <Route path="/compras" element={<PurchasesPage />} />
         <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />

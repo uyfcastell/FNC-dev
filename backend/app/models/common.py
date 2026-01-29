@@ -60,6 +60,12 @@ class ShipmentStatus(str, Enum):
     DISPATCHED = "dispatched"
 
 
+class ShipmentPrepStatus(str, Enum):
+    PENDING = "pending"
+    PARTIAL = "partial"
+    READY = "ready"
+
+
 class InventoryCountStatus(str, Enum):
     DRAFT = "draft"
     SUBMITTED = "submitted"

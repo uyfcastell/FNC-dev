@@ -6,6 +6,7 @@ from .common import (
     OrderStatus,
     RemitoStatus,
     ShipmentStatus,
+    ShipmentPrepStatus,
     UnitOfMeasure,
 )
 from .inventory import Deposit, InventoryCount, InventoryCountItem, ProductionLot, StockLevel, StockMovement, StockMovementType
@@ -25,6 +26,7 @@ __all__ = [
     "OrderStatus",
     "RemitoStatus",
     "ShipmentStatus",
+    "ShipmentPrepStatus",
     "UnitOfMeasure",
     "SKUType",
     "Deposit",

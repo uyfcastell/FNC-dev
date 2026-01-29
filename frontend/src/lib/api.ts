@@ -398,6 +398,7 @@ export async function fetchRemitoPdfBlob(remitoId: number): Promise<Blob> {
 }
 
 export type ShipmentStatus = "draft" | "confirmed" | "dispatched";
+export type ShipmentPrepStatus = "pending" | "partial" | "ready";
 
 export type ShipmentItem = {
   id: number;
@@ -411,6 +412,7 @@ export type ShipmentItem = {
   ordered_quantity: number;
   dispatched_quantity: number;
   remaining_quantity: number;
+  is_ready: boolean;
 };
 
 export type Shipment = {
@@ -419,6 +421,7 @@ export type Shipment = {
   deposit_name?: string | null;
   estimated_delivery_date: string;
   status: ShipmentStatus;
+  prep_status: ShipmentPrepStatus;
   created_at: string;
   updated_at: string;
   orders?: OrderSummary[];
@@ -1105,6 +1108,17 @@ export async function updateShipmentItems(
   return apiRequest(
     `/shipments/${id}/items`,
     { method: "POST", body: JSON.stringify(items) },
+    "No se pudieron actualizar los ítems del envío",
+  );
+}
+
+export async function prepShipmentItems(
+  shipmentId: number,
+  items: Array<{ shipment_item_id: number; is_ready: boolean }>,
+): Promise<Shipment> {
+  return apiRequest(
+    `/shipments/${shipmentId}/prep-items`,
+    { method: "POST", body: JSON.stringify({ items }) },
     "No se pudieron actualizar los ítems del envío",
   );
 }
