@@ -11,7 +11,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from sqlalchemy import String, and_, case, cast, func, nulls_last, or_
-from sqlmodel import Session, select, Select
+from sqlalchemy.sql import Select
+from sqlmodel import Session, select
 
 from ..core.config import get_settings
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
