@@ -1,7 +1,7 @@
 import re
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from reportlab.lib.pagesizes import A4
@@ -150,6 +150,92 @@ def _encode_changes(payload: dict | list | None) -> dict | None:
     encoded = jsonable_encoder(payload, exclude_none=True)
     return encoded if isinstance(encoded, dict) else {"items": encoded}
 
+def _get_request_ip_address(request: Request | None) -> str | None:
+    if not request:
+        return None
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return None
+
+
+def _build_audit_metadata(request: Request | None) -> dict:
+    if not request:
+        return {}
+    metadata: dict[str, str] = {}
+    ip_address = _get_request_ip_address(request)
+    if ip_address:
+        metadata["ip"] = ip_address
+    request_id = request.headers.get("X-Request-ID")
+    if request_id:
+        metadata["request_id"] = request_id
+    user_agent = request.headers.get("User-Agent")
+    if user_agent:
+        metadata["user_agent"] = user_agent
+    return metadata
+
+
+def _build_audit_context(request: Request | None) -> dict:
+    return {
+        "ip_address": _get_request_ip_address(request),
+        "metadata": _build_audit_metadata(request),
+    }
+
+
+def _build_audit_changes(
+    event: str,
+    entity_type: str,
+    entity_id: int | None,
+    diff: dict | None = None,
+    refs: list[dict] | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    return {
+        "event": event,
+        "entity": {"type": entity_type, "id": entity_id},
+        "diff": diff or {},
+        "refs": refs or [],
+        "metadata": metadata or {},
+    }
+
+
+def _diff_fields(before: dict, after: dict, fields: list[str]) -> dict:
+    changes: dict[str, dict[str, object]] = {}
+    for field in fields:
+        if before.get(field) != after.get(field):
+            changes[field] = {"before": before.get(field), "after": after.get(field)}
+    return changes
+
+
+def _create_diff_from_fields(after: dict, fields: list[str]) -> dict:
+    return {field: {"after": after.get(field)} for field in fields}
+
+
+def _delete_diff_from_fields(before: dict, fields: list[str]) -> dict:
+    return {field: {"before": before.get(field)} for field in fields}
+
+
+def _status_diff(field: str, before: object, after: object) -> dict:
+    return {field: {"before": before, "after": after}}
+
+
+def _build_audit_refs(reference_type: str | None, reference_id: int | None) -> list[dict]:
+    if not reference_type or reference_id is None:
+        return []
+    mapping = {
+        "REMITO": "remitos",
+        "SHIPMENT": "shipments",
+        "INVENTORY_COUNT": "inventory_counts",
+        "PURCHASE_RECEIPT": "purchase_receipts",
+        "ORDER": "orders",
+        "MERMA": "mermas",
+    }
+    reference_key = reference_type.strip().upper()
+    entity_type = mapping.get(reference_key, reference_key.lower())
+    return [{"type": entity_type, "id": reference_id}]
+
 
 def _log_audit(
     session: Session,
@@ -158,14 +244,24 @@ def _log_audit(
     action: AuditAction,
     user_id: int | None = None,
     changes: dict | list | None = None,
+    audit_context: dict | None = None,
 ) -> None:
+    ip_address = None
+    metadata = None
+    if audit_context:
+        ip_address = audit_context.get("ip_address")
+        metadata = audit_context.get("metadata")
+    encoded_changes = _encode_changes(changes)
+    if metadata and isinstance(encoded_changes, dict):
+        encoded_changes.setdefault("metadata", metadata)
     session.add(
         AuditLog(
             entity_type=entity_type,
             entity_id=entity_id,
             action=action,
             user_id=user_id,
-            changes=_encode_changes(changes),
+            changes=encoded_changes,
+            ip_address=ip_address,
         )
     )
 
@@ -447,7 +543,7 @@ def _consume_recipe_components(
                 movement_date=movement_date,
                 created_by_user_id=created_by_user_id,
             )
-            _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+            _apply_stock_movement(session, movement_payload, allow_negative_balance=True, audit_movement=True)
 
 
 def _map_sku(sku: SKU, session: Session) -> SKURead:
@@ -758,6 +854,7 @@ def _sync_order_statuses(
     order_ids: set[int],
     current_user: User,
     shipment_id: int | None = None,
+    audit_context: dict | None = None,
 ) -> None:
     if not order_ids:
         return
@@ -804,14 +901,15 @@ def _sync_order_statuses(
                 order.id,
                 AuditAction.STATUS,
                 current_user.id,
-                {
-                    "event": "order_status_changed",
-                    "shipment_id": shipment_id,
-                    "order_id": order.id,
-                    "deposit_id": order.destination_deposit_id,
-                    "from_status": before_status,
-                    "to_status": new_status,
-                },
+                _build_audit_changes(
+                    "status",
+                    "orders",
+                    order.id,
+                    diff=_status_diff("status", before_status, new_status),
+                    refs=_build_audit_refs("SHIPMENT", shipment_id) if shipment_id else [],
+                    metadata=(audit_context or {}).get("metadata", {}),
+                ),
+                audit_context=audit_context,
             )
 
 
@@ -1299,6 +1397,8 @@ def update_role_permissions(
     role_id: int,
     payload: RolePermissionsUpdate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> list[str]:
     role = session.get(Role, role_id)
     if not role:
@@ -1312,6 +1412,9 @@ def update_role_permissions(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Permisos inexistentes: {', '.join(missing)}")
     existing = session.exec(select(RolePermission).where(RolePermission.role_id == role_id)).all()
     existing_map = {item.permission_id: item for item in existing}
+    before_permissions = session.exec(
+        select(Permission.key).join(RolePermission, RolePermission.permission_id == Permission.id).where(RolePermission.role_id == role_id)
+    ).all()
     desired_ids = {permission.id for permission in valid_permissions}
     for permission_id, item in existing_map.items():
         if permission_id not in desired_ids:
@@ -1319,8 +1422,19 @@ def update_role_permissions(
     for permission in valid_permissions:
         if permission.id not in existing_map:
             session.add(RolePermission(role_id=role_id, permission_id=permission.id))
+    after_permissions = sorted(permission.key for permission in valid_permissions)
+    audit_context = _build_audit_context(request)
+    diff = {"permissions": {"before": sorted(before_permissions), "after": after_permissions}}
+    changes = _build_audit_changes(
+        "update",
+        "roles",
+        role_id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "roles", role_id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
-    return [permission.key for permission in valid_permissions]
+    return after_permissions
 
 
 @router.get(
@@ -1341,7 +1455,12 @@ def list_users(session: Session = Depends(get_session)) -> list[UserRead]:
     response_model=UserRead,
     dependencies=[Depends(require_permissions("users.create"))],
 )
-def create_user(payload: UserCreate, session: Session = Depends(get_session)) -> UserRead:
+def create_user(
+    payload: UserCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> UserRead:
     existing = session.exec(select(User).where(User.email == payload.email)).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El email ya está registrado")
@@ -1359,6 +1478,24 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)) ->
         is_active=payload.is_active,
     )
     session.add(user)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "users",
+        user.id,
+        diff=_create_diff_from_fields(
+            {
+                "email": user.email,
+                "full_name": user.full_name,
+                "role_id": user.role_id,
+                "is_active": user.is_active,
+            },
+            ["email", "full_name", "role_id", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "users", user.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(user)
     return _map_user(user, session)
@@ -1370,7 +1507,13 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)) ->
     response_model=UserRead,
     dependencies=[Depends(require_permissions("users.edit"))],
 )
-def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(get_session)) -> UserRead:
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> UserRead:
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
@@ -1387,15 +1530,42 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
         if not role:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rol inexistente")
 
-    audit_changes = payload.model_dump(exclude_unset=True)
     update_data = payload.model_dump(exclude_unset=True)
     password = update_data.pop("password", None)
+    before = {
+        "email": user.email,
+        "full_name": user.full_name,
+        "role_id": user.role_id,
+        "is_active": user.is_active,
+    }
     for field, value in update_data.items():
         setattr(user, field, value)
     if password:
         user.hashed_password = hash_password(password)
     user.updated_at = datetime.utcnow()
     session.add(user)
+    session.flush()
+
+    audit_context = _build_audit_context(request)
+    after = {
+        "email": user.email,
+        "full_name": user.full_name,
+        "role_id": user.role_id,
+        "is_active": user.is_active,
+    }
+    diff = _diff_fields(before, after, ["email", "full_name", "role_id", "is_active"])
+    if password:
+        diff["password"] = {"before": "***", "after": "***"}
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "users",
+            user.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "users", user.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+
     session.commit()
     session.refresh(user)
     return _map_user(user, session)
@@ -1407,12 +1577,34 @@ def update_user(user_id: int, payload: UserUpdate, session: Session = Depends(ge
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("users.deactivate"))],
 )
-def delete_user(user_id: int, session: Session = Depends(get_session)) -> None:
+def delete_user(
+    user_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
     if _is_admin_account(user, session):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede eliminar el usuario admin")
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "delete",
+        "users",
+        user.id,
+        diff=_delete_diff_from_fields(
+            {
+                "email": user.email,
+                "full_name": user.full_name,
+                "role_id": user.role_id,
+                "is_active": user.is_active,
+            },
+            ["email", "full_name", "role_id", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "users", user.id, AuditAction.DELETE, current_user.id, changes, audit_context=audit_context)
     session.delete(user)
     session.commit()
 
@@ -1456,13 +1648,31 @@ def list_sku_types(include_inactive: bool = False, session: Session = Depends(ge
     response_model=SKUTypeRead,
     dependencies=[Depends(require_permissions("sku_types.create_edit"))],
 )
-def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_session)) -> SKUTypeRead:
+def create_sku_type(
+    payload: SKUTypeCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> SKUTypeRead:
     code = payload.code.strip().upper()
     duplicate = session.exec(select(SKUType).where(SKUType.code == code)).first()
     if duplicate:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo de SKU con ese código")
     record = SKUType(code=code, label=payload.label, is_active=payload.is_active)
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "sku_types",
+        record.id,
+        diff=_create_diff_from_fields(
+            {"code": record.code, "label": record.label, "is_active": record.is_active},
+            ["code", "label", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "sku_types", record.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return SKUTypeRead.model_validate(record)
@@ -1474,15 +1684,35 @@ def create_sku_type(payload: SKUTypeCreate, session: Session = Depends(get_sessi
     response_model=SKUTypeRead,
     dependencies=[Depends(require_permissions("sku_types.create_edit"))],
 )
-def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session = Depends(get_session)) -> SKUTypeRead:
+def update_sku_type(
+    sku_type_id: int,
+    payload: SKUTypeUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> SKUTypeRead:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de SKU no encontrado")
+    before = {"label": sku_type.label, "is_active": sku_type.is_active}
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(sku_type, field, value)
     sku_type.updated_at = datetime.utcnow()
     session.add(sku_type)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {"label": sku_type.label, "is_active": sku_type.is_active}
+    diff = _diff_fields(before, after, ["label", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "sku_types",
+            sku_type.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "sku_types", sku_type.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(sku_type)
     return SKUTypeRead.model_validate(sku_type)
@@ -1494,16 +1724,43 @@ def update_sku_type(sku_type_id: int, payload: SKUTypeUpdate, session: Session =
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("sku_types.delete"))],
 )
-def delete_sku_type(sku_type_id: int, session: Session = Depends(get_session)) -> None:
+def delete_sku_type(
+    sku_type_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de SKU no encontrado")
     in_use = session.exec(select(SKU.id).where(SKU.sku_type_id == sku_type_id)).first()
+    audit_context = _build_audit_context(request)
     if in_use:
+        before_status = sku_type.is_active
         sku_type.is_active = False
         sku_type.updated_at = datetime.utcnow()
         session.add(sku_type)
+        diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+        changes = _build_audit_changes(
+            "status",
+            "sku_types",
+            sku_type.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "sku_types", sku_type.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     else:
+        changes = _build_audit_changes(
+            "delete",
+            "sku_types",
+            sku_type.id,
+            diff=_delete_diff_from_fields(
+                {"code": sku_type.code, "label": sku_type.label, "is_active": sku_type.is_active},
+                ["code", "label", "is_active"],
+            ),
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "sku_types", sku_type.id, AuditAction.DELETE, current_user.id, changes, audit_context=audit_context)
         session.delete(sku_type)
     session.commit()
 
@@ -1535,7 +1792,12 @@ def list_merma_types(
     response_model=MermaTypeRead,
     dependencies=[Depends(require_permissions("mermas.report"))],
 )
-def create_merma_type(payload: MermaTypeCreate, session: Session = Depends(get_session)) -> MermaTypeRead:
+def create_merma_type(
+    payload: MermaTypeCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> MermaTypeRead:
     duplicate = session.exec(
         select(MermaType).where(MermaType.stage == payload.stage, MermaType.code == payload.code)
     ).first()
@@ -1543,6 +1805,24 @@ def create_merma_type(payload: MermaTypeCreate, session: Session = Depends(get_s
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo con ese código en la etapa")
     record = MermaType(**payload.model_dump())
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "merma_types",
+        record.id,
+        diff=_create_diff_from_fields(
+            {
+                "stage": record.stage,
+                "code": record.code,
+                "label": record.label,
+                "is_active": record.is_active,
+            },
+            ["stage", "code", "label", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "merma_types", record.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return MermaTypeRead.model_validate(record)
@@ -1554,7 +1834,13 @@ def create_merma_type(payload: MermaTypeCreate, session: Session = Depends(get_s
     response_model=MermaTypeRead,
     dependencies=[Depends(require_permissions("mermas.report"))],
 )
-def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session = Depends(get_session)) -> MermaTypeRead:
+def update_merma_type(
+    type_id: int,
+    payload: MermaTypeUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> MermaTypeRead:
     record = session.get(MermaType, type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de merma no encontrado")
@@ -1567,10 +1853,34 @@ def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session =
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo con ese código en la etapa")
 
     update_data = payload.model_dump(exclude_unset=True)
+    before = {
+        "stage": record.stage,
+        "code": record.code,
+        "label": record.label,
+        "is_active": record.is_active,
+    }
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {
+        "stage": record.stage,
+        "code": record.code,
+        "label": record.label,
+        "is_active": record.is_active,
+    }
+    diff = _diff_fields(before, after, ["stage", "code", "label", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "merma_types",
+            record.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "merma_types", record.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return MermaTypeRead.model_validate(record)
@@ -1582,13 +1892,29 @@ def update_merma_type(type_id: int, payload: MermaTypeUpdate, session: Session =
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("mermas.report"))],
 )
-def delete_merma_type(type_id: int, session: Session = Depends(get_session)) -> None:
+def delete_merma_type(
+    type_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     record = session.get(MermaType, type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de merma no encontrado")
+    before_status = record.is_active
     record.is_active = False
     record.updated_at = datetime.utcnow()
     session.add(record)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "merma_types",
+        record.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "merma_types", record.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
 
@@ -1620,7 +1946,12 @@ def list_merma_causes(
     response_model=MermaCauseRead,
     dependencies=[Depends(require_permissions("mermas.report"))],
 )
-def create_merma_cause(payload: MermaCauseCreate, session: Session = Depends(get_session)) -> MermaCauseRead:
+def create_merma_cause(
+    payload: MermaCauseCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> MermaCauseRead:
     duplicate = session.exec(
         select(MermaCause).where(MermaCause.stage == payload.stage, MermaCause.code == payload.code)
     ).first()
@@ -1628,6 +1959,24 @@ def create_merma_cause(payload: MermaCauseCreate, session: Session = Depends(get
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una causa con ese código en la etapa")
     record = MermaCause(**payload.model_dump())
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "merma_causes",
+        record.id,
+        diff=_create_diff_from_fields(
+            {
+                "stage": record.stage,
+                "code": record.code,
+                "label": record.label,
+                "is_active": record.is_active,
+            },
+            ["stage", "code", "label", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "merma_causes", record.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return MermaCauseRead.model_validate(record)
@@ -1639,7 +1988,13 @@ def create_merma_cause(payload: MermaCauseCreate, session: Session = Depends(get
     response_model=MermaCauseRead,
     dependencies=[Depends(require_permissions("mermas.report"))],
 )
-def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Session = Depends(get_session)) -> MermaCauseRead:
+def update_merma_cause(
+    cause_id: int,
+    payload: MermaCauseUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> MermaCauseRead:
     record = session.get(MermaCause, cause_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Causa de merma no encontrada")
@@ -1652,10 +2007,34 @@ def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Sessio
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una causa con ese código en la etapa")
 
     update_data = payload.model_dump(exclude_unset=True)
+    before = {
+        "stage": record.stage,
+        "code": record.code,
+        "label": record.label,
+        "is_active": record.is_active,
+    }
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {
+        "stage": record.stage,
+        "code": record.code,
+        "label": record.label,
+        "is_active": record.is_active,
+    }
+    diff = _diff_fields(before, after, ["stage", "code", "label", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "merma_causes",
+            record.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "merma_causes", record.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return MermaCauseRead.model_validate(record)
@@ -1667,13 +2046,29 @@ def update_merma_cause(cause_id: int, payload: MermaCauseUpdate, session: Sessio
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("mermas.report"))],
 )
-def delete_merma_cause(cause_id: int, session: Session = Depends(get_session)) -> None:
+def delete_merma_cause(
+    cause_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     record = session.get(MermaCause, cause_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Causa de merma no encontrada")
+    before_status = record.is_active
     record.is_active = False
     record.updated_at = datetime.utcnow()
     session.add(record)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "merma_causes",
+        record.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "merma_causes", record.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
 
@@ -1710,7 +2105,12 @@ def list_skus(
     response_model=SKURead,
     dependencies=[Depends(require_permissions("skus.create"))],
 )
-def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> SKURead:
+def create_sku(
+    payload: SKUCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> SKURead:
     existing = session.exec(select(SKU).where(SKU.code == payload.code)).first()
     if existing:
         raise HTTPException(
@@ -1742,6 +2142,28 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
         alert_yellow_min=payload.alert_yellow_min,
     )
     session.add(sku)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "skus",
+        sku.id,
+        diff=_create_diff_from_fields(
+            {
+                "code": sku.code,
+                "name": sku.name,
+                "sku_type_id": sku.sku_type_id,
+                "unit": sku.unit,
+                "notes": sku.notes,
+                "is_active": sku.is_active,
+                "alert_green_min": sku.alert_green_min,
+                "alert_yellow_min": sku.alert_yellow_min,
+            },
+            ["code", "name", "sku_type_id", "unit", "notes", "is_active", "alert_green_min", "alert_yellow_min"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "skus", sku.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(sku)
     if sku_type.code == SKU_SEMI_CODE:
@@ -1756,11 +2178,27 @@ def create_sku(payload: SKUCreate, session: Session = Depends(get_session)) -> S
     response_model=SKURead,
     dependencies=[Depends(require_permissions("skus.edit"))],
 )
-def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_session)) -> SKURead:
+def update_sku(
+    sku_id: int,
+    payload: SKUUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
 
+    before = {
+        "name": sku.name,
+        "sku_type_id": sku.sku_type_id,
+        "unit": sku.unit,
+        "notes": sku.notes,
+        "is_active": sku.is_active,
+        "units_per_kg": sku.units_per_kg,
+        "alert_green_min": sku.alert_green_min,
+        "alert_yellow_min": sku.alert_yellow_min,
+    }
     update_data = payload.model_dump(exclude_unset=True)
     sku_type_id = update_data.get("sku_type_id", sku.sku_type_id)
     sku_type = _get_sku_type_or_404(session, sku_type_id)
@@ -1781,12 +2219,37 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
         setattr(sku, field, value)
     sku.updated_at = datetime.utcnow()
     session.add(sku)
-    session.commit()
+    session.flush()
 
     if sku_type.code == SKU_SEMI_CODE:
         _upsert_semi_conversion_rule(session, sku.id, units_per_kg or 1)
     else:
         _delete_semi_conversion_rule(session, sku.id)
+    audit_context = _build_audit_context(request)
+    after = {
+        "name": sku.name,
+        "sku_type_id": sku.sku_type_id,
+        "unit": sku.unit,
+        "notes": sku.notes,
+        "is_active": sku.is_active,
+        "units_per_kg": units_per_kg if sku_type.code == SKU_SEMI_CODE else None,
+        "alert_green_min": sku.alert_green_min,
+        "alert_yellow_min": sku.alert_yellow_min,
+    }
+    diff = _diff_fields(
+        before,
+        after,
+        ["name", "sku_type_id", "unit", "notes", "is_active", "units_per_kg", "alert_green_min", "alert_yellow_min"],
+    )
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "skus",
+            sku.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "skus", sku.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(sku)
     return _map_sku(sku, session)
@@ -1798,7 +2261,12 @@ def update_sku(sku_id: int, payload: SKUUpdate, session: Session = Depends(get_s
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("skus.deactivate"))],
 )
-def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
+def delete_sku(
+    sku_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     sku = session.get(SKU, sku_id)
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
@@ -1827,9 +2295,20 @@ def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"No se puede eliminar el producto porque está referenciado en: {reason_text}.",
         )
+    before_status = sku.is_active
     sku.is_active = False
     sku.updated_at = datetime.utcnow()
     session.add(sku)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "skus",
+        sku.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "skus", sku.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
 
 
@@ -1839,13 +2318,32 @@ def delete_sku(sku_id: int, session: Session = Depends(get_session)) -> None:
     response_model=SKURead,
     dependencies=[Depends(require_permissions("skus.deactivate"))],
 )
-def update_sku_status(sku_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> SKURead:
+def update_sku_status(
+    sku_id: int,
+    payload: StatusUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> SKURead:
     sku = session.get(SKU, sku_id)
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
+    before = {"is_active": sku.is_active}
+    if sku.is_active == payload.is_active:
+        return _map_sku(sku, session)
     sku.is_active = payload.is_active
     sku.updated_at = datetime.utcnow()
     session.add(sku)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields(before, {"is_active": payload.is_active}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "skus",
+        sku.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "skus", sku.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(sku)
     return _map_sku(sku, session)
@@ -1866,7 +2364,12 @@ def list_deposits(include_inactive: bool = False, session: Session = Depends(get
     response_model=DepositRead,
     dependencies=[Depends(require_permissions("deposits.create"))],
 )
-def create_deposit(payload: DepositCreate, session: Session = Depends(get_session)) -> Deposit:
+def create_deposit(
+    payload: DepositCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> Deposit:
     existing = session.exec(select(Deposit).where(Deposit.name == payload.name)).first()
     if existing:
         raise HTTPException(
@@ -1876,6 +2379,25 @@ def create_deposit(payload: DepositCreate, session: Session = Depends(get_sessio
 
     deposit = Deposit(**payload.model_dump())
     session.add(deposit)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "deposits",
+        deposit.id,
+        diff=_create_diff_from_fields(
+            {
+                "name": deposit.name,
+                "location": deposit.location,
+                "controls_lot": deposit.controls_lot,
+                "is_store": deposit.is_store,
+                "is_active": deposit.is_active,
+            },
+            ["name", "location", "controls_lot", "is_store", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "deposits", deposit.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(deposit)
     return deposit
@@ -1887,15 +2409,47 @@ def create_deposit(payload: DepositCreate, session: Session = Depends(get_sessio
     response_model=DepositRead,
     dependencies=[Depends(require_permissions("deposits.edit"))],
 )
-def update_deposit(deposit_id: int, payload: DepositUpdate, session: Session = Depends(get_session)) -> Deposit:
+def update_deposit(
+    deposit_id: int,
+    payload: DepositUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> Deposit:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
 
+    before = {
+        "name": deposit.name,
+        "location": deposit.location,
+        "controls_lot": deposit.controls_lot,
+        "is_store": deposit.is_store,
+        "is_active": deposit.is_active,
+    }
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(deposit, field, value)
     session.add(deposit)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {
+        "name": deposit.name,
+        "location": deposit.location,
+        "controls_lot": deposit.controls_lot,
+        "is_store": deposit.is_store,
+        "is_active": deposit.is_active,
+    }
+    diff = _diff_fields(before, after, ["name", "location", "controls_lot", "is_store", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "deposits",
+            deposit.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "deposits", deposit.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(deposit)
     return deposit
@@ -1907,7 +2461,12 @@ def update_deposit(deposit_id: int, payload: DepositUpdate, session: Session = D
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("deposits.deactivate"))],
 )
-def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> None:
+def delete_deposit(
+    deposit_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
@@ -1934,9 +2493,20 @@ def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> 
             status_code=status.HTTP_409_CONFLICT,
             detail=f"No se puede eliminar el depósito porque está referenciado en: {reason_text}.",
         )
+    before_status = deposit.is_active
     deposit.is_active = False
     deposit.updated_at = datetime.utcnow()
     session.add(deposit)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "deposits",
+        deposit.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "deposits", deposit.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
 
 
@@ -1946,13 +2516,32 @@ def delete_deposit(deposit_id: int, session: Session = Depends(get_session)) -> 
     response_model=DepositRead,
     dependencies=[Depends(require_permissions("deposits.deactivate"))],
 )
-def update_deposit_status(deposit_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> Deposit:
+def update_deposit_status(
+    deposit_id: int,
+    payload: StatusUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> Deposit:
     deposit = session.get(Deposit, deposit_id)
     if not deposit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
+    before = {"is_active": deposit.is_active}
+    if deposit.is_active == payload.is_active:
+        return deposit
     deposit.is_active = payload.is_active
     deposit.updated_at = datetime.utcnow()
     session.add(deposit)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields(before, {"is_active": payload.is_active}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "deposits",
+        deposit.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "deposits", deposit.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(deposit)
     return deposit
@@ -1976,12 +2565,27 @@ def list_production_lines(session: Session = Depends(get_session)) -> list[Produ
     response_model=ProductionLineRead,
     dependencies=[Depends(require_permissions("production_lines.create_edit"))],
 )
-def create_production_line(payload: ProductionLineCreate, session: Session = Depends(get_session)) -> ProductionLineRead:
+def create_production_line(
+    payload: ProductionLineCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> ProductionLineRead:
     existing = session.exec(select(ProductionLine).where(ProductionLine.name == payload.name)).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una línea con ese nombre")
     line = ProductionLine(name=payload.name, is_active=payload.is_active)
     session.add(line)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "production_lines",
+        line.id,
+        diff=_create_diff_from_fields({"name": line.name, "is_active": line.is_active}, ["name", "is_active"]),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "production_lines", line.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(line)
     return ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active)
@@ -1993,7 +2597,13 @@ def create_production_line(payload: ProductionLineCreate, session: Session = Dep
     response_model=ProductionLineRead,
     dependencies=[Depends(require_permissions("production_lines.create_edit"))],
 )
-def update_production_line(line_id: int, payload: ProductionLineUpdate, session: Session = Depends(get_session)) -> ProductionLineRead:
+def update_production_line(
+    line_id: int,
+    payload: ProductionLineUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> ProductionLineRead:
     line = session.get(ProductionLine, line_id)
     if not line:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Línea no encontrada")
@@ -2002,10 +2612,24 @@ def update_production_line(line_id: int, payload: ProductionLineUpdate, session:
         if duplicate:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una línea con ese nombre")
     update_data = payload.model_dump(exclude_unset=True)
+    before = {"name": line.name, "is_active": line.is_active}
     for field, value in update_data.items():
         setattr(line, field, value)
     line.updated_at = datetime.utcnow()
     session.add(line)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {"name": line.name, "is_active": line.is_active}
+    diff = _diff_fields(before, after, ["name", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "production_lines",
+            line.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "production_lines", line.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(line)
     return ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active)
@@ -2043,6 +2667,10 @@ def _map_recipe(recipe: Recipe, session: Session) -> RecipeRead:
     )
 
 
+def _serialize_recipe_items_for_audit(items: list[RecipeItem]) -> list[dict]:
+    return [{"component_id": item.component_id, "quantity": item.quantity} for item in items]
+
+
 @router.get(
     "/recipes",
     tags=["recipes"],
@@ -2064,7 +2692,12 @@ def list_recipes(include_inactive: bool = False, session: Session = Depends(get_
     response_model=RecipeRead,
     dependencies=[Depends(require_permissions("recipes.create"))],
 )
-def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)) -> RecipeRead:
+def create_recipe(
+    payload: RecipeCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> RecipeRead:
     product = session.get(SKU, payload.product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
@@ -2099,6 +2732,24 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
             )
         )
 
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "recipes",
+        recipe.id,
+        diff=_create_diff_from_fields(
+            {
+                "product_id": recipe.product_id,
+                "name": recipe.name,
+                "is_active": recipe.is_active,
+                "items": [item.model_dump() for item in payload.items],
+            },
+            ["product_id", "name", "is_active", "items"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "recipes", recipe.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(recipe)
     return _map_recipe(recipe, session)
@@ -2110,11 +2761,24 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
     response_model=RecipeRead,
     dependencies=[Depends(require_permissions("recipes.edit"))],
 )
-def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depends(get_session)) -> RecipeRead:
+def update_recipe(
+    recipe_id: int,
+    payload: RecipeUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> RecipeRead:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada")
 
+    session.refresh(recipe, attribute_names=["items"])
+    before = {
+        "product_id": recipe.product_id,
+        "name": recipe.name,
+        "is_active": recipe.is_active,
+        "items": _serialize_recipe_items_for_audit(recipe.items),
+    }
     product = session.get(SKU, payload.product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
@@ -2145,6 +2809,25 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depe
     for item in payload.items:
         session.add(RecipeItem(recipe_id=recipe.id, component_id=item.component_id, quantity=item.quantity))
 
+    session.flush()
+    audit_context = _build_audit_context(request)
+    session.refresh(recipe, attribute_names=["items"])
+    after = {
+        "product_id": recipe.product_id,
+        "name": recipe.name,
+        "is_active": recipe.is_active,
+        "items": _serialize_recipe_items_for_audit(recipe.items),
+    }
+    diff = _diff_fields(before, after, ["product_id", "name", "is_active", "items"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "recipes",
+            recipe.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "recipes", recipe.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(recipe)
     return _map_recipe(recipe, session)
@@ -2156,7 +2839,12 @@ def update_recipe(recipe_id: int, payload: RecipeUpdate, session: Session = Depe
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("recipes.deactivate"))],
 )
-def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> None:
+def delete_recipe(
+    recipe_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada")
@@ -2165,9 +2853,20 @@ def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> No
             status_code=status.HTTP_409_CONFLICT,
             detail="No se puede eliminar la receta porque ya fue usada en producción.",
         )
+    before_status = recipe.is_active
     recipe.is_active = False
     recipe.updated_at = datetime.utcnow()
     session.add(recipe)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "recipes",
+        recipe.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "recipes", recipe.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
 
 
@@ -2177,13 +2876,32 @@ def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> No
     response_model=RecipeRead,
     dependencies=[Depends(require_permissions("recipes.deactivate"))],
 )
-def update_recipe_status(recipe_id: int, payload: StatusUpdate, session: Session = Depends(get_session)) -> RecipeRead:
+def update_recipe_status(
+    recipe_id: int,
+    payload: StatusUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> RecipeRead:
     recipe = session.get(Recipe, recipe_id)
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada")
+    before = {"is_active": recipe.is_active}
+    if recipe.is_active == payload.is_active:
+        return _map_recipe(recipe, session)
     recipe.is_active = payload.is_active
     recipe.updated_at = datetime.utcnow()
     session.add(recipe)
+    audit_context = _build_audit_context(request)
+    diff = _diff_fields(before, {"is_active": payload.is_active}, ["is_active"])
+    changes = _build_audit_changes(
+        "status",
+        "recipes",
+        recipe.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "recipes", recipe.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(recipe)
     return _map_recipe(recipe, session)
@@ -2233,6 +2951,7 @@ def create_order(
     payload: OrderCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> OrderRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
@@ -2271,14 +2990,37 @@ def create_order(
             )
         )
 
-    audit_changes = {
-        "event": "order_created",
-        "order_id": order.id,
-        "deposit_id": order.destination_deposit_id,
-        "header": _serialize_order_header(order),
+    audit_context = _build_audit_context(request)
+    audit_payload = {
+        "destination_deposit_id": order.destination_deposit_id,
+        "requested_for": order.requested_for,
+        "required_delivery_date": order.required_delivery_date,
+        "requested_by": order.requested_by,
+        "status": order.status,
+        "notes": order.notes,
+        "plant_internal_note": order.plant_internal_note,
         "items": [_serialize_order_item_payload(item) for item in items_payload],
     }
-    _log_audit(session, "orders", order.id, AuditAction.CREATE, current_user.id, audit_changes)
+    changes = _build_audit_changes(
+        "create",
+        "orders",
+        order.id,
+        diff=_create_diff_from_fields(
+            audit_payload,
+            [
+                "destination_deposit_id",
+                "requested_for",
+                "required_delivery_date",
+                "requested_by",
+                "status",
+                "notes",
+                "plant_internal_note",
+                "items",
+            ],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "orders", order.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -2295,6 +3037,7 @@ def update_order(
     payload: OrderUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -2422,16 +3165,21 @@ def update_order(
     after_items = [_serialize_order_item_payload(item) for item in items] if items is not None else before_items
     header_changes = _diff_order_header(before_header, after_header)
     item_changes = _diff_order_items(before_items, after_items) if items is not None else {}
-    audit_changes = {
-        "event": "order_updated",
-        "order_id": order.id,
-        "deposit_id": order.destination_deposit_id,
-    }
-    if header_changes:
-        audit_changes["header_changes"] = header_changes
+    audit_context = _build_audit_context(request)
+    diff: dict[str, dict[str, object]] = {}
+    for field, change in header_changes.items():
+        diff[field] = {"before": change.get("from"), "after": change.get("to")}
     if item_changes:
-        audit_changes["items"] = item_changes
-    _log_audit(session, "orders", order.id, AuditAction.UPDATE, current_user.id, audit_changes)
+        diff["items"] = {"before": before_items, "after": after_items}
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "orders",
+            order.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "orders", order.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -2448,6 +3196,7 @@ def update_order_status(
     payload: OrderStatusUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> OrderRead:
     order = session.get(Order, order_id)
     if not order:
@@ -2483,14 +3232,15 @@ def update_order_status(
     order.updated_at = datetime.utcnow()
     order.updated_by_user_id = current_user.id
     session.add(order)
-    audit_changes = {
-        "event": "order_cancelled" if payload.status == OrderStatus.CANCELLED else "order_status_changed",
-        "order_id": order.id,
-        "deposit_id": order.destination_deposit_id,
-        "from_status": before_status,
-        "to_status": payload.status,
-    }
-    _log_audit(session, "orders", order.id, AuditAction.STATUS, current_user.id, audit_changes)
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "cancel" if payload.status == OrderStatus.CANCELLED else "status",
+        "orders",
+        order.id,
+        diff=_status_diff("status", before_status, payload.status),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "orders", order.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(order)
     return _map_order(order, session)
@@ -2506,6 +3256,7 @@ def delete_order(
     order_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> None:
     order = session.get(Order, order_id)
     if not order:
@@ -2523,13 +3274,22 @@ def delete_order(
     for item in items:
         session.delete(item)
     session.delete(order)
-    audit_changes = {
-        "event": "order_deleted",
-        "order_id": order_id,
-        "deposit_id": order.destination_deposit_id,
-        "deleted": True,
-    }
-    _log_audit(session, "orders", order_id, AuditAction.DELETE, current_user.id, audit_changes)
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "delete",
+        "orders",
+        order_id,
+        diff=_delete_diff_from_fields(
+            {
+                "destination_deposit_id": order.destination_deposit_id,
+                "status": order.status,
+                "requested_by": order.requested_by,
+            },
+            ["destination_deposit_id", "status", "requested_by"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "orders", order_id, AuditAction.DELETE, current_user.id, changes, audit_context=audit_context)
     session.commit()
 
 
@@ -2544,6 +3304,7 @@ def create_shipment(
     payload: ShipmentCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentRead:
     destination = _ensure_store_destination(session, payload.deposit_id)
     shipment = Shipment(
@@ -2553,14 +3314,22 @@ def create_shipment(
     )
     session.add(shipment)
     session.flush()
-    audit_changes = {
-        "event": "shipment_created",
-        "shipment_id": shipment.id,
-        "deposit_id": shipment.deposit_id,
-        "estimated_delivery_date": shipment.estimated_delivery_date,
-        "status": shipment.status,
-    }
-    _log_audit(session, "shipments", shipment.id, AuditAction.CREATE, current_user.id, audit_changes)
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "shipments",
+        shipment.id,
+        diff=_create_diff_from_fields(
+            {
+                "deposit_id": shipment.deposit_id,
+                "estimated_delivery_date": shipment.estimated_delivery_date,
+                "status": shipment.status,
+            },
+            ["deposit_id", "estimated_delivery_date", "status"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "shipments", shipment.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session)
@@ -2614,6 +3383,7 @@ def update_shipment(
     payload: ShipmentUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentRead:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -2650,14 +3420,17 @@ def update_shipment(
     shipment.updated_at = datetime.utcnow()
     shipment.updated_by_user_id = current_user.id
     session.add(shipment)
-    _log_audit(
-        session,
-        "shipments",
-        shipment.id,
-        AuditAction.UPDATE,
-        current_user.id,
-        {"event": "shipment_updated", "shipment_id": shipment.id, "before": before, "changes": updates},
-    )
+    audit_context = _build_audit_context(request)
+    diff = {field: {"before": before.get(field), "after": updates.get(field)} for field in updates}
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "shipments",
+            shipment.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session)
@@ -2674,6 +3447,7 @@ def add_orders_to_shipment(
     payload: ShipmentAddOrders,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -2686,6 +3460,7 @@ def add_orders_to_shipment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Algún pedido no existe")
 
     existing_items = session.exec(select(ShipmentItem).where(ShipmentItem.shipment_id == shipment.id)).all()
+    before_order_ids = sorted({item.order_id for item in existing_items})
     existing_order_item_ids = {item.order_item_id for item in existing_items}
 
     order_item_ids = []
@@ -2732,15 +3507,21 @@ def add_orders_to_shipment(
             session.add(shipment_item)
             added_items.append({"order_item_id": item.id, "quantity": int(remaining), "order_id": order_id})
 
-    audit_changes = {
-        "event": "shipment_orders_added",
-        "shipment_id": shipment.id,
-        "deposit_id": shipment.deposit_id,
-        "order_ids": payload.order_ids,
-        "items": added_items,
+    audit_context = _build_audit_context(request)
+    after_order_ids = sorted(set(before_order_ids).union(payload.order_ids))
+    diff = {
+        "order_ids": {"before": before_order_ids, "after": after_order_ids},
+        "items": {"before": [], "after": added_items},
     }
-    _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
-    _sync_order_statuses(session, set(payload.order_ids), current_user, shipment_id=shipment.id)
+    changes = _build_audit_changes(
+        "update",
+        "shipments",
+        shipment.id,
+        diff=diff,
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+    _sync_order_statuses(session, set(payload.order_ids), current_user, shipment_id=shipment.id, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)
@@ -2757,6 +3538,7 @@ def update_shipment_items(
     payload: list[ShipmentItemUpdate],
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -2809,16 +3591,30 @@ def update_shipment_items(
         shipment_item.updated_at = datetime.utcnow()
         session.add(shipment_item)
 
-    audit_changes = {
-        "event": "shipment_items_updated",
-        "shipment_id": shipment.id,
-        "deposit_id": shipment.deposit_id,
-        "changes": changes,
-        "before": before_quantities,
-    }
-    _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+    audit_context = _build_audit_context(request)
+    after_quantities = before_quantities.copy()
+    for change in changes:
+        after_quantities[change["order_item_id"]] = change["after"]
+    diff = {"items": {"before": before_quantities, "after": after_quantities}}
+    if changes:
+        changes_payload = _build_audit_changes(
+            "update",
+            "shipments",
+            shipment.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(
+            session,
+            "shipments",
+            shipment.id,
+            AuditAction.UPDATE,
+            current_user.id,
+            changes_payload,
+            audit_context=audit_context,
+        )
     order_ids = {item.order_id for item in items}
-    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
+    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)
@@ -2835,6 +3631,7 @@ def prep_shipment_items(
     payload: ShipmentPrepItemsRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -2866,17 +3663,34 @@ def prep_shipment_items(
         shipment_item.updated_at = datetime.utcnow()
         session.add(shipment_item)
 
+    audit_context = _build_audit_context(request)
     if changes:
-        audit_changes = {
-            "event": "shipment_items_prepared",
-            "shipment_id": shipment.id,
-            "deposit_id": shipment.deposit_id,
-            "changes": changes,
-        }
-        _log_audit(session, "shipments", shipment.id, AuditAction.UPDATE, current_user.id, audit_changes)
+        before_list = [
+            {"shipment_item_id": change["shipment_item_id"], "is_ready": change["before"]} for change in changes
+        ]
+        after_list = [
+            {"shipment_item_id": change["shipment_item_id"], "is_ready": change["after"]} for change in changes
+        ]
+        diff = {"items_ready": {"before": before_list, "after": after_list}}
+        changes_payload = _build_audit_changes(
+            "update",
+            "shipments",
+            shipment.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(
+            session,
+            "shipments",
+            shipment.id,
+            AuditAction.UPDATE,
+            current_user.id,
+            changes_payload,
+            audit_context=audit_context,
+        )
 
     order_ids = {item.order_id for item in items}
-    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
+    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)
@@ -2892,6 +3706,7 @@ def cancel_shipment(
     shipment_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentRead:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -2903,15 +3718,18 @@ def cancel_shipment(
     for item in items:
         session.delete(item)
 
-    audit_changes = {
-        "event": "shipment_cancelled",
-        "shipment_id": shipment.id,
-        "deposit_id": shipment.deposit_id,
-    }
-    _log_audit(session, "shipments", shipment.id, AuditAction.CANCEL, current_user.id, audit_changes)
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "cancel",
+        "shipments",
+        shipment.id,
+        diff=_status_diff("status", shipment.status, "cancelled"),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "shipments", shipment.id, AuditAction.CANCEL, current_user.id, changes, audit_context=audit_context)
     session.delete(shipment)
     session.flush()
-    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id)
+    _sync_order_statuses(session, order_ids, current_user, shipment_id=shipment.id, audit_context=audit_context)
     session.commit()
     return shipment_payload
 
@@ -2926,6 +3744,7 @@ def confirm_shipment(
     shipment_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentDetail:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.DRAFT:
@@ -2961,6 +3780,7 @@ def confirm_shipment(
         key = "PT" if sku_type_code == "PT" else "NO_PT"
         remito_items_by_type[key].append(item)
 
+    audit_context = _build_audit_context(request)
     for remito_type, items in remito_items_by_type.items():
         if not items:
             continue
@@ -2996,14 +3816,31 @@ def confirm_shipment(
         remito.pdf_path = _generate_remito_pdf(session, remito, remito_items, remito_type)
         remito.updated_at = datetime.utcnow()
         remitos_created.append(remito.id)
-        _log_audit(
-            session,
+        remito_changes = _build_audit_changes(
+            "create",
             "remitos",
             remito.id,
-            AuditAction.CREATE,
-            current_user.id,
-            {"event": "remito_created", "shipment_id": shipment.id, "remito_type": remito_type},
+            diff=_create_diff_from_fields(
+                {
+                    "shipment_id": shipment.id,
+                    "status": remito.status,
+                    "source_deposit_id": remito.source_deposit_id,
+                    "destination_deposit_id": remito.destination_deposit_id,
+                    "issue_date": remito.issue_date,
+                    "remito_type": remito_type,
+                },
+                [
+                    "shipment_id",
+                    "status",
+                    "source_deposit_id",
+                    "destination_deposit_id",
+                    "issue_date",
+                    "remito_type",
+                ],
+            ),
+            metadata=audit_context.get("metadata", {}),
         )
+        _log_audit(session, "remitos", remito.id, AuditAction.CREATE, current_user.id, remito_changes, audit_context=audit_context)
 
     for item in shipment.items:
         order_item = session.get(OrderItem, item.order_item_id)
@@ -3021,7 +3858,13 @@ def confirm_shipment(
             reference=f"ENVIO-{shipment.id}",
             created_by_user_id=current_user.id,
         )
-        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        _, movement = _apply_stock_movement(
+            session,
+            movement_payload,
+            allow_negative_balance=True,
+            audit_context=audit_context,
+            audit_movement=True,
+        )
         stock_movement_ids.append(movement.id)
 
     shipment.status = ShipmentStatus.CONFIRMED
@@ -3029,22 +3872,25 @@ def confirm_shipment(
     session.add(shipment)
     session.flush()
 
-    _sync_order_statuses(session, {item.order_id for item in shipment.items}, current_user, shipment_id=shipment.id)
-
-    _log_audit(
+    _sync_order_statuses(
         session,
+        {item.order_id for item in shipment.items},
+        current_user,
+        shipment_id=shipment.id,
+        audit_context=audit_context,
+    )
+
+    refs = [{"type": "remitos", "id": remito_id} for remito_id in remitos_created]
+    refs.extend({"type": "stock_movements", "id": movement_id} for movement_id in stock_movement_ids)
+    changes = _build_audit_changes(
+        "status",
         "shipments",
         shipment.id,
-        AuditAction.STATUS,
-        current_user.id,
-        {
-            "event": "shipment_confirmed",
-            "shipment_id": shipment.id,
-            "deposit_id": shipment.deposit_id,
-            "remitos": remitos_created,
-            "stock_movements": stock_movement_ids,
-        },
+        diff=_status_diff("status", ShipmentStatus.DRAFT, ShipmentStatus.CONFIRMED),
+        refs=refs,
+        metadata=audit_context.get("metadata", {}),
     )
+    _log_audit(session, "shipments", shipment.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session, include_items=True)
@@ -3060,6 +3906,7 @@ def dispatch_shipment(
     shipment_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> ShipmentRead:
     shipment = _get_shipment_or_404(session, shipment_id)
     if shipment.status != ShipmentStatus.CONFIRMED:
@@ -3068,15 +3915,22 @@ def dispatch_shipment(
     shipment.updated_at = datetime.utcnow()
     session.add(shipment)
     session.flush()
-    _sync_order_statuses(session, {item.order_id for item in shipment.items}, current_user, shipment_id=shipment.id)
-    _log_audit(
+    audit_context = _build_audit_context(request)
+    _sync_order_statuses(
         session,
+        {item.order_id for item in shipment.items},
+        current_user,
+        shipment_id=shipment.id,
+        audit_context=audit_context,
+    )
+    changes = _build_audit_changes(
+        "status",
         "shipments",
         shipment.id,
-        AuditAction.STATUS,
-        current_user.id,
-        {"event": "shipment_dispatched", "shipment_id": shipment.id, "deposit_id": shipment.deposit_id},
+        diff=_status_diff("status", ShipmentStatus.CONFIRMED, ShipmentStatus.DISPATCHED),
+        metadata=audit_context.get("metadata", {}),
     )
+    _log_audit(session, "shipments", shipment.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(shipment)
     return _map_shipment(shipment, session)
@@ -3159,6 +4013,7 @@ def dispatch_remito(
     payload: RemitoDispatchRequest | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
@@ -3177,6 +4032,7 @@ def dispatch_remito(
     reference = f"REMITO-{remito.id}"
     movement_date = payload.movement_date if payload else None
 
+    audit_context = _build_audit_context(request)
     for item in remito.items:
         sku = session.get(SKU, item.sku_id)
         if not sku:
@@ -3201,7 +4057,13 @@ def dispatch_remito(
                     movement_date=movement_date,
                     created_by_user_id=current_user.id,
                 )
-                _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
+                _apply_stock_movement(
+                    session,
+                    movement_payload,
+                    allow_negative_balance=False,
+                    audit_context=audit_context,
+                    audit_movement=True,
+                )
         else:
             movement_payload = StockMovementCreate(
                 sku_id=item.sku_id,
@@ -3216,15 +4078,29 @@ def dispatch_remito(
                 movement_date=movement_date,
                 created_by_user_id=current_user.id,
             )
-            _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
+            _apply_stock_movement(
+                session,
+                movement_payload,
+                allow_negative_balance=False,
+                audit_context=audit_context,
+                audit_movement=True,
+            )
 
+    before_status = remito.status
     remito.status = RemitoStatus.DISPATCHED
     remito.dispatched_at = datetime.utcnow()
     remito.source_deposit_id = source_deposit.id
     remito.updated_at = datetime.utcnow()
     remito.updated_by_user_id = current_user.id
     session.add(remito)
-    _log_audit(session, "remitos", remito.id, AuditAction.STATUS, current_user.id, {"status": RemitoStatus.DISPATCHED})
+    changes = _build_audit_changes(
+        "status",
+        "remitos",
+        remito.id,
+        diff=_status_diff("status", before_status, RemitoStatus.DISPATCHED),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "remitos", remito.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -3241,6 +4117,7 @@ def receive_remito(
     payload: RemitoReceiveRequest | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     session.refresh(remito, attribute_names=["items"])
@@ -3263,6 +4140,7 @@ def receive_remito(
     reference = f"REMITO-{remito.id}"
     movement_date = payload.movement_date if payload else None
 
+    audit_context = _build_audit_context(request)
     for item in remito.items:
         movement_payload = StockMovementCreate(
             sku_id=item.sku_id,
@@ -3277,15 +4155,29 @@ def receive_remito(
             movement_date=movement_date,
             created_by_user_id=current_user.id,
         )
-        _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        _apply_stock_movement(
+            session,
+            movement_payload,
+            allow_negative_balance=True,
+            audit_context=audit_context,
+            audit_movement=True,
+        )
 
+    before_status = remito.status
     remito.status = RemitoStatus.RECEIVED
     remito.received_at = datetime.utcnow()
     remito.destination_deposit_id = destination_deposit.id
     remito.updated_at = datetime.utcnow()
     remito.updated_by_user_id = current_user.id
     session.add(remito)
-    _log_audit(session, "remitos", remito.id, AuditAction.STATUS, current_user.id, {"status": RemitoStatus.RECEIVED})
+    changes = _build_audit_changes(
+        "status",
+        "remitos",
+        remito.id,
+        diff=_status_diff("status", before_status, RemitoStatus.RECEIVED),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "remitos", remito.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -3301,6 +4193,7 @@ def cancel_remito(
     remito_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> RemitoRead:
     remito = _get_remito_or_404(session, remito_id)
     if remito.shipment_id:
@@ -3310,12 +4203,21 @@ def cancel_remito(
         )
     if remito.status in {RemitoStatus.DISPATCHED, RemitoStatus.RECEIVED, RemitoStatus.CANCELLED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar un remito procesado")
+    before_status = remito.status
     remito.status = RemitoStatus.CANCELLED
     remito.cancelled_at = datetime.utcnow()
     remito.updated_at = datetime.utcnow()
     remito.updated_by_user_id = current_user.id
     session.add(remito)
-    _log_audit(session, "remitos", remito.id, AuditAction.CANCEL, current_user.id, {"status": RemitoStatus.CANCELLED})
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "cancel",
+        "remitos",
+        remito.id,
+        diff=_status_diff("status", before_status, RemitoStatus.CANCELLED),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "remitos", remito.id, AuditAction.CANCEL, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(remito)
     return _map_remito(remito, session)
@@ -3347,6 +4249,8 @@ def list_stock_movement_types(
 def create_stock_movement_type(
     payload: StockMovementTypeCreate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> StockMovementTypeRead:
     code = payload.code.strip().upper()
     duplicate = session.exec(select(StockMovementType).where(StockMovementType.code == code)).first()
@@ -3354,6 +4258,27 @@ def create_stock_movement_type(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo de movimiento con ese código")
     record = StockMovementType(code=code, label=payload.label, is_active=payload.is_active)
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "stock_movement_types",
+        record.id,
+        diff=_create_diff_from_fields(
+            {"code": record.code, "label": record.label, "is_active": record.is_active},
+            ["code", "label", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(
+        session,
+        "stock_movement_types",
+        record.id,
+        AuditAction.CREATE,
+        current_user.id,
+        changes,
+        audit_context=audit_context,
+    )
     session.commit()
     session.refresh(record)
     return StockMovementTypeRead.model_validate(record)
@@ -3369,15 +4294,39 @@ def update_stock_movement_type(
     movement_type_id: int,
     payload: StockMovementTypeUpdate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> StockMovementTypeRead:
     record = session.get(StockMovementType, movement_type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de movimiento no encontrado")
+    before = {"label": record.label, "is_active": record.is_active}
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {"label": record.label, "is_active": record.is_active}
+    diff = _diff_fields(before, after, ["label", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "stock_movement_types",
+            record.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(
+            session,
+            "stock_movement_types",
+            record.id,
+            AuditAction.UPDATE,
+            current_user.id,
+            changes,
+            audit_context=audit_context,
+        )
     session.commit()
     session.refresh(record)
     return StockMovementTypeRead.model_validate(record)
@@ -3389,16 +4338,59 @@ def update_stock_movement_type(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_permissions("movement_types.delete"))],
 )
-def delete_stock_movement_type(movement_type_id: int, session: Session = Depends(get_session)) -> None:
+def delete_stock_movement_type(
+    movement_type_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> None:
     record = session.get(StockMovementType, movement_type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de movimiento no encontrado")
     in_use = session.exec(select(StockMovement.id).where(StockMovement.movement_type_id == movement_type_id)).first()
+    audit_context = _build_audit_context(request)
     if in_use:
+        before_status = record.is_active
         record.is_active = False
         record.updated_at = datetime.utcnow()
         session.add(record)
+        diff = _diff_fields({"is_active": before_status}, {"is_active": False}, ["is_active"])
+        changes = _build_audit_changes(
+            "status",
+            "stock_movement_types",
+            record.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(
+            session,
+            "stock_movement_types",
+            record.id,
+            AuditAction.STATUS,
+            current_user.id,
+            changes,
+            audit_context=audit_context,
+        )
     else:
+        changes = _build_audit_changes(
+            "delete",
+            "stock_movement_types",
+            record.id,
+            diff=_delete_diff_from_fields(
+                {"code": record.code, "label": record.label, "is_active": record.is_active},
+                ["code", "label", "is_active"],
+            ),
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(
+            session,
+            "stock_movement_types",
+            record.id,
+            AuditAction.DELETE,
+            current_user.id,
+            changes,
+            audit_context=audit_context,
+        )
         session.delete(record)
     session.commit()
 
@@ -3424,7 +4416,12 @@ def list_suppliers(include_inactive: bool = False, session: Session = Depends(ge
     response_model=SupplierRead,
     dependencies=[Depends(require_permissions("suppliers.create"))],
 )
-def create_supplier(payload: SupplierCreate, session: Session = Depends(get_session)) -> SupplierRead:
+def create_supplier(
+    payload: SupplierCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
+) -> SupplierRead:
     duplicate = session.exec(select(Supplier).where(Supplier.name == payload.name.strip())).first()
     if duplicate:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un proveedor con ese nombre")
@@ -3436,6 +4433,25 @@ def create_supplier(payload: SupplierCreate, session: Session = Depends(get_sess
         is_active=payload.is_active,
     )
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "suppliers",
+        record.id,
+        diff=_create_diff_from_fields(
+            {
+                "name": record.name,
+                "tax_id": record.tax_id,
+                "email": record.email,
+                "phone": record.phone,
+                "is_active": record.is_active,
+            },
+            ["name", "tax_id", "email", "phone", "is_active"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "suppliers", record.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return _map_supplier(record)
@@ -3451,10 +4467,19 @@ def update_supplier(
     supplier_id: int,
     payload: SupplierUpdate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> SupplierRead:
     record = session.get(Supplier, supplier_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proveedor no encontrado")
+    before = {
+        "name": record.name,
+        "tax_id": record.tax_id,
+        "email": record.email,
+        "phone": record.phone,
+        "is_active": record.is_active,
+    }
     update_data = payload.model_dump(exclude_unset=True)
     if "name" in update_data and update_data["name"]:
         update_data["name"] = update_data["name"].strip()
@@ -3467,6 +4492,25 @@ def update_supplier(
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    after = {
+        "name": record.name,
+        "tax_id": record.tax_id,
+        "email": record.email,
+        "phone": record.phone,
+        "is_active": record.is_active,
+    }
+    diff = _diff_fields(before, after, ["name", "tax_id", "email", "phone", "is_active"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "suppliers",
+            record.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "suppliers", record.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(record)
     return _map_supplier(record)
@@ -3519,6 +4563,7 @@ def create_purchase_receipt(
     payload: PurchaseReceiptCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> PurchaseReceiptRead:
     supplier = session.get(Supplier, payload.supplier_id)
     if not supplier or not supplier.is_active:
@@ -3534,6 +4579,7 @@ def create_purchase_receipt(
     if len(skus) != len(sku_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún SKU no existe")
 
+    audit_context = _build_audit_context(request)
     for item in payload.items:
         if item.quantity <= 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
@@ -3583,7 +4629,13 @@ def create_purchase_receipt(
             movement_date=receipt.received_at,
             created_by_user_id=current_user.id,
         )
-        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        _, movement = _apply_stock_movement(
+            session,
+            movement_payload,
+            allow_negative_balance=True,
+            audit_context=audit_context,
+            audit_movement=True,
+        )
         record.stock_movement_id = movement.id
         record.updated_at = datetime.utcnow()
         session.add(record)
@@ -3594,7 +4646,24 @@ def create_purchase_receipt(
         receipt.id,
         AuditAction.CREATE,
         current_user.id,
-        {"supplier_id": supplier.id, "deposit_id": deposit.id, "items": len(payload.items)},
+        _build_audit_changes(
+            "create",
+            "purchase_receipts",
+            receipt.id,
+            diff=_create_diff_from_fields(
+                {
+                    "supplier_id": supplier.id,
+                    "deposit_id": deposit.id,
+                    "received_at": receipt.received_at,
+                    "document_number": receipt.document_number,
+                    "notes": receipt.notes,
+                    "items": len(payload.items),
+                },
+                ["supplier_id", "deposit_id", "received_at", "document_number", "notes", "items"],
+            ),
+            metadata=audit_context.get("metadata", {}),
+        ),
+        audit_context=audit_context,
     )
     session.commit()
     session.refresh(receipt)
@@ -3618,6 +4687,8 @@ def _apply_stock_movement(
     session: Session,
     payload: StockMovementCreate,
     allow_negative_balance: bool = True,
+    audit_context: dict | None = None,
+    audit_movement: bool = False,
 ) -> tuple[StockLevel, StockMovement]:
     if payload.quantity <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
@@ -3802,6 +4873,37 @@ def _apply_stock_movement(
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
     session.refresh(movement, attribute_names=["sku", "deposit", "movement_type", "production_lot"])
 
+    if audit_movement:
+        diff = {
+            "sku_id": {"after": movement.sku_id},
+            "deposit_id": {"after": movement.deposit_id},
+            "movement_type_id": {"after": movement.movement_type_id},
+            "quantity": {"after": movement.quantity},
+            "reference_type": {"after": movement.reference_type},
+            "reference_id": {"after": movement.reference_id},
+            "reference_item_id": {"after": movement.reference_item_id},
+            "reference": {"after": movement.reference},
+            "lot_code": {"after": movement.lot_code},
+            "production_lot_id": {"after": movement.production_lot_id},
+            "movement_date": {"after": movement.movement_date},
+        }
+        changes = _build_audit_changes(
+            "create",
+            "stock_movements",
+            movement.id,
+            diff=diff,
+            refs=_build_audit_refs(movement.reference_type, movement.reference_id),
+            metadata=(audit_context or {}).get("metadata", {}),
+        )
+        _log_audit(
+            session,
+            "stock_movements",
+            movement.id,
+            AuditAction.CREATE,
+            payload.created_by_user_id,
+            changes,
+            audit_context=audit_context,
+        )
     if movement_code == "PRODUCTION" and sku.sku_type and sku.sku_type.code in SKU_PRODUCTION_TYPES:
         _consume_recipe_components(
             session,
@@ -4053,10 +5155,11 @@ def register_stock_movement(
     payload: StockMovementCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> StockLevelRead:
     payload.created_by_user_id = payload.created_by_user_id or current_user.id
-    stock_level, movement = _apply_stock_movement(session, payload)
-    _log_audit(session, "stock_movements", movement.id, AuditAction.CREATE, payload.created_by_user_id, payload.model_dump())
+    audit_context = _build_audit_context(request)
+    stock_level, _ = _apply_stock_movement(session, payload, audit_context=audit_context, audit_movement=True)
     session.commit()
     session.refresh(stock_level, attribute_names=["sku", "deposit"])
     return _map_stock_level(stock_level, session)
@@ -4180,6 +5283,19 @@ def _replace_inventory_count_items(
         )
 
 
+def _serialize_inventory_count_items(items: list[InventoryCountItem]) -> list[dict]:
+    return [
+        {
+            "sku_id": item.sku_id,
+            "production_lot_id": item.production_lot_id,
+            "counted_quantity": item.counted_quantity,
+            "system_quantity": item.system_quantity,
+            "difference": item.difference,
+        }
+        for item in items
+    ]
+
+
 @router.get(
     "/inventory-counts",
     tags=["inventory"],
@@ -4230,6 +5346,7 @@ def create_inventory_count(
     payload: InventoryCountCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> InventoryCountRead:
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debes cargar al menos un ítem")
@@ -4248,7 +5365,24 @@ def create_inventory_count(
 
     items_payload = [item.model_dump() for item in payload.items]
     _replace_inventory_count_items(session, count, items_payload, deposit)
-    _log_audit(session, "inventory_counts", count.id, AuditAction.CREATE, current_user.id, payload.model_dump())
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "inventory_counts",
+        count.id,
+        diff=_create_diff_from_fields(
+            {
+                "deposit_id": count.deposit_id,
+                "count_date": count.count_date,
+                "notes": count.notes,
+                "status": count.status,
+                "items": items_payload,
+            },
+            ["deposit_id", "count_date", "notes", "status", "items"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "inventory_counts", count.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(count)
     return _map_inventory_count(count, session)
@@ -4265,6 +5399,7 @@ def update_inventory_count(
     payload: InventoryCountUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -4272,6 +5407,12 @@ def update_inventory_count(
     if count.status != InventoryCountStatus.DRAFT:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar conteos en borrador")
 
+    session.refresh(count, attribute_names=["items"])
+    before = {
+        "count_date": count.count_date,
+        "notes": count.notes,
+        "items": _serialize_inventory_count_items(count.items),
+    }
     update_data = payload.model_dump(exclude_unset=True)
     items = update_data.pop("items", None)
     for field, value in update_data.items():
@@ -4286,7 +5427,23 @@ def update_inventory_count(
         items_payload = [item.model_dump() for item in items]
         _replace_inventory_count_items(session, count, items_payload, deposit)
 
-    _log_audit(session, "inventory_counts", count.id, AuditAction.UPDATE, current_user.id, update_data)
+    audit_context = _build_audit_context(request)
+    session.refresh(count, attribute_names=["items"])
+    after = {
+        "count_date": count.count_date,
+        "notes": count.notes,
+        "items": _serialize_inventory_count_items(count.items),
+    }
+    diff = _diff_fields(before, after, ["count_date", "notes", "items"])
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "inventory_counts",
+            count.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "inventory_counts", count.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(count)
     return _map_inventory_count(count, session)
@@ -4302,6 +5459,7 @@ def submit_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -4314,7 +5472,15 @@ def submit_inventory_count(
     count.updated_at = datetime.utcnow()
     count.updated_by_user_id = current_user.id
     session.add(count)
-    _log_audit(session, "inventory_counts", count.id, AuditAction.STATUS, current_user.id, {"status": count.status})
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "status",
+        "inventory_counts",
+        count.id,
+        diff=_status_diff("status", InventoryCountStatus.DRAFT, count.status),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "inventory_counts", count.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(count)
     return _map_inventory_count(count, session)
@@ -4330,6 +5496,7 @@ def approve_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -4342,6 +5509,7 @@ def approve_inventory_count(
     movement_type = _get_movement_type_by_code(session, "ADJUSTMENT")
     reference = f"INVENTARIO-{count.id}"
 
+    audit_context = _build_audit_context(request)
     for item in count.items:
         if item.difference == 0:
             continue
@@ -4368,7 +5536,13 @@ def approve_inventory_count(
             movement_date=date.today(),
             created_by_user_id=current_user.id,
         )
-        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=False)
+        _, movement = _apply_stock_movement(
+            session,
+            movement_payload,
+            allow_negative_balance=False,
+            audit_context=audit_context,
+            audit_movement=True,
+        )
         item.stock_movement_id = movement.id
         item.updated_at = datetime.utcnow()
         session.add(item)
@@ -4379,7 +5553,14 @@ def approve_inventory_count(
     count.updated_at = datetime.utcnow()
     count.updated_by_user_id = current_user.id
     session.add(count)
-    _log_audit(session, "inventory_counts", count.id, AuditAction.APPROVE, current_user.id, {"status": count.status})
+    changes = _build_audit_changes(
+        "approve",
+        "inventory_counts",
+        count.id,
+        diff=_status_diff("status", InventoryCountStatus.SUBMITTED, count.status),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "inventory_counts", count.id, AuditAction.APPROVE, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(count)
     return _map_inventory_count(count, session)
@@ -4395,6 +5576,7 @@ def close_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -4407,7 +5589,15 @@ def close_inventory_count(
     count.updated_at = datetime.utcnow()
     count.updated_by_user_id = current_user.id
     session.add(count)
-    _log_audit(session, "inventory_counts", count.id, AuditAction.STATUS, current_user.id, {"status": count.status})
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "status",
+        "inventory_counts",
+        count.id,
+        diff=_status_diff("status", InventoryCountStatus.APPROVED, count.status),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "inventory_counts", count.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(count)
     return _map_inventory_count(count, session)
@@ -4423,6 +5613,7 @@ def cancel_inventory_count(
     count_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> InventoryCountRead:
     count = session.get(InventoryCount, count_id)
     if not count:
@@ -4430,12 +5621,21 @@ def cancel_inventory_count(
     if count.status not in {InventoryCountStatus.DRAFT, InventoryCountStatus.SUBMITTED}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar el conteo")
 
+    before_status = count.status
     count.status = InventoryCountStatus.CANCELLED
     count.cancelled_at = datetime.utcnow()
     count.updated_at = datetime.utcnow()
     count.updated_by_user_id = current_user.id
     session.add(count)
-    _log_audit(session, "inventory_counts", count.id, AuditAction.CANCEL, current_user.id, {"status": count.status})
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "cancel",
+        "inventory_counts",
+        count.id,
+        diff=_status_diff("status", before_status, InventoryCountStatus.CANCELLED),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "inventory_counts", count.id, AuditAction.CANCEL, current_user.id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(count)
     return _map_inventory_count(count, session)
@@ -4528,6 +5728,7 @@ def create_merma_event(
     payload: MermaEventCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    request: Request | None = None,
 ) -> MermaEventRead:
     merma_type = session.get(MermaType, payload.type_id)
     cause = session.get(MermaCause, payload.cause_id)
@@ -4609,6 +5810,7 @@ def create_merma_event(
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario informante no encontrado")
 
+    audit_context = _build_audit_context(request)
     stock_movement_id = None
     if payload.affects_stock and deposit:
         merma_movement_type = _get_movement_type_by_code(session, "MERMA")
@@ -4623,7 +5825,13 @@ def create_merma_event(
             movement_date=detected_at.date(),
             created_by_user_id=reported_by_user_id,
         )
-        _, movement = _apply_stock_movement(session, movement_payload, allow_negative_balance=True)
+        _, movement = _apply_stock_movement(
+            session,
+            movement_payload,
+            allow_negative_balance=True,
+            audit_context=audit_context,
+            audit_movement=True,
+        )
         stock_movement_id = movement.id
 
     event = MermaEvent(
@@ -4653,7 +5861,49 @@ def create_merma_event(
 
     session.add(event)
     session.flush()
-    _log_audit(session, "mermas", event.id, AuditAction.CREATE, reported_by_user_id, payload.model_dump())
+    changes = _build_audit_changes(
+        "create",
+        "mermas",
+        event.id,
+        diff=_create_diff_from_fields(
+            {
+                "stage": event.stage,
+                "type_id": event.type_id,
+                "cause_id": event.cause_id,
+                "sku_id": event.sku_id,
+                "quantity": event.quantity,
+                "unit": event.unit,
+                "deposit_id": event.deposit_id,
+                "remito_id": event.remito_id,
+                "order_id": event.order_id,
+                "production_line_id": event.production_line_id,
+                "affects_stock": event.affects_stock,
+                "action": event.action,
+                "stock_movement_id": event.stock_movement_id,
+                "reported_by_user_id": event.reported_by_user_id,
+                "notes": event.notes,
+            },
+            [
+                "stage",
+                "type_id",
+                "cause_id",
+                "sku_id",
+                "quantity",
+                "unit",
+                "deposit_id",
+                "remito_id",
+                "order_id",
+                "production_line_id",
+                "affects_stock",
+                "action",
+                "stock_movement_id",
+                "reported_by_user_id",
+                "notes",
+            ],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "mermas", event.id, AuditAction.CREATE, reported_by_user_id, changes, audit_context=audit_context)
     session.commit()
     session.refresh(event)
     return _map_merma_event(event, session)
