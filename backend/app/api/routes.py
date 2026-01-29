@@ -221,6 +221,17 @@ def _status_diff(field: str, before: object, after: object) -> dict:
     return {field: {"before": before, "after": after}}
 
 
+def _build_diff_from_payload(obj: object, update_fields: dict) -> dict:
+    changes: dict[str, dict[str, object]] = {}
+    for field, new_value in update_fields.items():
+        if not hasattr(obj, field):
+            continue
+        old_value = getattr(obj, field)
+        if old_value != new_value:
+            changes[field] = {"before": old_value, "after": new_value}
+    return changes
+
+
 def _build_audit_refs(reference_type: str | None, reference_id: int | None) -> list[dict]:
     if not reference_type or reference_id is None:
         return []
@@ -744,19 +755,6 @@ def _validate_required_delivery_date(required_delivery_date: date | None) -> Non
         )
 
 
-def _serialize_order_header(order: Order) -> dict:
-    return {
-        "destination": order.destination,
-        "destination_deposit_id": order.destination_deposit_id,
-        "requested_for": order.requested_for,
-        "required_delivery_date": order.required_delivery_date,
-        "requested_by": order.requested_by,
-        "notes": order.notes,
-        "plant_internal_note": order.plant_internal_note,
-        "status": order.status,
-    }
-
-
 def _serialize_order_item(item: OrderItem) -> dict:
     return {
         "sku_id": item.sku_id,
@@ -983,44 +981,6 @@ def _ensure_order_cancel_allowed(session: Session, order: Order) -> None:
                 detail="No se puede cancelar: el pedido está en un envío confirmado o despachado.",
             )
         return
-
-
-def _diff_order_items(before_items: list[dict], after_items: list[dict]) -> dict:
-    before_map = {item["sku_id"]: item for item in before_items}
-    after_map = {item["sku_id"]: item for item in after_items}
-
-    added = []
-    removed = []
-    updated = []
-
-    for sku_id, item in after_map.items():
-        if sku_id not in before_map:
-            added.append({"sku_id": sku_id, "after": item})
-            continue
-        before = before_map[sku_id]
-        if before.get("quantity") != item.get("quantity") or before.get("current_stock") != item.get("current_stock"):
-            updated.append({"sku_id": sku_id, "before": before, "after": item})
-
-    for sku_id, item in before_map.items():
-        if sku_id not in after_map:
-            removed.append({"sku_id": sku_id, "before": item})
-
-    changes = {}
-    if added:
-        changes["item_added"] = added
-    if removed:
-        changes["item_removed"] = removed
-    if updated:
-        changes["item_updated"] = updated
-    return changes
-
-
-def _diff_order_header(before: dict, after: dict) -> dict:
-    changes = {}
-    for key in before.keys():
-        if before.get(key) != after.get(key):
-            changes[key] = {"from": before.get(key), "to": after.get(key)}
-    return changes
 
 
 def _map_order(order: Order, session: Session) -> OrderRead:
@@ -1532,12 +1492,7 @@ def update_user(
 
     update_data = payload.model_dump(exclude_unset=True)
     password = update_data.pop("password", None)
-    before = {
-        "email": user.email,
-        "full_name": user.full_name,
-        "role_id": user.role_id,
-        "is_active": user.is_active,
-    }
+    diff = _build_diff_from_payload(user, update_data)
     for field, value in update_data.items():
         setattr(user, field, value)
     if password:
@@ -1547,13 +1502,6 @@ def update_user(
     session.flush()
 
     audit_context = _build_audit_context(request)
-    after = {
-        "email": user.email,
-        "full_name": user.full_name,
-        "role_id": user.role_id,
-        "is_active": user.is_active,
-    }
-    diff = _diff_fields(before, after, ["email", "full_name", "role_id", "is_active"])
     if password:
         diff["password"] = {"before": "***", "after": "***"}
     if diff:
@@ -1694,16 +1642,14 @@ def update_sku_type(
     sku_type = session.get(SKUType, sku_type_id)
     if not sku_type:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de SKU no encontrado")
-    before = {"label": sku_type.label, "is_active": sku_type.is_active}
     update_data = payload.model_dump(exclude_unset=True)
+    diff = _build_diff_from_payload(sku_type, update_data)
     for field, value in update_data.items():
         setattr(sku_type, field, value)
     sku_type.updated_at = datetime.utcnow()
     session.add(sku_type)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {"label": sku_type.label, "is_active": sku_type.is_active}
-    diff = _diff_fields(before, after, ["label", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -1853,25 +1799,13 @@ def update_merma_type(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un tipo con ese código en la etapa")
 
     update_data = payload.model_dump(exclude_unset=True)
-    before = {
-        "stage": record.stage,
-        "code": record.code,
-        "label": record.label,
-        "is_active": record.is_active,
-    }
+    diff = _build_diff_from_payload(record, update_data)
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {
-        "stage": record.stage,
-        "code": record.code,
-        "label": record.label,
-        "is_active": record.is_active,
-    }
-    diff = _diff_fields(before, after, ["stage", "code", "label", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -2007,25 +1941,13 @@ def update_merma_cause(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una causa con ese código en la etapa")
 
     update_data = payload.model_dump(exclude_unset=True)
-    before = {
-        "stage": record.stage,
-        "code": record.code,
-        "label": record.label,
-        "is_active": record.is_active,
-    }
+    diff = _build_diff_from_payload(record, update_data)
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {
-        "stage": record.stage,
-        "code": record.code,
-        "label": record.label,
-        "is_active": record.is_active,
-    }
-    diff = _diff_fields(before, after, ["stage", "code", "label", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -2189,16 +2111,6 @@ def update_sku(
     if not sku:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
 
-    before = {
-        "name": sku.name,
-        "sku_type_id": sku.sku_type_id,
-        "unit": sku.unit,
-        "notes": sku.notes,
-        "is_active": sku.is_active,
-        "units_per_kg": sku.units_per_kg,
-        "alert_green_min": sku.alert_green_min,
-        "alert_yellow_min": sku.alert_yellow_min,
-    }
     update_data = payload.model_dump(exclude_unset=True)
     sku_type_id = update_data.get("sku_type_id", sku.sku_type_id)
     sku_type = _get_sku_type_or_404(session, sku_type_id)
@@ -2215,6 +2127,7 @@ def update_sku(
     effective_alert_yellow_min = update_data["alert_yellow_min"] if "alert_yellow_min" in update_data else sku.alert_yellow_min
     _validate_sku_alert_thresholds(effective_alert_green_min, effective_alert_yellow_min)
 
+    diff = _build_diff_from_payload(sku, update_data)
     for field, value in update_data.items():
         setattr(sku, field, value)
     sku.updated_at = datetime.utcnow()
@@ -2226,21 +2139,6 @@ def update_sku(
     else:
         _delete_semi_conversion_rule(session, sku.id)
     audit_context = _build_audit_context(request)
-    after = {
-        "name": sku.name,
-        "sku_type_id": sku.sku_type_id,
-        "unit": sku.unit,
-        "notes": sku.notes,
-        "is_active": sku.is_active,
-        "units_per_kg": units_per_kg if sku_type.code == SKU_SEMI_CODE else None,
-        "alert_green_min": sku.alert_green_min,
-        "alert_yellow_min": sku.alert_yellow_min,
-    }
-    diff = _diff_fields(
-        before,
-        after,
-        ["name", "sku_type_id", "unit", "notes", "is_active", "units_per_kg", "alert_green_min", "alert_yellow_min"],
-    )
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -2420,27 +2318,13 @@ def update_deposit(
     if not deposit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Depósito no encontrado")
 
-    before = {
-        "name": deposit.name,
-        "location": deposit.location,
-        "controls_lot": deposit.controls_lot,
-        "is_store": deposit.is_store,
-        "is_active": deposit.is_active,
-    }
     update_data = payload.model_dump(exclude_unset=True)
+    diff = _build_diff_from_payload(deposit, update_data)
     for field, value in update_data.items():
         setattr(deposit, field, value)
     session.add(deposit)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {
-        "name": deposit.name,
-        "location": deposit.location,
-        "controls_lot": deposit.controls_lot,
-        "is_store": deposit.is_store,
-        "is_active": deposit.is_active,
-    }
-    diff = _diff_fields(before, after, ["name", "location", "controls_lot", "is_store", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -2612,15 +2496,13 @@ def update_production_line(
         if duplicate:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe una línea con ese nombre")
     update_data = payload.model_dump(exclude_unset=True)
-    before = {"name": line.name, "is_active": line.is_active}
+    diff = _build_diff_from_payload(line, update_data)
     for field, value in update_data.items():
         setattr(line, field, value)
     line.updated_at = datetime.utcnow()
     session.add(line)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {"name": line.name, "is_active": line.is_active}
-    diff = _diff_fields(before, after, ["name", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -2773,12 +2655,7 @@ def update_recipe(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receta no encontrada")
 
     session.refresh(recipe, attribute_names=["items"])
-    before = {
-        "product_id": recipe.product_id,
-        "name": recipe.name,
-        "is_active": recipe.is_active,
-        "items": _serialize_recipe_items_for_audit(recipe.items),
-    }
+    before_items = _serialize_recipe_items_for_audit(recipe.items)
     product = session.get(SKU, payload.product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
@@ -2794,6 +2671,12 @@ def update_recipe(
     existing_components = session.exec(select(SKU.id).where(SKU.id.in_(component_ids))).all()
     if len(existing_components) != len(component_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún componente no existe")
+
+    update_fields = payload.model_dump(exclude_unset=True)
+    items_payload = update_fields.pop("items", None)
+    diff = _build_diff_from_payload(recipe, update_fields)
+    if items_payload is not None and before_items != items_payload:
+        diff["items"] = {"before": before_items, "after": items_payload}
 
     recipe.product_id = payload.product_id
     recipe.name = payload.name
@@ -2811,14 +2694,6 @@ def update_recipe(
 
     session.flush()
     audit_context = _build_audit_context(request)
-    session.refresh(recipe, attribute_names=["items"])
-    after = {
-        "product_id": recipe.product_id,
-        "name": recipe.name,
-        "is_active": recipe.is_active,
-        "items": _serialize_recipe_items_for_audit(recipe.items),
-    }
-    diff = _diff_fields(before, after, ["product_id", "name", "is_active", "items"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -3062,7 +2937,6 @@ def update_order(
     if payload.required_delivery_date is not None:
         _validate_required_delivery_date(payload.required_delivery_date)
 
-    before_header = _serialize_order_header(order)
     existing_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
     before_items = [_serialize_order_item(item) for item in existing_items]
 
@@ -3076,7 +2950,7 @@ def update_order(
 
     update_data = payload.model_dump(exclude_unset=True)
     items = update_data.pop("items", None)
-    update_data.pop("destination_deposit_id", None)
+    destination_deposit_id = update_data.pop("destination_deposit_id", None)
     if "requested_by" in update_data and isinstance(update_data["requested_by"], str):
         update_data["requested_by"] = update_data["requested_by"].strip()
     if update_data.get("status"):
@@ -3085,6 +2959,15 @@ def update_order(
         _ensure_order_cancel_allowed(session, order)
         if order.status == OrderStatus.SUBMITTED:
             _remove_order_from_draft_shipments(session, order.id)
+    audit_fields = update_data.copy()
+    if destination_deposit_id is not None:
+        audit_fields["destination_deposit_id"] = destination_deposit_id
+    diff = _build_diff_from_payload(order, audit_fields)
+    if items is not None:
+        after_items = [_serialize_order_item_payload(item) for item in items]
+        if before_items != after_items:
+            diff["items"] = {"before": before_items, "after": after_items}
+
     for field, value in update_data.items():
         setattr(order, field, value)
     if update_data.get("status") == OrderStatus.CANCELLED:
@@ -3161,16 +3044,7 @@ def update_order(
                 )
             )
 
-    after_header = _serialize_order_header(order)
-    after_items = [_serialize_order_item_payload(item) for item in items] if items is not None else before_items
-    header_changes = _diff_order_header(before_header, after_header)
-    item_changes = _diff_order_items(before_items, after_items) if items is not None else {}
     audit_context = _build_audit_context(request)
-    diff: dict[str, dict[str, object]] = {}
-    for field, change in header_changes.items():
-        diff[field] = {"before": change.get("from"), "after": change.get("to")}
-    if item_changes:
-        diff["items"] = {"before": before_items, "after": after_items}
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -4300,16 +4174,14 @@ def update_stock_movement_type(
     record = session.get(StockMovementType, movement_type_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de movimiento no encontrado")
-    before = {"label": record.label, "is_active": record.is_active}
     update_data = payload.model_dump(exclude_unset=True)
+    diff = _build_diff_from_payload(record, update_data)
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {"label": record.label, "is_active": record.is_active}
-    diff = _diff_fields(before, after, ["label", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -4473,13 +4345,6 @@ def update_supplier(
     record = session.get(Supplier, supplier_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proveedor no encontrado")
-    before = {
-        "name": record.name,
-        "tax_id": record.tax_id,
-        "email": record.email,
-        "phone": record.phone,
-        "is_active": record.is_active,
-    }
     update_data = payload.model_dump(exclude_unset=True)
     if "name" in update_data and update_data["name"]:
         update_data["name"] = update_data["name"].strip()
@@ -4488,20 +4353,13 @@ def update_supplier(
         ).first()
         if duplicate:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un proveedor con ese nombre")
+    diff = _build_diff_from_payload(record, update_data)
     for field, value in update_data.items():
         setattr(record, field, value)
     record.updated_at = datetime.utcnow()
     session.add(record)
     session.flush()
     audit_context = _build_audit_context(request)
-    after = {
-        "name": record.name,
-        "tax_id": record.tax_id,
-        "email": record.email,
-        "phone": record.phone,
-        "is_active": record.is_active,
-    }
-    diff = _diff_fields(before, after, ["name", "tax_id", "email", "phone", "is_active"])
     if diff:
         changes = _build_audit_changes(
             "update",
@@ -5408,13 +5266,22 @@ def update_inventory_count(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar conteos en borrador")
 
     session.refresh(count, attribute_names=["items"])
-    before = {
-        "count_date": count.count_date,
-        "notes": count.notes,
-        "items": _serialize_inventory_count_items(count.items),
-    }
+    before_items = [
+        {
+            "sku_id": item.sku_id,
+            "production_lot_id": item.production_lot_id,
+            "counted_quantity": item.counted_quantity,
+        }
+        for item in count.items
+    ]
     update_data = payload.model_dump(exclude_unset=True)
     items = update_data.pop("items", None)
+    items_payload = None
+    if items is not None:
+        items_payload = [item.model_dump() if hasattr(item, "model_dump") else item for item in items]
+    diff = _build_diff_from_payload(count, update_data)
+    if items_payload is not None and before_items != items_payload:
+        diff["items"] = {"before": before_items, "after": items_payload}
     for field, value in update_data.items():
         setattr(count, field, value)
     count.updated_at = datetime.utcnow()
@@ -5422,19 +5289,11 @@ def update_inventory_count(
     session.add(count)
     session.flush()
 
-    if items is not None:
+    if items_payload is not None:
         deposit = _get_deposit_or_404(session, count.deposit_id)
-        items_payload = [item.model_dump() for item in items]
         _replace_inventory_count_items(session, count, items_payload, deposit)
 
     audit_context = _build_audit_context(request)
-    session.refresh(count, attribute_names=["items"])
-    after = {
-        "count_date": count.count_date,
-        "notes": count.notes,
-        "items": _serialize_inventory_count_items(count.items),
-    }
-    diff = _diff_fields(before, after, ["count_date", "notes", "items"])
     if diff:
         changes = _build_audit_changes(
             "update",
