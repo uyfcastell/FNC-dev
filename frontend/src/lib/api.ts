@@ -290,11 +290,36 @@ export type ExpiryReportRow = {
   expiry_date?: string | null;
   days_to_expiry?: number | null;
   status: ExpiryStatus;
+  source_type?: "production" | "purchase" | null;
+  source_id?: number | null;
 };
 
 export type ExpiryReport = {
   total: number;
   items: ExpiryReportRow[];
+};
+
+export type LotExpiryUpdatePayload = {
+  expiry_date: string | null;
+  note?: string;
+};
+
+export type LotExpiryUpdateResponse = {
+  source_type: "production" | "purchase";
+  source_id: number;
+  expiry_date: string | null;
+};
+
+export type StockAlertThresholdUpdatePayload = {
+  alert_green_min?: number | null;
+  alert_yellow_min?: number | null;
+  note?: string;
+};
+
+export type StockAlertThresholdRead = {
+  sku_id: number;
+  alert_green_min?: number | null;
+  alert_yellow_min?: number | null;
 };
 
 export type Role = {
@@ -1040,6 +1065,29 @@ export async function fetchStockExpirations(params?: {
     `/reports/stock-expirations${query.toString() ? `?${query.toString()}` : ""}`,
     {},
     "No se pudo obtener el reporte de vencimientos",
+  );
+}
+
+export async function updateLotExpiry(
+  sourceType: "production" | "purchase",
+  sourceId: number,
+  payload: LotExpiryUpdatePayload,
+): Promise<LotExpiryUpdateResponse> {
+  return apiRequest(
+    `/lots/${sourceType}/${sourceId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    "No se pudo actualizar el vencimiento del lote",
+  );
+}
+
+export async function updateStockAlertThresholds(
+  skuId: number,
+  payload: StockAlertThresholdUpdatePayload,
+): Promise<StockAlertThresholdRead> {
+  return apiRequest(
+    `/stock/alerts/thresholds/${skuId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    "No se pudo actualizar los umbrales",
   );
 }
 
