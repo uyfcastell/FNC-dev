@@ -566,6 +566,11 @@ export type AuditLog = {
   created_at: string;
 };
 
+export type AuditLogMeta = {
+  entity_types: string[];
+  actions?: string[];
+};
+
 export type LoginResponse = {
   access_token: string;
   token_type: string;
@@ -913,6 +918,7 @@ export async function fetchAuditLogs(params?: {
   date_to?: string;
   detail_q?: string;
   limit?: number;
+  offset?: number;
 }): Promise<AuditLog[]> {
   const query = new URLSearchParams();
   if (params?.entity_type) query.set("entity_type", params.entity_type);
@@ -922,8 +928,13 @@ export async function fetchAuditLogs(params?: {
   if (params?.date_to) query.set("date_to", params.date_to);
   if (params?.detail_q) query.set("detail_q", params.detail_q);
   if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.offset) query.set("offset", String(params.offset));
   const path = query.toString() ? `/audit/logs?${query.toString()}` : "/audit/logs";
   return apiRequest<AuditLog[]>(path, {}, "No pudimos obtener la auditoría");
+}
+
+export async function fetchAuditLogsMeta(): Promise<AuditLogMeta> {
+  return apiRequest<AuditLogMeta>("/audit/logs/meta", {}, "No pudimos obtener metadata de auditoría");
 }
 
 export async function fetchAuditLogsExport(params?: {

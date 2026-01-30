@@ -17,9 +17,19 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
-import { ApiError, AuditAction, AuditLog, fetchAuditLogs, fetchAuditLogsExport, fetchUsers, User } from "../lib/api";
+import {
+  ApiError,
+  AuditAction,
+  AuditLog,
+  fetchAuditLogs,
+  fetchAuditLogsExport,
+  fetchAuditLogsMeta,
+  fetchUsers,
+  User,
+} from "../lib/api";
 import { downloadBlob } from "../lib/download";
 
 const actionLabels: Record<AuditAction, string> = {
@@ -31,19 +41,59 @@ const actionLabels: Record<AuditAction, string> = {
   cancel: "Cancelación",
 };
 
+const entityTypeLabels: Record<string, string> = {
+  orders: "Pedidos",
+  shipments: "Envíos",
+  remitos: "Remitos",
+  stock_movements: "Movimientos",
+  inventory_counts: "Conteos",
+  purchase_receipts: "Recepciones de compra",
+  roles: "Roles",
+  users: "Usuarios",
+  skus: "Productos",
+  sku_types: "Tipos de SKU",
+  deposits: "Depósitos",
+  merma_events: "Mermas",
+  merma_types: "Tipos de merma",
+  merma_causes: "Causas de merma",
+  mermas: "Mermas",
+};
+
+const PAGE_SIZE = 200;
+
+const formatEntityTypeLabel = (value: string) => {
+  if (!value) return value;
+  if (entityTypeLabels[value]) return entityTypeLabels[value];
+  return value
+    .split("_")
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(" ");
+};
+
 export function AuditPage() {
+  const [searchParams] = useSearchParams();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
+  const [entityTypes, setEntityTypes] = useState<string[]>([]);
+  const [page, setPage] = useState(0);
   const [filters, setFilters] = useState({
-    entity_type: "",
+    entity_type: searchParams.get("entity_type") ?? "",
     user_id: "",
     date_from: "",
     date_to: "",
     detail_q: "",
   });
+
+  const entityTypeOptions = useMemo(() => {
+    const current = filters.entity_type;
+    if (current && !entityTypes.includes(current)) {
+      return [...entityTypes, current];
+    }
+    return entityTypes;
+  }, [entityTypes, filters.entity_type]);
 
   const loadLogs = async () => {
     try {
@@ -54,7 +104,8 @@ export function AuditPage() {
         date_from: filters.date_from || undefined,
         date_to: filters.date_to || undefined,
         detail_q: filters.detail_q || undefined,
-        limit: 200,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       });
       setLogs(data);
       setError(null);
@@ -74,7 +125,16 @@ export function AuditPage() {
       }
       return next;
     });
+    setPage(0);
   };
+
+  useEffect(() => {
+    setFilters((prev) => ({
+      ...prev,
+      entity_type: searchParams.get("entity_type") ?? "",
+    }));
+    setPage(0);
+  }, [searchParams]);
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -90,11 +150,24 @@ export function AuditPage() {
   }, []);
 
   useEffect(() => {
+    const loadMeta = async () => {
+      try {
+        const data = await fetchAuditLogsMeta();
+        setEntityTypes(data.entity_types ?? []);
+      } catch (err) {
+        console.error(err);
+        setError("No pudimos cargar metadata de auditoría.");
+      }
+    };
+    void loadMeta();
+  }, []);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
       void loadLogs();
     }, 300);
     return () => window.clearTimeout(timeout);
-  }, [filters]);
+  }, [filters, page]);
 
   const handleExport = async () => {
     try {
@@ -146,14 +219,14 @@ export function AuditPage() {
                 fullWidth
                 label="Entidad"
                 value={filters.entity_type}
-                onChange={(e) => setFilters((prev) => ({ ...prev, entity_type: e.target.value }))}
+                onChange={(e) => handleFilterChange({ entity_type: e.target.value })}
               >
                 <MenuItem value="">Todas</MenuItem>
-                <MenuItem value="orders">Pedidos</MenuItem>
-                <MenuItem value="remitos">Remitos</MenuItem>
-                <MenuItem value="stock_movements">Movimientos</MenuItem>
-                <MenuItem value="inventory_counts">Conteos</MenuItem>
-                <MenuItem value="mermas">Mermas</MenuItem>
+                {entityTypeOptions.map((entityType) => (
+                  <MenuItem key={entityType} value={entityType}>
+                    {formatEntityTypeLabel(entityType)}
+                  </MenuItem>
+                ))}
               </TextField>
             </Grid>
             <Grid item xs={12} md={3}>
@@ -162,7 +235,7 @@ export function AuditPage() {
                 fullWidth
                 label="Usuario"
                 value={filters.user_id}
-                onChange={(e) => setFilters((prev) => ({ ...prev, user_id: e.target.value }))}
+                onChange={(e) => handleFilterChange({ user_id: e.target.value })}
               >
                 <MenuItem value="">Todos</MenuItem>
                 {users.map((user) => (
@@ -180,7 +253,7 @@ export function AuditPage() {
                 placeholder="Buscar en detalle…"
                 fullWidth
                 value={filters.detail_q}
-                onChange={(e) => setFilters((prev) => ({ ...prev, detail_q: e.target.value }))}
+                onChange={(e) => handleFilterChange({ detail_q: e.target.value })}
               />
             </Grid>
             <Grid item xs={12} md={1.5}>
@@ -227,12 +300,12 @@ export function AuditPage() {
               </TableHead>
               <TableBody>
                 {logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell>{new Date(log.created_at).toLocaleString()}</TableCell>
-                    <TableCell>{log.entity_type}</TableCell>
-                    <TableCell>{log.entity_id ?? "-"}</TableCell>
-                    <TableCell>{actionLabels[log.action] ?? log.action}</TableCell>
-                    <TableCell>{log.user_name ?? log.user_id ?? "-"}</TableCell>
+                    <TableRow key={log.id}>
+                      <TableCell>{new Date(log.created_at).toLocaleString()}</TableCell>
+                      <TableCell>{formatEntityTypeLabel(log.entity_type)}</TableCell>
+                      <TableCell>{log.entity_id ?? "-"}</TableCell>
+                      <TableCell>{actionLabels[log.action] ?? log.action}</TableCell>
+                      <TableCell>{log.user_name ?? log.user_id ?? "-"}</TableCell>
                     <TableCell>
                       <Typography variant="caption" sx={{ whiteSpace: "pre-wrap" }}>
                         {log.changes ? JSON.stringify(log.changes) : "-"}
@@ -243,6 +316,22 @@ export function AuditPage() {
               </TableBody>
             </Table>
           )}
+          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={() => setPage((prev) => Math.max(prev - 1, 0))}
+              disabled={loading || page === 0}
+            >
+              Anterior
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setPage((prev) => prev + 1)}
+              disabled={loading || logs.length < PAGE_SIZE}
+            >
+              Siguiente
+            </Button>
+          </Stack>
         </CardContent>
       </Card>
     </Stack>
