@@ -5827,12 +5827,32 @@ def list_audit_logs(
     date_to: date | None = None,
     detail_q: str | None = None,
     limit: int = 200,
+    offset: int = 0,
     session: Session = Depends(get_session),
 ) -> list[AuditLogRead]:
     statement = _build_audit_logs_statement(entity_type, entity_id, user_id, date_from, date_to, detail_q)
     safe_limit = max(1, min(limit, 500))
-    records = session.exec(statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(safe_limit)).all()
+    safe_offset = max(offset, 0)
+    records = session.exec(
+        statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(safe_offset).limit(safe_limit)
+    ).all()
     return [_map_audit_log(record, session) for record in records]
+
+
+@router.get(
+    "/audit/logs/meta",
+    tags=["audit"],
+    dependencies=[Depends(require_permissions("audit.view"))],
+)
+def audit_logs_meta(session: Session = Depends(get_session)) -> dict:
+    entity_types = session.exec(
+        select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type)
+    ).all()
+    actions = session.exec(select(AuditLog.action).distinct().order_by(AuditLog.action)).all()
+    return {
+        "entity_types": [entity_type for entity_type in entity_types if entity_type],
+        "actions": [str(action) for action in actions if action],
+    }
 
 
 def _build_excel_response(workbook: Workbook, filename: str) -> StreamingResponse:
