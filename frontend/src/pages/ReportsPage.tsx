@@ -1,4 +1,5 @@
 import SummarizeIcon from "@mui/icons-material/Summarize";
+import EditIcon from "@mui/icons-material/Edit";
 import {
   Alert,
   Button,
@@ -6,8 +7,13 @@ import {
   CardContent,
   CardHeader,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Grid,
+  IconButton,
   MenuItem,
   Stack,
   Table,
@@ -22,6 +28,7 @@ import { useEffect, useState } from "react";
 
 import {
   Deposit,
+  ExpiryReportRow,
   fetchDeposits,
   fetchSkus,
   fetchSkuTypes,
@@ -32,7 +39,10 @@ import {
   SKU,
   SKUType,
   StockAlertReport,
+  StockAlertRow,
   StockAlertStatus,
+  updateLotExpiry,
+  updateStockAlertThresholds,
 } from "../lib/api";
 
 export function ReportsPage() {
@@ -79,6 +89,14 @@ export function ReportsPage() {
     expiry_to: "",
     include_no_expiry: true,
   });
+  const [alertEditRow, setAlertEditRow] = useState<StockAlertRow | null>(null);
+  const [alertEditData, setAlertEditData] = useState({ alert_green_min: "", alert_yellow_min: "", note: "" });
+  const [alertEditError, setAlertEditError] = useState<string | null>(null);
+  const [alertEditSaving, setAlertEditSaving] = useState(false);
+  const [expiryEditRow, setExpiryEditRow] = useState<ExpiryReportRow | null>(null);
+  const [expiryEditData, setExpiryEditData] = useState({ expiry_date: "", note: "" });
+  const [expiryEditError, setExpiryEditError] = useState<string | null>(null);
+  const [expiryEditSaving, setExpiryEditSaving] = useState(false);
 
   useEffect(() => {
     async function loadFilters() {
@@ -168,6 +186,101 @@ export function ReportsPage() {
     (acc, row) => ({ ...acc, [row.alert_status]: (acc[row.alert_status] ?? 0) + 1 }),
     {} as Record<StockAlertStatus, number>,
   );
+
+  const openAlertEdit = (row: StockAlertRow) => {
+    setAlertEditRow(row);
+    setAlertEditData({
+      alert_green_min: row.alert_green_min != null ? String(row.alert_green_min) : "",
+      alert_yellow_min: row.alert_yellow_min != null ? String(row.alert_yellow_min) : "",
+      note: "",
+    });
+    setAlertEditError(null);
+  };
+
+  const closeAlertEdit = () => {
+    setAlertEditRow(null);
+    setAlertEditError(null);
+    setAlertEditSaving(false);
+  };
+
+  const handleAlertEditSave = async () => {
+    if (!alertEditRow) {
+      return;
+    }
+    const parseNumber = (value: string) => {
+      if (value.trim() === "") {
+        return null;
+      }
+      const parsed = Number(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    };
+    const greenValue = parseNumber(alertEditData.alert_green_min);
+    const yellowValue = parseNumber(alertEditData.alert_yellow_min);
+    if (alertEditData.alert_green_min.trim() !== "" && greenValue === null) {
+      setAlertEditError("El umbral verde debe ser numérico.");
+      return;
+    }
+    if (alertEditData.alert_yellow_min.trim() !== "" && yellowValue === null) {
+      setAlertEditError("El umbral amarillo debe ser numérico.");
+      return;
+    }
+    setAlertEditSaving(true);
+    try {
+      await updateStockAlertThresholds(alertEditRow.sku_id, {
+        alert_green_min: greenValue,
+        alert_yellow_min: yellowValue,
+        note: alertEditData.note.trim() || undefined,
+      });
+      await loadAlertReport();
+      closeAlertEdit();
+    } catch (err) {
+      console.error(err);
+      setAlertEditError("No pudimos guardar los umbrales.");
+    } finally {
+      setAlertEditSaving(false);
+    }
+  };
+
+  const openExpiryEdit = (row: ExpiryReportRow) => {
+    setExpiryEditRow(row);
+    setExpiryEditData({
+      expiry_date: row.expiry_date ?? "",
+      note: "",
+    });
+    setExpiryEditError(null);
+  };
+
+  const closeExpiryEdit = () => {
+    setExpiryEditRow(null);
+    setExpiryEditError(null);
+    setExpiryEditSaving(false);
+  };
+
+  const handleExpiryEditSave = async () => {
+    if (!expiryEditRow) {
+      return;
+    }
+    const sourceType = expiryEditRow.source_type ?? "production";
+    const sourceId = expiryEditRow.source_id ?? expiryEditRow.lot_id;
+    if (!sourceId) {
+      setExpiryEditError("No pudimos identificar el lote para editar.");
+      return;
+    }
+    setExpiryEditSaving(true);
+    try {
+      await updateLotExpiry(sourceType, sourceId, {
+        expiry_date: expiryEditData.expiry_date ? expiryEditData.expiry_date : null,
+        note: expiryEditData.note.trim() || undefined,
+      });
+      await loadExpiryReport();
+      closeExpiryEdit();
+    } catch (err) {
+      console.error(err);
+      setExpiryEditError("No pudimos guardar el vencimiento.");
+    } finally {
+      setExpiryEditSaving(false);
+    }
+  };
 
   return (
     <Stack spacing={2}>
@@ -351,12 +464,19 @@ export function ReportsPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          {[
-                            row.alert_green_min != null ? `Verde >= ${row.alert_green_min}` : null,
-                            row.alert_yellow_min != null ? `Amarillo >= ${row.alert_yellow_min}` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ") || "Sin alerta"}
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Typography variant="body2" component="span">
+                              {[
+                                row.alert_green_min != null ? `Verde >= ${row.alert_green_min}` : null,
+                                row.alert_yellow_min != null ? `Amarillo >= ${row.alert_yellow_min}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ") || "Sin alerta"}
+                            </Typography>
+                            <IconButton size="small" onClick={() => openAlertEdit(row)} aria-label="Editar umbrales">
+                              <EditIcon fontSize="inherit" />
+                            </IconButton>
+                          </Stack>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -523,8 +643,15 @@ export function ReportsPage() {
                         <TableCell>{row.deposit_name}</TableCell>
                         <TableCell align="right">{row.remaining_quantity.toFixed(2)}</TableCell>
                         <TableCell>
-                          {row.expiry_date ?? "—"}
-                          {row.days_to_expiry != null && ` (${row.days_to_expiry} días)`}
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Typography variant="body2" component="span">
+                              {row.expiry_date ?? "—"}
+                              {row.days_to_expiry != null && ` (${row.days_to_expiry} días)`}
+                            </Typography>
+                            <IconButton size="small" onClick={() => openExpiryEdit(row)} aria-label="Editar vencimiento">
+                              <EditIcon fontSize="inherit" />
+                            </IconButton>
+                          </Stack>
                         </TableCell>
                         <TableCell>
                           <Chip
@@ -550,6 +677,125 @@ export function ReportsPage() {
           </Card>
         </Grid>
       </Grid>
+      <Dialog open={Boolean(alertEditRow)} onClose={closeAlertEdit} maxWidth="sm" fullWidth>
+        <DialogTitle>Editar umbrales de alerta</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="SKU"
+              value={alertEditRow ? `${alertEditRow.sku_name} (${alertEditRow.sku_code})` : ""}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+            />
+            <TextField
+              label="Depósito"
+              value={alertEditRow?.deposit_name ?? ""}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+            />
+            <TextField
+              label="Umbral verde (mínimo)"
+              type="number"
+              value={alertEditData.alert_green_min}
+              onChange={(e) => setAlertEditData((prev) => ({ ...prev, alert_green_min: e.target.value }))}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Umbral amarillo (mínimo)"
+              type="number"
+              value={alertEditData.alert_yellow_min}
+              onChange={(e) => setAlertEditData((prev) => ({ ...prev, alert_yellow_min: e.target.value }))}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Nota / motivo"
+              value={alertEditData.note}
+              onChange={(e) => setAlertEditData((prev) => ({ ...prev, note: e.target.value }))}
+              fullWidth
+              size="small"
+              multiline
+              minRows={2}
+            />
+          </Stack>
+          {alertEditError && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              {alertEditError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeAlertEdit} disabled={alertEditSaving}>Cancelar</Button>
+          <Button variant="contained" onClick={handleAlertEditSave} disabled={alertEditSaving}>
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(expiryEditRow)} onClose={closeExpiryEdit} maxWidth="sm" fullWidth>
+        <DialogTitle>Editar vencimiento</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="SKU"
+              value={expiryEditRow ? `${expiryEditRow.sku_code} — ${expiryEditRow.sku_name}` : ""}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+            />
+            <TextField
+              label="Lote"
+              value={expiryEditRow?.lot_code ?? "—"}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+            />
+            <TextField
+              label="Origen"
+              value={expiryEditRow?.source_type === "purchase" ? "Compra" : "Producción"}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+            />
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="center">
+              <TextField
+                label="Fecha de vencimiento"
+                type="date"
+                value={expiryEditData.expiry_date}
+                onChange={(e) => setExpiryEditData((prev) => ({ ...prev, expiry_date: e.target.value }))}
+                fullWidth
+                size="small"
+                InputLabelProps={{ shrink: true }}
+              />
+              <Button variant="outlined" onClick={() => setExpiryEditData((prev) => ({ ...prev, expiry_date: "" }))}>
+                Limpiar fecha
+              </Button>
+            </Stack>
+            <TextField
+              label="Nota / motivo"
+              value={expiryEditData.note}
+              onChange={(e) => setExpiryEditData((prev) => ({ ...prev, note: e.target.value }))}
+              fullWidth
+              size="small"
+              multiline
+              minRows={2}
+            />
+          </Stack>
+          {expiryEditError && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              {expiryEditError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeExpiryEdit} disabled={expiryEditSaving}>Cancelar</Button>
+          <Button variant="contained" onClick={handleExpiryEditSave} disabled={expiryEditSaving}>
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

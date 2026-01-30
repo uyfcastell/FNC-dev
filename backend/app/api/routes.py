@@ -18,7 +18,7 @@ from ..core.config import get_settings
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..db import get_session
 from ..core.security import create_access_token, hash_password, is_legacy_hash, needs_rehash, verify_password
-from .deps import get_current_user, require_active_user, require_permissions
+from .deps import SUPERADMIN_EMAIL, get_current_user, require_active_user, require_permissions
 from ..models import (
     AuditLog,
     AuditAction,
@@ -92,6 +92,8 @@ from ..schemas import (
     ExpiryReport,
     ExpiryReportRow,
     ExpiryReportStatus,
+    LotExpiryUpdate,
+    LotExpiryUpdateResponse,
     LoginRequest,
     TokenResponse,
     UserCreate,
@@ -132,6 +134,8 @@ from ..schemas import (
     InventoryCountUpdate,
     InventoryCountItemRead,
     AuditLogRead,
+    StockAlertThresholdRead,
+    StockAlertThresholdUpdate,
 )
 
 public_router = APIRouter()
@@ -188,6 +192,20 @@ def _build_audit_context(request: Request | None) -> dict:
         "ip_address": _get_request_ip_address(request),
         "metadata": _build_audit_metadata(request),
     }
+
+
+def _user_has_permission(session: Session, user: User, permission_key: str) -> bool:
+    if user.email.strip().lower() == SUPERADMIN_EMAIL:
+        return True
+    if user.role_id is None:
+        return False
+    result = session.exec(
+        select(Permission.key)
+        .join(RolePermission, RolePermission.permission_id == Permission.id)
+        .where(RolePermission.role_id == user.role_id)
+    ).all()
+    assigned = {key.lower() for key in result}
+    return permission_key.strip().lower() in assigned
 
 
 def _build_audit_changes(
@@ -2331,6 +2349,50 @@ def update_sku(
     session.commit()
     session.refresh(sku)
     return _map_sku(sku, session)
+
+
+@router.patch(
+    "/stock/alerts/thresholds/{sku_id}",
+    tags=["reports"],
+    response_model=StockAlertThresholdRead,
+    dependencies=[Depends(require_permissions("skus.edit"))],
+)
+def update_stock_alert_thresholds(
+    sku_id: int,
+    payload: StockAlertThresholdUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> StockAlertThresholdRead:
+    sku = session.get(SKU, sku_id)
+    if not sku:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    note = update_data.pop("note", None)
+    effective_green = update_data["alert_green_min"] if "alert_green_min" in update_data else sku.alert_green_min
+    effective_yellow = update_data["alert_yellow_min"] if "alert_yellow_min" in update_data else sku.alert_yellow_min
+    _validate_sku_alert_thresholds(effective_green, effective_yellow)
+    diff = _build_diff_from_payload(sku, update_data)
+    for field, value in update_data.items():
+        setattr(sku, field, value)
+    sku.updated_at = datetime.utcnow()
+    session.add(sku)
+    audit_context = _build_audit_context(request)
+    metadata = audit_context.get("metadata", {})
+    if note:
+        metadata = {**metadata, "note": note}
+    if diff or note:
+        changes = _build_audit_changes(
+            "alert-thresholds",
+            "skus",
+            sku.id,
+            diff=diff,
+            metadata=metadata,
+        )
+        _log_audit(session, "skus", sku.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+    session.commit()
+    session.refresh(sku)
+    return StockAlertThresholdRead(sku_id=sku.id, alert_green_min=sku.alert_green_min, alert_yellow_min=sku.alert_yellow_min)
 
 
 @router.delete(
@@ -6359,10 +6421,87 @@ def stock_expirations_report(
                 expiry_date=lot.expiry_date,
                 days_to_expiry=days,
                 status=status_value,
+                source_type="production",
+                source_id=lot.id,
             )
         )
 
     return ExpiryReport(total=len(items), items=items)
+
+
+@router.patch(
+    "/lots/{source_type}/{source_id}",
+    tags=["inventory"],
+    response_model=LotExpiryUpdateResponse,
+    dependencies=[Depends(require_permissions("production.edit", "purchases.edit"))],
+)
+def update_lot_expiry_date(
+    source_type: str,
+    source_id: int,
+    payload: LotExpiryUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> LotExpiryUpdateResponse:
+    audit_context = _build_audit_context(request)
+    metadata = audit_context.get("metadata", {})
+    if payload.note:
+        metadata = {**metadata, "note": payload.note}
+
+    normalized_type = source_type.strip().lower()
+    if normalized_type == "production":
+        if not _user_has_permission(session, current_user, "production.edit"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permiso insuficiente")
+        lot = session.get(ProductionLot, source_id)
+        if not lot:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lote de producción no encontrado")
+        before = {"expiry_date": lot.expiry_date}
+        lot.expiry_date = payload.expiry_date
+        lot.updated_at = datetime.utcnow()
+        session.add(lot)
+        diff = _diff_fields(before, {"expiry_date": lot.expiry_date}, ["expiry_date"])
+        changes = _build_audit_changes(
+            "update-expiry",
+            "production_lots",
+            lot.id,
+            diff=diff,
+            metadata=metadata,
+        )
+        _log_audit(session, "production_lots", lot.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+        session.commit()
+        return LotExpiryUpdateResponse(source_type="production", source_id=lot.id, expiry_date=lot.expiry_date)
+
+    if normalized_type == "purchase":
+        if not _user_has_permission(session, current_user, "purchases.edit"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permiso insuficiente")
+        item = session.get(PurchaseReceiptItem, source_id)
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de compra no encontrado")
+        before = {"expiry_date": item.expiry_date}
+        item.expiry_date = payload.expiry_date
+        item.updated_at = datetime.utcnow()
+        session.add(item)
+        diff = _diff_fields(before, {"expiry_date": item.expiry_date}, ["expiry_date"])
+        changes = _build_audit_changes(
+            "update-expiry",
+            "purchase_receipt_items",
+            item.id,
+            diff=diff,
+            metadata=metadata,
+        )
+        _log_audit(
+            session,
+            "purchase_receipt_items",
+            item.id,
+            AuditAction.UPDATE,
+            current_user.id,
+            changes,
+            audit_context=audit_context,
+        )
+        session.commit()
+        return LotExpiryUpdateResponse(source_type="purchase", source_id=item.id, expiry_date=item.expiry_date)
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo de lote inválido")
 
 
 api_router.include_router(public_router)

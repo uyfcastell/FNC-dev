@@ -358,11 +358,36 @@ class ExpiryReportRow(SQLModel):
     expiry_date: date | None = None
     days_to_expiry: int | None = None
     status: ExpiryReportStatus
+    source_type: str | None = None
+    source_id: int | None = None
 
 
 class ExpiryReport(SQLModel):
     total: int
     items: list[ExpiryReportRow]
+
+
+class LotExpiryUpdate(SQLModel):
+    expiry_date: date | None = None
+    note: str | None = None
+
+
+class LotExpiryUpdateResponse(SQLModel):
+    source_type: str
+    source_id: int
+    expiry_date: date | None = None
+
+
+class StockAlertThresholdUpdate(SQLModel):
+    alert_green_min: float | None = None
+    alert_yellow_min: float | None = None
+    note: str | None = None
+
+
+class StockAlertThresholdRead(SQLModel):
+    sku_id: int
+    alert_green_min: float | None = None
+    alert_yellow_min: float | None = None
 
 
 class UserCreate(SQLModel):
