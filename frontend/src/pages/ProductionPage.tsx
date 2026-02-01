@@ -8,9 +8,7 @@ import {
   CardHeader,
   Chip,
   Divider,
-  Grid,
   IconButton,
-  LinearProgress,
   Stack,
   Table,
   TableBody,
@@ -313,180 +311,176 @@ export function ProductionPage() {
           {success}
         </Alert>
       )}
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <Card>
-                <CardHeader title="Registrar producción" subheader="Suma stock de PT o SEMI en un depósito" />
-                <Divider />
-                <CardContent>
-                  <Stack component="form" spacing={2} onSubmit={handleProductionSubmit}>
-                <SearchableSelect
-                  label="Producto"
-                  required
-                  options={productOptions}
-                  value={productionForm.product_sku_id}
-                  onChange={(value) => setProductionForm((prev) => ({ ...prev, product_sku_id: value }))}
-                  helperText="Selecciona el SKU producido"
-                />
-                {selectedProductionProduct?.sku_type_code === "SEMI" && (
-                  <Typography variant="caption" color="text.secondary">
-                    SEMI base: kg. Equivalencia: {selectedProductionProduct.units_per_kg ?? 1} un = 1 kg
-                  </Typography>
-                )}
-                <SearchableSelect
-                  label="Depósito de entrada"
-                  required
-                  options={depositOptions}
-                  value={productionForm.deposit_id}
-                  onChange={(value) => setProductionForm((prev) => ({ ...prev, deposit_id: value }))}
-                />
-                <SearchableSelect
-                  label="Línea de producción"
-                  required
-                  options={productionLineOptions}
-                  value={productionForm.production_line_id}
-                  onChange={(value) => setProductionForm((prev) => ({ ...prev, production_line_id: value }))}
-                  helperText="Obligatorio para registrar un lote de producción"
-                />
-                <TextField
-                  label="Lote (opcional)"
-                  placeholder="YYMMDD-Lx-SKU-###"
-                  value={productionForm.lot_code}
-                  onChange={(e) => setProductionForm((prev) => ({ ...prev, lot_code: e.target.value }))}
-                  helperText="Si lo dejas vacío, el sistema lo generará"
-                />
-                <TextField
-                  required
-                  label="Cantidad producida"
-                  type="number"
-                  inputProps={{ step: "0.01" }}
-                  value={productionForm.quantity}
-                  onChange={(e) => setProductionForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                  InputProps={
-                    productionUnitBadge
-                      ? {
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <Chip size="small" color="primary" label={productionUnitBadge} />
-                            </InputAdornment>
-                          ),
-                        }
-                      : undefined
-                  }
-                  helperText={productionUnitLabel ? `Unidad del producto: ${productionUnitLabel}` : undefined}
-                />
-                {selectedProductionProduct && (
-                  <Card variant="outlined" sx={{ bgcolor: "grey.50" }}>
-                    <CardHeader
-                      titleTypographyProps={{ variant: "subtitle1" }}
-                      title="Componentes necesarios para esta producción"
-                      subheader={
-                        selectedProductionRecipe
-                          ? "Cálculo automático según la receta del SKU seleccionado"
-                          : "No hay receta cargada para este SKU"
+      <Stack spacing={2}>
+        <Card>
+          <CardHeader title="Registrar producción" subheader="Suma stock de PT o SEMI en un depósito" />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleProductionSubmit}>
+              <SearchableSelect
+                label="Producto"
+                required
+                options={productOptions}
+                value={productionForm.product_sku_id}
+                onChange={(value) => setProductionForm((prev) => ({ ...prev, product_sku_id: value }))}
+                helperText="Selecciona el SKU producido"
+              />
+              {selectedProductionProduct?.sku_type_code === "SEMI" && (
+                <Typography variant="caption" color="text.secondary">
+                  SEMI base: kg. Equivalencia: {selectedProductionProduct.units_per_kg ?? 1} un = 1 kg
+                </Typography>
+              )}
+              <SearchableSelect
+                label="Depósito de entrada"
+                required
+                options={depositOptions}
+                value={productionForm.deposit_id}
+                onChange={(value) => setProductionForm((prev) => ({ ...prev, deposit_id: value }))}
+              />
+              <SearchableSelect
+                label="Línea de producción"
+                required
+                options={productionLineOptions}
+                value={productionForm.production_line_id}
+                onChange={(value) => setProductionForm((prev) => ({ ...prev, production_line_id: value }))}
+                helperText="Obligatorio para registrar un lote de producción"
+              />
+              <TextField
+                label="Lote (opcional)"
+                placeholder="YYMMDD-Lx-SKU-###"
+                value={productionForm.lot_code}
+                onChange={(e) => setProductionForm((prev) => ({ ...prev, lot_code: e.target.value }))}
+                helperText="Si lo dejas vacío, el sistema lo generará"
+              />
+              <TextField
+                required
+                label="Cantidad producida"
+                type="number"
+                inputProps={{ step: "0.01" }}
+                value={productionForm.quantity}
+                onChange={(e) => setProductionForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                InputProps={
+                  productionUnitBadge
+                    ? {
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <Chip size="small" color="primary" label={productionUnitBadge} />
+                          </InputAdornment>
+                        ),
                       }
-                    />
-                    {selectedProductionRecipe && computedComponents.length > 0 && (
-                      <CardContent sx={{ pt: 0 }}>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Componente</TableCell>
-                              <TableCell>Tipo</TableCell>
-                              <TableCell>Unidad</TableCell>
-                              <TableCell align="right">Cantidad requerida</TableCell>
+                    : undefined
+                }
+                helperText={productionUnitLabel ? `Unidad del producto: ${productionUnitLabel}` : undefined}
+              />
+              {selectedProductionProduct && (
+                <Card variant="outlined" sx={{ bgcolor: "grey.50" }}>
+                  <CardHeader
+                    titleTypographyProps={{ variant: "subtitle1" }}
+                    title="Componentes necesarios para esta producción"
+                    subheader={
+                      selectedProductionRecipe
+                        ? "Cálculo automático según la receta del SKU seleccionado"
+                        : "No hay receta cargada para este SKU"
+                    }
+                  />
+                  {selectedProductionRecipe && computedComponents.length > 0 && (
+                    <CardContent sx={{ pt: 0 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Componente</TableCell>
+                            <TableCell>Tipo</TableCell>
+                            <TableCell>Unidad</TableCell>
+                            <TableCell align="right">Cantidad requerida</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {computedComponents.map((component) => (
+                            <TableRow key={component.id}>
+                              <TableCell>{component.name}</TableCell>
+                              <TableCell>{component.type}</TableCell>
+                              <TableCell>{component.unitLabel}</TableCell>
+                              <TableCell align="right">
+                                <Chip size="small" label={`${formatQuantity(component.quantity)} ${unitBadges[component.unitCode ?? ""] ?? ""}`} />
+                              </TableCell>
                             </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {computedComponents.map((component) => (
-                              <TableRow key={component.id}>
-                                <TableCell>{component.name}</TableCell>
-                                <TableCell>{component.type}</TableCell>
-                                <TableCell>{component.unitLabel}</TableCell>
-                                <TableCell align="right">
-                                  <Chip size="small" label={`${formatQuantity(component.quantity)} ${unitBadges[component.unitCode ?? ""] ?? ""}`} />
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </CardContent>
-                    )}
-                  </Card>
-                )}
-                <TextField
-                  label="Referencia / Orden"
-                  value={productionForm.reference}
-                  onChange={(e) => setProductionForm((prev) => ({ ...prev, reference: e.target.value }))}
-                />
-                <Button type="submit" variant="contained">
-                  Registrar producción
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Card>
-                <CardHeader title="Definir receta" subheader="SKU producido y componentes requeridos" />
-                <Divider />
-                <CardContent>
-                  <Stack component="form" spacing={2} onSubmit={handleRecipeSubmit}>
-                <SearchableSelect
-                  label="Producto final"
-                  required
-                  options={productOptions}
-                  value={recipeForm.product_id}
-                  onChange={(value) => setRecipeForm((prev) => ({ ...prev, product_id: value }))}
-                />
-                <TextField
-                  label="Nombre de receta"
-                  placeholder="Si lo dejas vacío usamos el nombre del SKU"
-                  value={recipeForm.name}
-                  onChange={(e) => setRecipeForm((prev) => ({ ...prev, name: e.target.value }))}
-                />
-                <Stack spacing={1}>
-                  <Typography variant="subtitle2">Componentes</Typography>
-                  {recipeForm.items.map((item, index) => (
-                    <Stack key={index} direction="row" spacing={1} alignItems="center">
-                      <Box sx={{ flex: 1 }}>
-                        <SearchableSelect
-                          label="Componente"
-                          required
-                          options={componentOptions}
-                          value={item.component_id}
-                          onChange={(value) => handleItemChange(index, "component_id", value)}
-                        />
-                      </Box>
-                      <TextField label="Unidad" value={getComponentUnit(item.component_id)} sx={{ width: 140 }} InputProps={{ readOnly: true }} />
-                      <TextField
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  )}
+                </Card>
+              )}
+              <TextField
+                label="Referencia / Orden"
+                value={productionForm.reference}
+                onChange={(e) => setProductionForm((prev) => ({ ...prev, reference: e.target.value }))}
+              />
+              <Button type="submit" variant="contained">
+                Registrar producción
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader title="Definir receta" subheader="SKU producido y componentes requeridos" />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleRecipeSubmit}>
+              <SearchableSelect
+                label="Producto final"
+                required
+                options={productOptions}
+                value={recipeForm.product_id}
+                onChange={(value) => setRecipeForm((prev) => ({ ...prev, product_id: value }))}
+              />
+              <TextField
+                label="Nombre de receta"
+                placeholder="Si lo dejas vacío usamos el nombre del SKU"
+                value={recipeForm.name}
+                onChange={(e) => setRecipeForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+              <Stack spacing={1}>
+                <Typography variant="subtitle2">Componentes</Typography>
+                {recipeForm.items.map((item, index) => (
+                  <Stack key={index} direction="row" spacing={1} alignItems="center">
+                    <Box sx={{ flex: 1 }}>
+                      <SearchableSelect
+                        label="Componente"
                         required
-                        label="Cantidad"
-                        type="number"
-                        inputProps={{ step: "0.01" }}
-                        sx={{ width: 140 }}
-                        value={item.quantity}
-                        onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
+                        options={componentOptions}
+                        value={item.component_id}
+                        onChange={(value) => handleItemChange(index, "component_id", value)}
                       />
-                      <Tooltip title="Eliminar componente">
-                        <IconButton color="error" onClick={() => removeComponentRow(index)} disabled={recipeForm.items.length <= 1}>
-                          <DeleteForever />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  ))}
-                  <Button startIcon={<AddCircleOutline />} onClick={addComponentRow}>
-                    Agregar componente
-                  </Button>
-                </Stack>
-                <Button type="submit" variant="contained">
-                  Guardar receta
+                    </Box>
+                    <TextField label="Unidad" value={getComponentUnit(item.component_id)} sx={{ width: 140 }} InputProps={{ readOnly: true }} />
+                    <TextField
+                      required
+                      label="Cantidad"
+                      type="number"
+                      inputProps={{ step: "0.01" }}
+                      sx={{ width: 140 }}
+                      value={item.quantity}
+                      onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
+                    />
+                    <Tooltip title="Eliminar componente">
+                      <IconButton color="error" onClick={() => removeComponentRow(index)} disabled={recipeForm.items.length <= 1}>
+                        <DeleteForever />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                ))}
+                <Button startIcon={<AddCircleOutline />} onClick={addComponentRow}>
+                  Agregar componente
                 </Button>
               </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+              <Button type="submit" variant="contained">
+                Guardar receta
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      </Stack>
       <Card variant="outlined">
         <CardHeader title="Recetas registradas" subheader="Componentes por producto" />
         <Divider />
@@ -523,21 +517,6 @@ export function ProductionPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
-      <Card variant="outlined">
-        <CardHeader title="Bitácora rápida (mock)" subheader="Ejemplo visual de lotes en curso" />
-        <Divider />
-        <CardContent>
-          {[65, 35, 100].map((progress, idx) => (
-            <Stack key={idx} spacing={1} sx={{ mb: 2 }}>
-              <Typography variant="body2">Lote de ejemplo {idx + 1}</Typography>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <LinearProgress value={progress} variant="determinate" sx={{ flexGrow: 1 }} />
-                <Typography variant="body2" color="text.secondary">{`${progress}%`}</Typography>
-              </Box>
-            </Stack>
-          ))}
         </CardContent>
       </Card>
     </Stack>
