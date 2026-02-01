@@ -17,7 +17,15 @@ from sqlmodel import Session, select
 from ..core.config import get_settings
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..db import get_session
-from ..core.security import create_access_token, hash_password, is_legacy_hash, needs_rehash, verify_password
+from ..core.security import (
+    create_access_token,
+    hash_password,
+    hash_pin,
+    is_legacy_hash,
+    needs_rehash,
+    verify_password,
+    verify_pin,
+)
 from .deps import SUPERADMIN_EMAIL, get_current_user, require_active_user, require_permissions
 from ..models import (
     AuditLog,
@@ -27,6 +35,7 @@ from ..models import (
     InventoryCountItem,
     InventoryCountStatus,
     Permission,
+    PinLoginAttempt,
     Recipe,
     RecipeItem,
     Role,
@@ -95,8 +104,10 @@ from ..schemas import (
     LotExpiryUpdate,
     LotExpiryUpdateResponse,
     LoginRequest,
+    LoginPinRequest,
     TokenResponse,
     UserCreate,
+    UserPinUpdate,
     UserRead,
     UserUpdate,
     PermissionRead,
@@ -150,6 +161,9 @@ SKU_SEMI_CODE = "SEMI"
 OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
 INCOMING_MOVEMENTS = {"PRODUCTION", "PURCHASE", "ADJUSTMENT", "TRANSFER"}
 LOT_CODE_SEQUENCE_LENGTH = 3
+PIN_REGEX = re.compile(r"^\d{4,6}$")
+MAX_PIN_ATTEMPTS = 5
+PIN_LOCKOUT_MINUTES = 15
 
 settings = get_settings()
 
@@ -1417,6 +1431,91 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)) -> Tok
     return TokenResponse(access_token=token, token_type="bearer", expires_in=settings.jwt_expires_minutes * 60)
 
 
+@public_router.post("/auth/login-pin", tags=["auth"], response_model=TokenResponse)
+def login_pin(
+    payload: LoginPinRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> TokenResponse:
+    if not PIN_REGEX.fullmatch(payload.pin):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN inválido")
+
+    now = datetime.utcnow()
+    pin_hash = hash_pin(payload.pin)
+    audit_context = _build_audit_context(request)
+
+    attempt = session.get(PinLoginAttempt, pin_hash)
+    if not attempt:
+        attempt = PinLoginAttempt(pin_hash=pin_hash)
+        session.add(attempt)
+        session.flush()
+
+    if attempt.locked_until and attempt.locked_until > now:
+        changes = _build_audit_changes(
+            "login_pin",
+            "auth",
+            None,
+            diff={"status": {"after": "locked"}},
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "auth", None, AuditAction.CREATE, None, changes, audit_context=audit_context)
+        session.commit()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="PIN bloqueado temporalmente")
+
+    user = session.exec(select(User).where(User.pin_hash == pin_hash)).first()
+    if not user or not user.is_active or not verify_pin(payload.pin, user.pin_hash or ""):
+        attempt.failed_attempts += 1
+        attempt.last_attempt_at = now
+        attempt.updated_at = now
+        locked = False
+        if attempt.failed_attempts >= MAX_PIN_ATTEMPTS:
+            attempt.locked_until = now + timedelta(minutes=PIN_LOCKOUT_MINUTES)
+            attempt.failed_attempts = 0
+            locked = True
+        session.add(attempt)
+
+        failure_reason = "inactive" if user and not user.is_active else "invalid_pin"
+        changes = _build_audit_changes(
+            "login_pin",
+            "auth",
+            user.id if user else None,
+            diff={
+                "status": {"after": "failed"},
+                "reason": {"after": failure_reason},
+                "locked": {"after": locked},
+            },
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "auth", user.id if user else None, AuditAction.CREATE, user.id if user else None, changes, audit_context=audit_context)
+        session.commit()
+        if locked:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="PIN bloqueado temporalmente")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="PIN inválido")
+
+    attempt.failed_attempts = 0
+    attempt.locked_until = None
+    attempt.last_attempt_at = now
+    attempt.updated_at = now
+    session.add(attempt)
+
+    changes = _build_audit_changes(
+        "login_pin",
+        "auth",
+        user.id,
+        diff={"status": {"after": "success"}},
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "auth", user.id, AuditAction.CREATE, user.id, changes, audit_context=audit_context)
+    session.commit()
+
+    token = create_access_token({"sub": str(user.id)})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        expires_in=settings.jwt_expires_minutes * 60,
+        user=_map_user(user, session),
+    )
+
 @router.get("/auth/me", tags=["auth"], response_model=UserRead)
 def auth_me(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> UserRead:
     return _map_user(current_user, session)
@@ -1630,6 +1729,64 @@ def update_user(
             metadata=audit_context.get("metadata", {}),
         )
         _log_audit(session, "users", user.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+
+    session.commit()
+    session.refresh(user)
+    return _map_user(user, session)
+
+
+@router.patch(
+    "/users/{user_id}/pin",
+    tags=["admin"],
+    response_model=UserRead,
+    dependencies=[Depends(require_permissions("users.edit"))],
+)
+def update_user_pin(
+    user_id: int,
+    payload: UserPinUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> UserRead:
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    if payload.pin is None or payload.pin == "":
+        previous_hash = user.pin_hash
+        user.pin_hash = None
+        if previous_hash:
+            attempt = session.get(PinLoginAttempt, previous_hash)
+            if attempt:
+                session.delete(attempt)
+    else:
+        if not PIN_REGEX.fullmatch(payload.pin):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN inválido")
+        pin_hash = hash_pin(payload.pin)
+        duplicate = session.exec(select(User).where(User.pin_hash == pin_hash, User.id != user_id)).first()
+        if duplicate:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN ya asignado a otro usuario")
+        user.pin_hash = pin_hash
+        attempt = session.get(PinLoginAttempt, pin_hash)
+        if attempt:
+            attempt.failed_attempts = 0
+            attempt.locked_until = None
+            attempt.last_attempt_at = None
+            attempt.updated_at = datetime.utcnow()
+            session.add(attempt)
+
+    user.updated_at = datetime.utcnow()
+    session.add(user)
+    session.flush()
+
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "update",
+        "users",
+        user.id,
+        diff={"pin": {"before": "***", "after": "***" if payload.pin else None}},
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "users", user.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
 
     session.commit()
     session.refresh(user)

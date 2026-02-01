@@ -16,7 +16,7 @@ from .shipment import Shipment, ShipmentItem
 from .sku import Recipe, RecipeItem, SKU, SKUType, SemiConversionRule
 from .merma import MermaCause, MermaEvent, MermaType, ProductionLine
 from .audit import AuditLog
-from .user import Permission, Role, RolePermission, User
+from .user import Permission, PinLoginAttempt, Role, RolePermission, User
 
 __all__ = [
     "AuditAction",
@@ -58,4 +58,5 @@ __all__ = [
     "Permission",
     "RolePermission",
     "User",
+    "PinLoginAttempt",
 ]

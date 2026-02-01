@@ -432,6 +432,14 @@ class LoginRequest(SQLModel):
     password: str
 
 
+class LoginPinRequest(SQLModel):
+    pin: str
+
+
+class UserPinUpdate(SQLModel):
+    pin: str | None = None
+
+
 class TokenResponse(SQLModel):
     access_token: str
     token_type: str = "bearer"
