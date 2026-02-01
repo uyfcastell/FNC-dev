@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -49,6 +50,15 @@ def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta]
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.jwt_expires_minutes))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def hash_pin(raw_pin: str) -> str:
+    settings = get_settings()
+    return hmac.new(settings.jwt_secret.encode(), raw_pin.encode(), hashlib.sha256).hexdigest()
+
+
+def verify_pin(raw_pin: str, pin_hash: str) -> bool:
+    return hmac.compare_digest(hash_pin(raw_pin), pin_hash)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import { Alert, Box, Button, Card, CardContent, CardHeader, Stack, TextField } from "@mui/material";
 import { FormEvent, useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 import { getDeviceProfile } from "../lib/device";
@@ -70,6 +70,11 @@ export function LoginPage() {
             <Button variant="contained" color="primary" fullWidth type="submit" disabled={submitting || loading}>
               {submitting || loading ? "Ingresando..." : "Entrar"}
             </Button>
+            {deviceProfile.mode === "mobile" && (
+              <Button component={RouterLink} to="/mobile/login-pin" variant="text" fullWidth>
+                Ingresar con PIN
+              </Button>
+            )}
           </Stack>
         </CardContent>
       </Card>

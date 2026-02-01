@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
@@ -48,6 +49,7 @@ class User(TimestampedModel, table=True):
     email: str = Field(index=True, unique=True, max_length=255)
     full_name: str = Field(max_length=255)
     hashed_password: str = Field(max_length=255)
+    pin_hash: str | None = Field(default=None, max_length=255, index=True, unique=True)
     is_active: bool = Field(default=True)
     role_id: int | None = Field(default=None, foreign_key="roles.id")
 
@@ -60,3 +62,12 @@ class User(TimestampedModel, table=True):
         back_populates="user",
         sa_relationship_kwargs={"foreign_keys": "[AuditLog.user_id]"},
     )
+
+
+class PinLoginAttempt(TimestampedModel, table=True):
+    __tablename__ = "pin_login_attempts"
+
+    pin_hash: str = Field(primary_key=True, max_length=255)
+    failed_attempts: int = Field(default=0)
+    locked_until: datetime | None = Field(default=None)
+    last_attempt_at: datetime | None = Field(default=None)

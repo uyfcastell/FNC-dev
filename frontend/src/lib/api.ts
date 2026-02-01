@@ -692,6 +692,10 @@ export async function loginWithCredentials(username: string, password: string): 
   return apiRequest("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, "No se pudo iniciar sesión");
 }
 
+export async function loginWithPin(pin: string): Promise<LoginResponse> {
+  return apiRequest("/auth/login-pin", { method: "POST", body: JSON.stringify({ pin }) }, "No se pudo iniciar sesión con PIN");
+}
+
 export async function fetchCurrentUser(): Promise<User> {
   return apiRequest("/auth/me", {}, "No se pudo obtener el usuario");
 }

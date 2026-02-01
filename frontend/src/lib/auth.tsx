@@ -2,13 +2,14 @@ import { Box, CircularProgress } from "@mui/material";
 import { PropsWithChildren, ReactNode, createContext, useContext, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
-import { User, fetchCurrentUser, loginWithCredentials, setStoredToken, getStoredToken } from "./api";
+import { User, fetchCurrentUser, loginWithCredentials, loginWithPin as loginWithPinRequest, setStoredToken, getStoredToken } from "./api";
 
 type AuthContextValue = {
   user: User | null;
   token: string | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  loginWithPin: (pin: string) => Promise<void>;
   logout: () => void;
 };
 
@@ -56,6 +57,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
+  const loginWithPin = async (pin: string) => {
+    setLoading(true);
+    try {
+      const response = await loginWithPinRequest(pin);
+      setStoredToken(response.access_token);
+      setToken(response.access_token);
+      if (response.user) {
+        setUser(response.user);
+      } else {
+        await loadProfile();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     setStoredToken(null);
     setUser(null);
@@ -69,6 +86,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         token,
         loading,
         login,
+        loginWithPin,
         logout,
       }}
     >

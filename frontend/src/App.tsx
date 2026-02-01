@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { getDeviceProfile, listenDeviceProfile } from "./lib/device";
 import { AppShell } from "./shell/AppShell";
@@ -14,6 +14,7 @@ import { RemitosPage } from "./pages/RemitosPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MobilePinLoginPage } from "./pages/MobilePinLoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { MobileShell } from "./shell/MobileShell";
 import { MobileHomePage } from "./pages/MobileHomePage";
@@ -26,26 +27,43 @@ import { MermasPage } from "./pages/MermasPage";
 import { StockMovementsPage } from "./pages/StockMovementsPage";
 import { InventoryCountsPage } from "./pages/InventoryCountsPage";
 import { AuditPage } from "./pages/AuditPage";
-import { RequireAuth } from "./lib/auth";
+import { RequireAuth, useAuth } from "./lib/auth";
+import { isLocalUser } from "./lib/roles";
 
 function MobileRoutes() {
-  return (
-    <MobileShell
-      title="FNC | Producción"
-      navItems={[
+  const { user } = useAuth();
+  const localUser = isLocalUser(user);
+  const navItems = localUser
+    ? [{ label: "Pedidos", to: "/mobile/pedidos" }]
+    : [
         { label: "Inicio", to: "/" },
         { label: "Producción", to: "/mobile/produccion" },
         { label: "Pedidos", to: "/mobile/pedidos" },
         { label: "Envíos", to: "/mobile/envios" },
-      ]}
+      ];
+
+  return (
+    <MobileShell
+      title="FNC | Producción"
+      navItems={navItems}
     >
       <Routes>
-        <Route path="/" element={<MobileHomePage />} />
-        <Route path="/mobile/produccion" element={<MobileProductionPage />} />
-        <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
-        <Route path="/mobile/envios" element={<MobileShipmentsPage />} />
-        <Route path="/mobile/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />
-        <Route path="*" element={<MobileHomePage />} />
+        {localUser ? (
+          <>
+            <Route path="/" element={<Navigate to="/mobile/pedidos" replace />} />
+            <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
+            <Route path="*" element={<Navigate to="/mobile/pedidos" replace />} />
+          </>
+        ) : (
+          <>
+            <Route path="/" element={<MobileHomePage />} />
+            <Route path="/mobile/produccion" element={<MobileProductionPage />} />
+            <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
+            <Route path="/mobile/envios" element={<MobileShipmentsPage />} />
+            <Route path="/mobile/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />
+            <Route path="*" element={<MobileHomePage />} />
+          </>
+        )}
       </Routes>
     </MobileShell>
   );
@@ -89,6 +107,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/mobile/login-pin" element={<MobilePinLoginPage />} />
         <Route
           path="/*"
           element={<RequireAuth>{mode === "mobile" ? <MobileRoutes /> : <DesktopRoutes />}</RequireAuth>}
