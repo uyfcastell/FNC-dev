@@ -109,6 +109,7 @@ export type SKU = {
   is_active: boolean;
   alert_green_min?: number | null;
   alert_yellow_min?: number | null;
+  overhead_weight?: number | null;
 };
 
 export type SkuPayload = {
@@ -121,6 +122,50 @@ export type SkuPayload = {
   is_active: boolean;
   alert_green_min?: number | null;
   alert_yellow_min?: number | null;
+  overhead_weight?: number | null;
+};
+
+export type DailyOverheadAllocationMethod = "units" | "weighted_units";
+
+export type DailyOverhead = {
+  id: number;
+  date: string;
+  energy_cost: number;
+  gas_cost: number;
+  allocation_method: DailyOverheadAllocationMethod;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_user_id?: number | null;
+};
+
+export type DailyOverheadPayload = {
+  date: string;
+  energy_cost: number;
+  gas_cost: number;
+  allocation_method: DailyOverheadAllocationMethod;
+  notes?: string | null;
+};
+
+export type DailyOverheadUpdatePayload = Partial<DailyOverheadPayload>;
+
+export type DailyOverheadAllocationRow = {
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  units_produced: number;
+  overhead_weight?: number | null;
+  weighted_units?: number | null;
+  allocated_cost: number;
+  allocation_method: DailyOverheadAllocationMethod;
+  total_cost: number;
+};
+
+export type DailyOverheadAllocations = {
+  items: DailyOverheadAllocationRow[];
+  total_cost: number;
+  allocation_method: DailyOverheadAllocationMethod;
+  message?: string | null;
 };
 
 export type Deposit = {
@@ -736,6 +781,42 @@ export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: strin
   }
   const queryString = query.toString();
   return apiRequest(`/skus${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener la lista de SKUs");
+}
+
+export async function fetchDailyOverheads(params?: { date_from?: string; date_to?: string }): Promise<DailyOverhead[]> {
+  const query = new URLSearchParams();
+  if (params?.date_from) {
+    query.set("date_from", params.date_from);
+  }
+  if (params?.date_to) {
+    query.set("date_to", params.date_to);
+  }
+  const queryString = query.toString();
+  return apiRequest(`/overheads/daily${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener los costos indirectos");
+}
+
+export async function createDailyOverhead(payload: DailyOverheadPayload): Promise<DailyOverhead> {
+  return apiRequest(
+    "/overheads/daily",
+    { method: "POST", body: JSON.stringify(payload) },
+    "No se pudo crear los costos indirectos"
+  );
+}
+
+export async function updateDailyOverhead(overheadId: number, payload: DailyOverheadUpdatePayload): Promise<DailyOverhead> {
+  return apiRequest(
+    `/overheads/daily/${overheadId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    "No se pudo actualizar los costos indirectos"
+  );
+}
+
+export async function fetchDailyOverheadAllocations(overheadId: number): Promise<DailyOverheadAllocations> {
+  return apiRequest(
+    `/overheads/daily/${overheadId}/allocations`,
+    {},
+    "No se pudo obtener la asignación de costos indirectos"
+  );
 }
 
 export async function fetchSkusExport(params?: {

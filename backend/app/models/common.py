@@ -73,6 +73,10 @@ class InventoryCountStatus(str, Enum):
     CLOSED = "closed"
     CANCELLED = "cancelled"
 
+class DailyOverheadAllocationMethod(str, Enum):
+    UNITS = "units"
+    WEIGHTED_UNITS = "weighted_units"
+
 
 class AuditAction(str, Enum):
     CREATE = "create"

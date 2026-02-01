@@ -5,6 +5,7 @@ from sqlmodel import Field, SQLModel
 
 from .models.common import (
     AuditAction,
+    DailyOverheadAllocationMethod,
     InventoryCountStatus,
     MermaAction,
     MermaStage,
@@ -44,6 +45,7 @@ class SKUBase(SQLModel):
     units_per_kg: float | None = None  # Solo aplica a SEMI; base kg
     alert_green_min: float | None = None
     alert_yellow_min: float | None = None
+    overhead_weight: float = 1.0
 
 
 class SKUCreate(SKUBase):
@@ -59,6 +61,7 @@ class SKUUpdate(SQLModel):
     units_per_kg: float | None = None
     alert_green_min: float | None = None
     alert_yellow_min: float | None = None
+    overhead_weight: float | None = None
 
 
 class SKURead(SKUBase):
@@ -66,6 +69,52 @@ class SKURead(SKUBase):
     sku_type_code: str
     sku_type_label: str
     secondary_unit: UnitOfMeasure | None = None
+
+
+class DailyOverheadBase(SQLModel):
+    date: date
+    energy_cost: float = 0
+    gas_cost: float = 0
+    allocation_method: DailyOverheadAllocationMethod = DailyOverheadAllocationMethod.UNITS
+    notes: str | None = None
+
+
+class DailyOverheadCreate(DailyOverheadBase):
+    pass
+
+
+class DailyOverheadUpdate(SQLModel):
+    date: date | None = None
+    energy_cost: float | None = None
+    gas_cost: float | None = None
+    allocation_method: DailyOverheadAllocationMethod | None = None
+    notes: str | None = None
+
+
+class DailyOverheadRead(DailyOverheadBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    created_by_user_id: int | None = None
+
+
+class DailyOverheadAllocationRow(SQLModel):
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    units_produced: float
+    overhead_weight: float | None = None
+    weighted_units: float | None = None
+    allocated_cost: float
+    allocation_method: DailyOverheadAllocationMethod
+    total_cost: float
+
+
+class DailyOverheadAllocationsRead(SQLModel):
+    items: list[DailyOverheadAllocationRow]
+    total_cost: float
+    allocation_method: DailyOverheadAllocationMethod
+    message: str | None = None
 
 
 class DepositCreate(SQLModel):

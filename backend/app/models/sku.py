@@ -35,6 +35,7 @@ class SKU(TimestampedModel, table=True):
     is_active: bool = Field(default=True)
     alert_green_min: float | None = Field(default=None, ge=0, description="Umbral mínimo para estado verde")
     alert_yellow_min: float | None = Field(default=None, ge=0, description="Umbral mínimo para estado amarillo")
+    overhead_weight: float = Field(default=1.0, ge=0, description="Peso para prorrateo de costos indirectos")
 
     stock_levels: list["StockLevel"] = Relationship(back_populates="sku")
     recipes: list["Recipe"] = Relationship(back_populates="product")

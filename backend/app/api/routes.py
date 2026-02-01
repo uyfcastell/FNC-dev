@@ -30,6 +30,8 @@ from .deps import SUPERADMIN_EMAIL, get_current_user, require_active_user, requi
 from ..models import (
     AuditLog,
     AuditAction,
+    DailyOverhead,
+    DailyOverheadAllocationMethod,
     Deposit,
     InventoryCount,
     InventoryCountItem,
@@ -68,6 +70,10 @@ from ..schemas import (
     DepositCreate,
     DepositRead,
     DepositUpdate,
+    DailyOverheadAllocationsRead,
+    DailyOverheadCreate,
+    DailyOverheadRead,
+    DailyOverheadUpdate,
     StatusUpdate,
     SKUTypeCreate,
     SKUTypeRead,
@@ -615,6 +621,106 @@ def _map_sku(sku: SKU, session: Session) -> SKURead:
         is_active=sku.is_active,
         alert_green_min=sku.alert_green_min,
         alert_yellow_min=sku.alert_yellow_min,
+        overhead_weight=sku.overhead_weight,
+    )
+
+
+def _get_daily_overhead_or_404(session: Session, overhead_id: int) -> DailyOverhead:
+    overhead = session.get(DailyOverhead, overhead_id)
+    if not overhead:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Registro de costos indirectos no encontrado")
+    return overhead
+
+
+def _calculate_daily_overhead_allocations(
+    session: Session, overhead: DailyOverhead
+) -> DailyOverheadAllocationsRead:
+    total_cost = overhead.energy_cost + overhead.gas_cost
+    statement = (
+        select(
+            ProductionLot.sku_id,
+            func.sum(ProductionLot.produced_quantity).label("units_produced"),
+            SKU.code,
+            SKU.name,
+            SKU.overhead_weight,
+        )
+        .join(SKU, SKU.id == ProductionLot.sku_id)
+        .where(ProductionLot.produced_at == overhead.date)
+        .where(ProductionLot.production_line_id.isnot(None))
+        .group_by(ProductionLot.sku_id, SKU.code, SKU.name, SKU.overhead_weight)
+    )
+    rows = session.exec(statement).all()
+    if not rows:
+        return DailyOverheadAllocationsRead(
+            items=[],
+            total_cost=total_cost,
+            allocation_method=overhead.allocation_method,
+            message="No hay producción registrada para esta fecha.",
+        )
+
+    if overhead.allocation_method == DailyOverheadAllocationMethod.WEIGHTED_UNITS:
+        weighted_rows: list[tuple] = []
+        total_weighted = 0.0
+        for row in rows:
+            units_produced = float(row.units_produced or 0)
+            weight = float(row.overhead_weight or 1.0)
+            weighted_units = units_produced * weight
+            total_weighted += weighted_units
+            weighted_rows.append((row, units_produced, weight, weighted_units))
+        if total_weighted <= 0:
+            return DailyOverheadAllocationsRead(
+                items=[],
+                total_cost=total_cost,
+                allocation_method=overhead.allocation_method,
+                message="No hay producción registrada para esta fecha.",
+            )
+        items = [
+            {
+                "sku_id": row.sku_id,
+                "sku_code": row.code,
+                "sku_name": row.name,
+                "units_produced": units_produced,
+                "overhead_weight": weight,
+                "weighted_units": weighted_units,
+                "allocated_cost": total_cost * (weighted_units / total_weighted),
+                "allocation_method": overhead.allocation_method,
+                "total_cost": total_cost,
+            }
+            for row, units_produced, weight, weighted_units in weighted_rows
+        ]
+        return DailyOverheadAllocationsRead(
+            items=items,
+            total_cost=total_cost,
+            allocation_method=overhead.allocation_method,
+        )
+
+    total_units = sum(float(row.units_produced or 0) for row in rows)
+    if total_units <= 0:
+        return DailyOverheadAllocationsRead(
+            items=[],
+            total_cost=total_cost,
+            allocation_method=overhead.allocation_method,
+            message="No hay producción registrada para esta fecha.",
+        )
+
+    items = [
+        {
+            "sku_id": row.sku_id,
+            "sku_code": row.code,
+            "sku_name": row.name,
+            "units_produced": float(row.units_produced or 0),
+            "overhead_weight": None,
+            "weighted_units": None,
+            "allocated_cost": total_cost * (float(row.units_produced or 0) / total_units),
+            "allocation_method": overhead.allocation_method,
+            "total_cost": total_cost,
+        }
+        for row in rows
+    ]
+    return DailyOverheadAllocationsRead(
+        items=items,
+        total_cost=total_cost,
+        allocation_method=overhead.allocation_method,
     )
 
 
@@ -2417,6 +2523,7 @@ def create_sku(
         is_active=payload.is_active,
         alert_green_min=payload.alert_green_min,
         alert_yellow_min=payload.alert_yellow_min,
+        overhead_weight=payload.overhead_weight,
     )
     session.add(sku)
     session.flush()
@@ -2435,8 +2542,19 @@ def create_sku(
                 "is_active": sku.is_active,
                 "alert_green_min": sku.alert_green_min,
                 "alert_yellow_min": sku.alert_yellow_min,
+                "overhead_weight": sku.overhead_weight,
             },
-            ["code", "name", "sku_type_id", "unit", "notes", "is_active", "alert_green_min", "alert_yellow_min"],
+            [
+                "code",
+                "name",
+                "sku_type_id",
+                "unit",
+                "notes",
+                "is_active",
+                "alert_green_min",
+                "alert_yellow_min",
+                "overhead_weight",
+            ],
         ),
         metadata=audit_context.get("metadata", {}),
     )
@@ -5622,6 +5740,157 @@ def _serialize_inventory_count_items(items: list[InventoryCountItem]) -> list[di
         }
         for item in items
     ]
+
+
+@router.get(
+    "/overheads/daily",
+    tags=["production"],
+    response_model=list[DailyOverheadRead],
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def list_daily_overheads(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    session: Session = Depends(get_session),
+) -> list[DailyOverheadRead]:
+    statement = select(DailyOverhead)
+    if date_from:
+        statement = statement.where(DailyOverhead.date >= date_from)
+    if date_to:
+        statement = statement.where(DailyOverhead.date <= date_to)
+    records = session.exec(statement.order_by(DailyOverhead.date.desc(), DailyOverhead.id.desc())).all()
+    return records
+
+
+@router.get(
+    "/overheads/daily/{overhead_id}",
+    tags=["production"],
+    response_model=DailyOverheadRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def get_daily_overhead(
+    overhead_id: int,
+    session: Session = Depends(get_session),
+) -> DailyOverheadRead:
+    return _get_daily_overhead_or_404(session, overhead_id)
+
+
+@router.post(
+    "/overheads/daily",
+    tags=["production"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=DailyOverheadRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def create_daily_overhead(
+    payload: DailyOverheadCreate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DailyOverheadRead:
+    if payload.energy_cost < 0 or payload.gas_cost < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Los costos deben ser mayores o iguales a cero")
+    existing = session.exec(select(DailyOverhead).where(DailyOverhead.date == payload.date)).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un registro para esa fecha")
+
+    overhead = DailyOverhead(
+        date=payload.date,
+        energy_cost=payload.energy_cost,
+        gas_cost=payload.gas_cost,
+        allocation_method=payload.allocation_method,
+        notes=payload.notes,
+        created_by_user_id=current_user.id,
+    )
+    session.add(overhead)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "daily_overheads",
+        overhead.id,
+        diff=_create_diff_from_fields(
+            {
+                "date": overhead.date,
+                "energy_cost": overhead.energy_cost,
+                "gas_cost": overhead.gas_cost,
+                "allocation_method": overhead.allocation_method,
+                "notes": overhead.notes,
+            },
+            ["date", "energy_cost", "gas_cost", "allocation_method", "notes"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "daily_overheads", overhead.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
+    session.commit()
+    session.refresh(overhead)
+    return overhead
+
+
+@router.patch(
+    "/overheads/daily/{overhead_id}",
+    tags=["production"],
+    response_model=DailyOverheadRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def update_daily_overhead(
+    overhead_id: int,
+    payload: DailyOverheadUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DailyOverheadRead:
+    overhead = _get_daily_overhead_or_404(session, overhead_id)
+    update_data = payload.model_dump(exclude_unset=True)
+    if "energy_cost" in update_data:
+        if update_data["energy_cost"] is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El costo de energía es obligatorio")
+        if update_data["energy_cost"] < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El costo de energía debe ser mayor o igual a cero")
+    if "gas_cost" in update_data:
+        if update_data["gas_cost"] is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El costo de gas es obligatorio")
+        if update_data["gas_cost"] < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El costo de gas debe ser mayor o igual a cero")
+    if "date" in update_data:
+        existing = session.exec(
+            select(DailyOverhead).where(DailyOverhead.date == update_data["date"], DailyOverhead.id != overhead.id)
+        ).first()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ya existe un registro para esa fecha")
+
+    diff = _build_diff_from_payload(overhead, update_data)
+    for field, value in update_data.items():
+        setattr(overhead, field, value)
+    overhead.updated_at = datetime.utcnow()
+    session.add(overhead)
+    audit_context = _build_audit_context(request)
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "daily_overheads",
+            overhead.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "daily_overheads", overhead.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+    session.commit()
+    session.refresh(overhead)
+    return overhead
+
+
+@router.get(
+    "/overheads/daily/{overhead_id}/allocations",
+    tags=["production"],
+    response_model=DailyOverheadAllocationsRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def get_daily_overhead_allocations(
+    overhead_id: int,
+    session: Session = Depends(get_session),
+) -> DailyOverheadAllocationsRead:
+    overhead = _get_daily_overhead_or_404(session, overhead_id)
+    return _calculate_daily_overhead_allocations(session, overhead)
 
 
 @router.get(
