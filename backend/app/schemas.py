@@ -6,6 +6,7 @@ from sqlmodel import Field, SQLModel
 from .models.common import (
     AuditAction,
     DailyOverheadAllocationMethod,
+    DailyOverheadItemType,
     InventoryCountStatus,
     MermaAction,
     MermaStage,
@@ -99,6 +100,31 @@ class DailyOverheadRead(DailyOverheadBase):
     created_by_user_id: int | None = None
 
 
+class DailyOverheadItemBase(SQLModel):
+    concept_type: DailyOverheadItemType = DailyOverheadItemType.OTHER
+    concept_name: str
+    amount: float = Field(ge=0)
+    notes: str | None = None
+
+
+class DailyOverheadItemCreate(DailyOverheadItemBase):
+    pass
+
+
+class DailyOverheadItemUpdate(SQLModel):
+    concept_type: DailyOverheadItemType | None = None
+    concept_name: str | None = None
+    amount: float | None = Field(default=None, ge=0)
+    notes: str | None = None
+
+
+class DailyOverheadItemRead(DailyOverheadItemBase):
+    id: int
+    daily_overhead_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class DailyOverheadAllocationRow(SQLModel):
     sku_id: int
     sku_code: str
@@ -116,6 +142,57 @@ class DailyOverheadAllocationsRead(SQLModel):
     total_cost: float
     allocation_method: DailyOverheadAllocationMethod
     message: str | None = None
+
+
+class ProductionLinePieceRateBase(SQLModel):
+    rate_per_unit: float = Field(ge=0)
+    active_from: dt_date | None = None
+    active_to: dt_date | None = None
+    notes: str | None = None
+
+
+class ProductionLinePieceRateCreate(ProductionLinePieceRateBase):
+    pass
+
+
+class ProductionLinePieceRateRead(ProductionLinePieceRateBase):
+    id: int
+    production_line_id: int
+    production_line_name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProductionLinePieceRateCurrentRead(SQLModel):
+    production_line_id: int
+    production_line_name: str
+    rate_per_unit: float | None = None
+    rate_id: int | None = None
+    active_from: dt_date | None = None
+    active_to: dt_date | None = None
+    notes: str | None = None
+
+
+class PieceworkSkuBreakdown(SQLModel):
+    sku_id: int
+    sku_code: str
+    sku_name: str
+    units_produced: float
+    cost_piecework: float | None = None
+
+
+class PieceworkLineRead(SQLModel):
+    production_line_id: int
+    production_line_name: str
+    units_produced: float
+    rate_per_unit: float | None = None
+    cost_piecework: float | None = None
+    sku_breakdown: list[PieceworkSkuBreakdown] | None = None
+
+
+class PieceworkDailyRead(SQLModel):
+    date: dt_date
+    lines: list[PieceworkLineRead]
 
 
 class DepositCreate(SQLModel):
@@ -851,4 +928,3 @@ class AuditLogRead(SQLModel):
     user_name: str | None = None
     ip_address: str | None = None
     created_at: datetime
-

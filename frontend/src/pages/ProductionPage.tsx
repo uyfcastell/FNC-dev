@@ -23,34 +23,55 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { AddCircleOutline, DeleteForever } from "@mui/icons-material";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AddCircleOutline, DeleteForever, Save } from "@mui/icons-material";
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
 
 import { SearchableSelect } from "../components/SearchableSelect";
 import {
   createRecipe,
   createStockMovement,
   createDailyOverhead,
+  createDailyOverheadItem,
   DailyOverhead,
   DailyOverheadAllocationMethod,
   DailyOverheadAllocationRow,
+  DailyOverheadItem,
+  DailyOverheadItemPayload,
+  DailyOverheadItemType,
+  deleteDailyOverheadItem,
   fetchDailyOverheadAllocations,
   fetchDailyOverheads,
+  fetchDailyOverheadItems,
+  fetchDailyPiecework,
   Deposit,
   fetchDeposits,
   fetchProductionLines,
   fetchRecipes,
   fetchSkus,
   fetchStockMovementTypes,
+  PieceworkLine,
   ProductionLine,
   Recipe,
+  setProductionLinePieceRate,
   SKU,
   StockMovementType,
   updateDailyOverhead,
+  updateDailyOverheadItem,
 } from "../lib/api";
 
 const PRODUCTION_TYPE_CODES: string[] = ["PT", "SEMI", "MP"];
 type RecipeFormItem = { component_id: number | null; quantity: string };
+type OverheadItemDraft = {
+  tempId: string;
+  id?: number;
+  concept_name: string;
+  concept_type: DailyOverheadItemType;
+  amount: string;
+  notes: string;
+  isSaving?: boolean;
+  isDeleting?: boolean;
+  error?: string | null;
+};
 
 export function ProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
@@ -78,6 +99,14 @@ export function ProductionPage() {
   const [allocationError, setAllocationError] = useState<string | null>(null);
   const [allocations, setAllocations] = useState<DailyOverheadAllocationRow[]>([]);
   const [allocationMessage, setAllocationMessage] = useState<string | null>(null);
+  const [overheadItems, setOverheadItems] = useState<OverheadItemDraft[]>([]);
+  const [overheadItemsLoading, setOverheadItemsLoading] = useState(false);
+  const [overheadItemsError, setOverheadItemsError] = useState<string | null>(null);
+  const [pieceworkLines, setPieceworkLines] = useState<PieceworkLine[]>([]);
+  const [pieceworkLoading, setPieceworkLoading] = useState(false);
+  const [pieceworkError, setPieceworkError] = useState<string | null>(null);
+  const [pieceRateDrafts, setPieceRateDrafts] = useState<Record<number, string>>({});
+  const [pieceRateSaving, setPieceRateSaving] = useState<Record<number, boolean>>({});
 
   const [recipeForm, setRecipeForm] = useState<{
     product_id: number | null;
@@ -158,6 +187,7 @@ export function ProductionPage() {
 
   useEffect(() => {
     void loadDailyOverhead(overheadDate);
+    void loadPiecework(overheadDate);
   }, [overheadDate]);
 
   const loadData = async () => {
@@ -195,12 +225,15 @@ export function ProductionPage() {
           allocation_method: record.allocation_method,
           notes: record.notes ?? "",
         });
+        await loadOverheadItems(record.id);
         await loadAllocations(record.id);
       } else {
         setDailyOverhead(null);
         setOverheadForm({ energy_cost: "0", gas_cost: "0", allocation_method: "units", notes: "" });
         setAllocations([]);
         setAllocationMessage(null);
+        setOverheadItems([]);
+        setOverheadItemsError(null);
       }
     } catch (err) {
       console.error(err);
@@ -224,6 +257,175 @@ export function ProductionPage() {
       setAllocations([]);
     } finally {
       setAllocationLoading(false);
+    }
+  };
+
+  const toOverheadItemDraft = (item: DailyOverheadItem): OverheadItemDraft => ({
+    tempId: `item-${item.id}`,
+    id: item.id,
+    concept_name: item.concept_name,
+    concept_type: item.concept_type,
+    amount: item.amount.toString(),
+    notes: item.notes ?? "",
+    isSaving: false,
+    isDeleting: false,
+    error: null,
+  });
+
+  const loadOverheadItems = async (overheadId: number) => {
+    setOverheadItemsLoading(true);
+    setOverheadItemsError(null);
+    try {
+      const items = await fetchDailyOverheadItems(overheadId);
+      setOverheadItems(items.map(toOverheadItemDraft));
+    } catch (err) {
+      console.error(err);
+      setOverheadItemsError("No pudimos cargar los ítems de mano de obra indirecta.");
+      setOverheadItems([]);
+    } finally {
+      setOverheadItemsLoading(false);
+    }
+  };
+
+  const loadPiecework = async (dateValue: string) => {
+    setPieceworkLoading(true);
+    setPieceworkError(null);
+    try {
+      const response = await fetchDailyPiecework({ date: dateValue });
+      setPieceworkLines(response.lines ?? []);
+      setPieceRateDrafts({});
+    } catch (err) {
+      console.error(err);
+      setPieceworkError("No pudimos cargar el destajo por línea.");
+      setPieceworkLines([]);
+    } finally {
+      setPieceworkLoading(false);
+    }
+  };
+
+  const addOverheadItem = () => {
+    setOverheadItems((prev) => [
+      ...prev,
+      {
+        tempId: `new-${Date.now()}-${prev.length}`,
+        concept_name: "",
+        concept_type: "labor_indirect",
+        amount: "",
+        notes: "",
+        isSaving: false,
+        isDeleting: false,
+        error: null,
+      },
+    ]);
+  };
+
+  const updateOverheadItemField = (tempId: string, field: keyof OverheadItemDraft, value: string) => {
+    setOverheadItems((prev) =>
+      prev.map((item) => {
+        if (item.tempId !== tempId) return item;
+        const next = { ...item, [field]: value };
+        if (field !== "error") {
+          next.error = null;
+        }
+        return next;
+      })
+    );
+  };
+
+  const saveOverheadItem = async (item: OverheadItemDraft) => {
+    if (!dailyOverhead?.id) {
+      setOverheadItemsError("Guardá el overhead diario antes de cargar jornales.");
+      return;
+    }
+    const conceptName = item.concept_name.trim();
+    const amountValue = Number(item.amount);
+    if (!conceptName) {
+      updateOverheadItemField(item.tempId, "error", "El concepto es obligatorio.");
+      return;
+    }
+    if (Number.isNaN(amountValue) || amountValue < 0) {
+      updateOverheadItemField(item.tempId, "error", "El monto debe ser numérico y mayor o igual a cero.");
+      return;
+    }
+
+    setOverheadItems((prev) =>
+      prev.map((row) => (row.tempId === item.tempId ? { ...row, isSaving: true, error: null } : row))
+    );
+    const payload: DailyOverheadItemPayload = {
+      concept_type: item.concept_type,
+      concept_name: conceptName,
+      amount: amountValue,
+      notes: item.notes.trim() || null,
+    };
+    try {
+      let saved: DailyOverheadItem;
+      if (item.id) {
+        saved = await updateDailyOverheadItem(dailyOverhead.id, item.id, payload);
+      } else {
+        saved = await createDailyOverheadItem(dailyOverhead.id, payload);
+      }
+      setOverheadItems((prev) => prev.map((row) => (row.tempId === item.tempId ? toOverheadItemDraft(saved) : row)));
+      await loadAllocations(dailyOverhead.id);
+    } catch (err) {
+      console.error(err);
+      setOverheadItems((prev) =>
+        prev.map((row) =>
+          row.tempId === item.tempId ? { ...row, isSaving: false, error: "No pudimos guardar el ítem." } : row
+        )
+      );
+    } finally {
+      setOverheadItems((prev) => prev.map((row) => (row.tempId === item.tempId ? { ...row, isSaving: false } : row)));
+    }
+  };
+
+  const deleteOverheadItem = async (item: OverheadItemDraft) => {
+    if (!dailyOverhead?.id || !item.id) {
+      setOverheadItems((prev) => prev.filter((row) => row.tempId !== item.tempId));
+      return;
+    }
+    setOverheadItems((prev) =>
+      prev.map((row) => (row.tempId === item.tempId ? { ...row, isDeleting: true } : row))
+    );
+    try {
+      await deleteDailyOverheadItem(dailyOverhead.id, item.id);
+      setOverheadItems((prev) => prev.filter((row) => row.tempId !== item.tempId));
+      await loadAllocations(dailyOverhead.id);
+    } catch (err) {
+      console.error(err);
+      setOverheadItems((prev) =>
+        prev.map((row) =>
+          row.tempId === item.tempId ? { ...row, isDeleting: false, error: "No pudimos eliminar el ítem." } : row
+        )
+      );
+    }
+  };
+
+  const updatePieceRateDraft = (lineId: number, value: string) => {
+    setPieceRateDrafts((prev) => ({ ...prev, [lineId]: value }));
+  };
+
+  const savePieceRate = async (line: PieceworkLine) => {
+    const draftValue = pieceRateDrafts[line.production_line_id];
+    const candidateValue =
+      draftValue ?? (line.rate_per_unit !== null && line.rate_per_unit !== undefined ? line.rate_per_unit.toString() : "");
+    const rateValue = Number(candidateValue);
+    if (Number.isNaN(rateValue) || rateValue < 0) {
+      setPieceworkError("La tarifa debe ser numérica y mayor o igual a cero.");
+      return;
+    }
+    setPieceRateSaving((prev) => ({ ...prev, [line.production_line_id]: true }));
+    setPieceworkError(null);
+    try {
+      await setProductionLinePieceRate(line.production_line_id, {
+        rate_per_unit: rateValue,
+        active_from: overheadDate,
+      });
+      await loadPiecework(overheadDate);
+    } catch (err) {
+      console.error(err);
+      setPieceworkError("No pudimos guardar la tarifa de destajo.");
+    } finally {
+      setPieceRateSaving((prev) => ({ ...prev, [line.production_line_id]: false }));
     }
   };
 
@@ -371,6 +573,7 @@ export function ProductionPage() {
         allocation_method: saved.allocation_method,
         notes: saved.notes ?? "",
       });
+      await loadOverheadItems(saved.id);
       await loadAllocations(saved.id);
     } catch (err) {
       console.error(err);
@@ -405,11 +608,23 @@ export function ProductionPage() {
 
   const productionUnitLabel = productionUnitCode ? unitLabels[productionUnitCode] ?? productionUnitCode.toUpperCase() : undefined;
   const productionUnitBadge = productionUnitCode ? unitBadges[productionUnitCode] ?? productionUnitCode.toUpperCase() : undefined;
+  const overheadItemsTotal = useMemo(() => {
+    return overheadItems.reduce((acc, item) => {
+      const amountValue = Number(item.amount);
+      if (!Number.isFinite(amountValue) || amountValue < 0) return acc;
+      return acc + amountValue;
+    }, 0);
+  }, [overheadItems]);
+
   const overheadTotalCost = useMemo(() => {
     const energyCost = Number(overheadForm.energy_cost);
     const gasCost = Number(overheadForm.gas_cost);
-    return (Number.isFinite(energyCost) ? energyCost : 0) + (Number.isFinite(gasCost) ? gasCost : 0);
-  }, [overheadForm.energy_cost, overheadForm.gas_cost]);
+    return (
+      (Number.isFinite(energyCost) ? energyCost : 0) +
+      (Number.isFinite(gasCost) ? gasCost : 0) +
+      overheadItemsTotal
+    );
+  }, [overheadForm.energy_cost, overheadForm.gas_cost, overheadItemsTotal]);
   const allocationMethod = dailyOverhead?.allocation_method ?? overheadForm.allocation_method;
   const isWeightedAllocation = allocationMethod === "weighted_units";
 
@@ -735,6 +950,179 @@ export function ProductionPage() {
                   </Typography>
                 </Stack>
               </Stack>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader title="Mano de obra indirecta (jornales)" subheader="Carga manual de jornales diarios" />
+            <Divider />
+            <CardContent>
+              {overheadItemsError && <Alert severity="warning" sx={{ mb: 2 }}>{overheadItemsError}</Alert>}
+              {overheadItemsLoading && <Alert severity="info" sx={{ mb: 2 }}>Cargando ítems...</Alert>}
+              {!dailyOverhead && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Guardá primero el overhead del día para cargar jornales.
+                </Alert>
+              )}
+              <Stack spacing={2}>
+                {overheadItems.length === 0 && (
+                  <Alert severity="info">No hay ítems cargados para esta fecha.</Alert>
+                )}
+                {overheadItems.length > 0 && (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Concepto</TableCell>
+                        <TableCell>Monto</TableCell>
+                        <TableCell>Notas</TableCell>
+                        <TableCell align="right">Acciones</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {overheadItems.map((item) => (
+                        <Fragment key={item.tempId}>
+                          <TableRow>
+                            <TableCell sx={{ minWidth: 180 }}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                value={item.concept_name}
+                                placeholder="Ej: Empaque"
+                                onChange={(e) => updateOverheadItemField(item.tempId, "concept_name", e.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell sx={{ minWidth: 140 }}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                type="number"
+                                inputProps={{ min: 0, step: "0.01" }}
+                                value={item.amount}
+                                onChange={(e) => updateOverheadItemField(item.tempId, "amount", e.target.value)}
+                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                              />
+                            </TableCell>
+                            <TableCell sx={{ minWidth: 200 }}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                value={item.notes}
+                                placeholder="Notas"
+                                onChange={(e) => updateOverheadItemField(item.tempId, "notes", e.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell align="right">
+                              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                <Tooltip title="Guardar">
+                                  <span>
+                                    <IconButton
+                                      color="primary"
+                                      onClick={() => saveOverheadItem(item)}
+                                      disabled={item.isSaving || item.isDeleting || !dailyOverhead}
+                                    >
+                                      <Save />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Eliminar">
+                                  <span>
+                                    <IconButton
+                                      color="error"
+                                      onClick={() => deleteOverheadItem(item)}
+                                      disabled={item.isSaving || item.isDeleting}
+                                    >
+                                      <DeleteForever />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                          {item.error && (
+                            <TableRow>
+                              <TableCell colSpan={4}>
+                                <Typography variant="caption" color="error">
+                                  {item.error}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                <Button startIcon={<AddCircleOutline />} onClick={addOverheadItem}>
+                  Agregar ítem
+                </Button>
+              </Stack>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader title="Destajo por línea (calculado)" subheader="Tarifa por unidad y cálculo automático" />
+            <Divider />
+            <CardContent>
+              {pieceworkError && <Alert severity="warning" sx={{ mb: 2 }}>{pieceworkError}</Alert>}
+              {pieceworkLoading && <Alert severity="info" sx={{ mb: 2 }}>Cargando destajo...</Alert>}
+              {!pieceworkLoading && pieceworkLines.length === 0 && (
+                <Alert severity="info">No hay líneas activas para calcular destajo.</Alert>
+              )}
+              {pieceworkLines.length > 0 && (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Línea</TableCell>
+                      <TableCell align="right">Unidades producidas</TableCell>
+                      <TableCell>Tarifa por unidad</TableCell>
+                      <TableCell align="right">Total destajo</TableCell>
+                      <TableCell align="right">Acciones</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {pieceworkLines.map((line) => {
+                      const draftValue = pieceRateDrafts[line.production_line_id];
+                      const rateValue =
+                        draftValue ?? (line.rate_per_unit !== null && line.rate_per_unit !== undefined ? line.rate_per_unit.toString() : "");
+                      const isSaving = pieceRateSaving[line.production_line_id] ?? false;
+                      return (
+                        <TableRow key={line.production_line_id}>
+                          <TableCell>{line.production_line_name}</TableCell>
+                          <TableCell align="right">{formatQuantity(line.units_produced)}</TableCell>
+                          <TableCell sx={{ minWidth: 160 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              type="number"
+                              inputProps={{ min: 0, step: "0.01" }}
+                              value={rateValue}
+                              placeholder="Sin tarifa"
+                              onChange={(e) => updatePieceRateDraft(line.production_line_id, e.target.value)}
+                              InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            {line.cost_piecework !== null && line.cost_piecework !== undefined
+                              ? formatCurrency(line.cost_piecework)
+                              : "Sin tarifa"}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Tooltip title="Guardar tarifa">
+                              <span>
+                                <IconButton
+                                  color="primary"
+                                  onClick={() => savePieceRate(line)}
+                                  disabled={isSaving}
+                                >
+                                  <Save />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
           <Card variant="outlined">
