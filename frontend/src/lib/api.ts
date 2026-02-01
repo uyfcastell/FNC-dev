@@ -139,6 +139,28 @@ export type DailyOverhead = {
   created_by_user_id?: number | null;
 };
 
+export type DailyOverheadItemType = "labor_indirect" | "other";
+
+export type DailyOverheadItem = {
+  id: number;
+  daily_overhead_id: number;
+  concept_type: DailyOverheadItemType;
+  concept_name: string;
+  amount: number;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DailyOverheadItemPayload = {
+  concept_type: DailyOverheadItemType;
+  concept_name: string;
+  amount: number;
+  notes?: string | null;
+};
+
+export type DailyOverheadItemUpdatePayload = Partial<DailyOverheadItemPayload>;
+
 export type DailyOverheadPayload = {
   date: string;
   energy_cost: number;
@@ -166,6 +188,45 @@ export type DailyOverheadAllocations = {
   total_cost: number;
   allocation_method: DailyOverheadAllocationMethod;
   message?: string | null;
+};
+
+export type ProductionLinePieceRate = {
+  production_line_id: number;
+  production_line_name: string;
+  rate_per_unit?: number | null;
+  rate_id?: number | null;
+  active_from?: string | null;
+  active_to?: string | null;
+  notes?: string | null;
+};
+
+export type ProductionLinePieceRatePayload = {
+  rate_per_unit: number;
+  active_from?: string | null;
+  active_to?: string | null;
+  notes?: string | null;
+};
+
+export type PieceworkSkuBreakdown = {
+  sku_id: number;
+  sku_code: string;
+  sku_name: string;
+  units_produced: number;
+  cost_piecework?: number | null;
+};
+
+export type PieceworkLine = {
+  production_line_id: number;
+  production_line_name: string;
+  units_produced: number;
+  rate_per_unit?: number | null;
+  cost_piecework?: number | null;
+  sku_breakdown?: PieceworkSkuBreakdown[] | null;
+};
+
+export type PieceworkDaily = {
+  date: string;
+  lines: PieceworkLine[];
 };
 
 export type Deposit = {
@@ -817,6 +878,69 @@ export async function fetchDailyOverheadAllocations(overheadId: number): Promise
     {},
     "No se pudo obtener la asignación de costos indirectos"
   );
+}
+
+export async function fetchDailyOverheadItems(overheadId: number): Promise<DailyOverheadItem[]> {
+  return apiRequest(`/overheads/daily/${overheadId}/items`, {}, "No se pudo obtener los ítems de overhead");
+}
+
+export async function createDailyOverheadItem(overheadId: number, payload: DailyOverheadItemPayload): Promise<DailyOverheadItem> {
+  return apiRequest(
+    `/overheads/daily/${overheadId}/items`,
+    { method: "POST", body: JSON.stringify(payload) },
+    "No se pudo crear el ítem de overhead"
+  );
+}
+
+export async function updateDailyOverheadItem(
+  overheadId: number,
+  itemId: number,
+  payload: DailyOverheadItemUpdatePayload
+): Promise<DailyOverheadItem> {
+  return apiRequest(
+    `/overheads/daily/${overheadId}/items/${itemId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    "No se pudo actualizar el ítem de overhead"
+  );
+}
+
+export async function deleteDailyOverheadItem(overheadId: number, itemId: number): Promise<void> {
+  await apiRequest(`/overheads/daily/${overheadId}/items/${itemId}`, { method: "DELETE" }, "No se pudo eliminar el ítem");
+}
+
+export async function fetchProductionLinePieceRates(params?: { date?: string; include_inactive?: boolean }): Promise<ProductionLinePieceRate[]> {
+  const query = new URLSearchParams();
+  if (params?.date) {
+    query.set("date", params.date);
+  }
+  if (params?.include_inactive) {
+    query.set("include_inactive", "true");
+  }
+  const queryString = query.toString();
+  return apiRequest(
+    `/production-lines/piece-rates${queryString ? `?${queryString}` : ""}`,
+    {},
+    "No se pudieron obtener las tarifas por línea"
+  );
+}
+
+export async function setProductionLinePieceRate(
+  productionLineId: number,
+  payload: ProductionLinePieceRatePayload
+): Promise<ProductionLinePieceRate> {
+  return apiRequest(
+    `/production-lines/${productionLineId}/piece-rate`,
+    { method: "POST", body: JSON.stringify(payload) },
+    "No se pudo guardar la tarifa por línea"
+  );
+}
+
+export async function fetchDailyPiecework(params: { date: string; include_sku?: boolean }): Promise<PieceworkDaily> {
+  const query = new URLSearchParams({ date: params.date });
+  if (params.include_sku) {
+    query.set("include_sku", "true");
+  }
+  return apiRequest(`/production/piecework?${query.toString()}`, {}, "No se pudo obtener el destajo del día");
 }
 
 export async function fetchSkusExport(params?: {

@@ -78,6 +78,11 @@ class DailyOverheadAllocationMethod(str, Enum):
     WEIGHTED_UNITS = "weighted_units"
 
 
+class DailyOverheadItemType(str, Enum):
+    LABOR_INDIRECT = "labor_indirect"
+    OTHER = "other"
+
+
 class AuditAction(str, Enum):
     CREATE = "create"
     UPDATE = "update"

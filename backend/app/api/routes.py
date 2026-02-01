@@ -32,6 +32,7 @@ from ..models import (
     AuditAction,
     DailyOverhead,
     DailyOverheadAllocationMethod,
+    DailyOverheadItem,
     Deposit,
     InventoryCount,
     InventoryCountItem,
@@ -53,6 +54,7 @@ from ..models import (
     MermaStage,
     MermaType,
     ProductionLine,
+    ProductionLinePieceRate,
     ProductionLot,
     SKU,
     SKUType,
@@ -74,6 +76,14 @@ from ..schemas import (
     DailyOverheadCreate,
     DailyOverheadRead,
     DailyOverheadUpdate,
+    DailyOverheadItemCreate,
+    DailyOverheadItemRead,
+    DailyOverheadItemUpdate,
+    PieceworkDailyRead,
+    PieceworkSkuBreakdown,
+    ProductionLinePieceRateCreate,
+    ProductionLinePieceRateCurrentRead,
+    ProductionLinePieceRateRead,
     StatusUpdate,
     SKUTypeCreate,
     SKUTypeRead,
@@ -402,6 +412,33 @@ def _get_production_line_or_404(session: Session, production_line_id: int) -> Pr
     return production_line
 
 
+def _load_piece_rates_for_lines(
+    session: Session,
+    line_ids: list[int],
+    target_date: date,
+) -> dict[int, ProductionLinePieceRate]:
+    if not line_ids:
+        return {}
+    statement = select(ProductionLinePieceRate).where(ProductionLinePieceRate.production_line_id.in_(line_ids))
+    statement = statement.where(
+        and_(
+            or_(ProductionLinePieceRate.active_from.is_(None), ProductionLinePieceRate.active_from <= target_date),
+            or_(ProductionLinePieceRate.active_to.is_(None), ProductionLinePieceRate.active_to >= target_date),
+        )
+    )
+    statement = statement.order_by(
+        ProductionLinePieceRate.production_line_id,
+        nulls_last(ProductionLinePieceRate.active_from.desc()),
+        ProductionLinePieceRate.created_at.desc(),
+    )
+    rates = session.exec(statement).all()
+    selected: dict[int, ProductionLinePieceRate] = {}
+    for rate in rates:
+        if rate.production_line_id not in selected:
+            selected[rate.production_line_id] = rate
+    return selected
+
+
 def _format_production_date(value: date) -> str:
     return value.strftime("%y%m%d")
 
@@ -632,10 +669,18 @@ def _get_daily_overhead_or_404(session: Session, overhead_id: int) -> DailyOverh
     return overhead
 
 
+def _calculate_daily_overhead_items_total(session: Session, overhead_id: int) -> float:
+    statement = select(func.coalesce(func.sum(DailyOverheadItem.amount), 0)).where(
+        DailyOverheadItem.daily_overhead_id == overhead_id
+    )
+    total = session.exec(statement).one()
+    return float(total or 0)
+
+
 def _calculate_daily_overhead_allocations(
     session: Session, overhead: DailyOverhead
 ) -> DailyOverheadAllocationsRead:
-    total_cost = overhead.energy_cost + overhead.gas_cost
+    total_cost = overhead.energy_cost + overhead.gas_cost + _calculate_daily_overhead_items_total(session, overhead.id)
     statement = (
         select(
             ProductionLot.sku_id,
@@ -722,6 +767,16 @@ def _calculate_daily_overhead_allocations(
         total_cost=total_cost,
         allocation_method=overhead.allocation_method,
     )
+
+
+def _serialize_daily_overhead_item(item: DailyOverheadItem) -> dict:
+    return {
+        "daily_overhead_id": item.daily_overhead_id,
+        "concept_type": item.concept_type,
+        "concept_name": item.concept_name,
+        "amount": item.amount,
+        "notes": item.notes,
+    }
 
 
 def _has_alert_thresholds(sku: SKU) -> bool:
@@ -3032,6 +3087,163 @@ def update_production_line(
     session.commit()
     session.refresh(line)
     return ProductionLineRead(id=line.id, name=line.name, is_active=line.is_active)
+
+
+@router.get(
+    "/production-lines/piece-rates",
+    tags=["production"],
+    response_model=list[ProductionLinePieceRateCurrentRead],
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def list_production_line_piece_rates(
+    for_date: date | None = Query(default=None, alias="date"),
+    include_inactive: bool = False,
+    session: Session = Depends(get_session),
+) -> list[ProductionLinePieceRateCurrentRead]:
+    target_date = for_date or date.today()
+    statement = select(ProductionLine)
+    if not include_inactive:
+        statement = statement.where(ProductionLine.is_active.is_(True))
+    lines = session.exec(statement.order_by(ProductionLine.name)).all()
+    rates_by_line = _load_piece_rates_for_lines(session, [line.id for line in lines], target_date)
+    response = []
+    for line in lines:
+        rate = rates_by_line.get(line.id)
+        response.append(
+            ProductionLinePieceRateCurrentRead(
+                production_line_id=line.id,
+                production_line_name=line.name,
+                rate_per_unit=rate.rate_per_unit if rate else None,
+                rate_id=rate.id if rate else None,
+                active_from=rate.active_from if rate else None,
+                active_to=rate.active_to if rate else None,
+                notes=rate.notes if rate else None,
+            )
+        )
+    return response
+
+
+@router.post(
+    "/production-lines/{production_line_id}/piece-rate",
+    tags=["production"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=ProductionLinePieceRateRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def set_production_line_piece_rate(
+    production_line_id: int,
+    payload: ProductionLinePieceRateCreate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ProductionLinePieceRateRead:
+    line = _get_production_line_or_404(session, production_line_id)
+    if payload.rate_per_unit < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La tarifa debe ser mayor o igual a cero")
+    effective_from = payload.active_from or date.today()
+    if payload.active_to and payload.active_to < effective_from:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha de fin no puede ser anterior a la fecha de inicio",
+        )
+
+    previous_rate = session.exec(
+        select(ProductionLinePieceRate)
+        .where(ProductionLinePieceRate.production_line_id == line.id)
+        .where(ProductionLinePieceRate.active_to.is_(None))
+        .where(or_(ProductionLinePieceRate.active_from.is_(None), ProductionLinePieceRate.active_from <= effective_from))
+        .order_by(nulls_last(ProductionLinePieceRate.active_from.desc()), ProductionLinePieceRate.created_at.desc())
+    ).first()
+    audit_context = _build_audit_context(request)
+    if previous_rate and previous_rate.active_from == effective_from and previous_rate.active_to is None:
+        update_data = {
+            "rate_per_unit": payload.rate_per_unit,
+            "notes": payload.notes,
+            "active_to": payload.active_to,
+        }
+        diff = _build_diff_from_payload(previous_rate, update_data)
+        for field, value in update_data.items():
+            setattr(previous_rate, field, value)
+        previous_rate.updated_at = datetime.utcnow()
+        session.add(previous_rate)
+        if diff:
+            changes = _build_audit_changes(
+                "update",
+                "piece_rates",
+                previous_rate.id,
+                diff=diff,
+                metadata=audit_context.get("metadata", {}),
+            )
+            _log_audit(session, "piece_rates", previous_rate.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+        session.commit()
+        session.refresh(previous_rate)
+        return ProductionLinePieceRateRead(
+            id=previous_rate.id,
+            production_line_id=previous_rate.production_line_id,
+            production_line_name=line.name,
+            rate_per_unit=previous_rate.rate_per_unit,
+            active_from=previous_rate.active_from,
+            active_to=previous_rate.active_to,
+            notes=previous_rate.notes,
+            created_at=previous_rate.created_at,
+            updated_at=previous_rate.updated_at,
+        )
+
+    if previous_rate and (previous_rate.active_from is None or previous_rate.active_from < effective_from):
+        close_date = effective_from - timedelta(days=1)
+        diff = _build_diff_from_payload(previous_rate, {"active_to": close_date})
+        previous_rate.active_to = close_date
+        previous_rate.updated_at = datetime.utcnow()
+        session.add(previous_rate)
+        if diff:
+            changes = _build_audit_changes(
+                "update",
+                "piece_rates",
+                previous_rate.id,
+                diff=diff,
+                metadata=audit_context.get("metadata", {}),
+            )
+            _log_audit(session, "piece_rates", previous_rate.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+
+    piece_rate = ProductionLinePieceRate(
+        production_line_id=line.id,
+        rate_per_unit=payload.rate_per_unit,
+        active_from=effective_from,
+        active_to=payload.active_to,
+        notes=payload.notes,
+    )
+    session.add(piece_rate)
+    session.flush()
+    changes = _build_audit_changes(
+        "create",
+        "piece_rates",
+        piece_rate.id,
+        diff=_create_diff_from_fields(
+            {
+                "production_line_id": piece_rate.production_line_id,
+                "rate_per_unit": piece_rate.rate_per_unit,
+                "active_from": piece_rate.active_from,
+                "active_to": piece_rate.active_to,
+                "notes": piece_rate.notes,
+            },
+            ["production_line_id", "rate_per_unit", "active_from", "active_to", "notes"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "piece_rates", piece_rate.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
+    session.commit()
+    session.refresh(piece_rate)
+    return ProductionLinePieceRateRead(
+        id=piece_rate.id,
+        production_line_id=piece_rate.production_line_id,
+        production_line_name=line.name,
+        rate_per_unit=piece_rate.rate_per_unit,
+        active_from=piece_rate.active_from,
+        active_to=piece_rate.active_to,
+        notes=piece_rate.notes,
+        created_at=piece_rate.created_at,
+        updated_at=piece_rate.updated_at,
+    )
 
 
 
@@ -5880,6 +6092,152 @@ def update_daily_overhead(
 
 
 @router.get(
+    "/overheads/daily/{overhead_id}/items",
+    tags=["production"],
+    response_model=list[DailyOverheadItemRead],
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def list_daily_overhead_items(
+    overhead_id: int,
+    session: Session = Depends(get_session),
+) -> list[DailyOverheadItemRead]:
+    _get_daily_overhead_or_404(session, overhead_id)
+    items = session.exec(
+        select(DailyOverheadItem)
+        .where(DailyOverheadItem.daily_overhead_id == overhead_id)
+        .order_by(DailyOverheadItem.id.asc())
+    ).all()
+    return items
+
+
+@router.post(
+    "/overheads/daily/{overhead_id}/items",
+    tags=["production"],
+    status_code=status.HTTP_201_CREATED,
+    response_model=DailyOverheadItemRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def create_daily_overhead_item(
+    overhead_id: int,
+    payload: DailyOverheadItemCreate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DailyOverheadItemRead:
+    _get_daily_overhead_or_404(session, overhead_id)
+    if payload.amount < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El monto debe ser mayor o igual a cero")
+    if not payload.concept_name.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El concepto es obligatorio")
+    item = DailyOverheadItem(
+        daily_overhead_id=overhead_id,
+        concept_type=payload.concept_type,
+        concept_name=payload.concept_name.strip(),
+        amount=payload.amount,
+        notes=payload.notes,
+    )
+    session.add(item)
+    session.flush()
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "create",
+        "daily_overhead_items",
+        item.id,
+        diff=_create_diff_from_fields(
+            _serialize_daily_overhead_item(item),
+            ["daily_overhead_id", "concept_type", "concept_name", "amount", "notes"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "daily_overhead_items", item.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.patch(
+    "/overheads/daily/{overhead_id}/items/{item_id}",
+    tags=["production"],
+    response_model=DailyOverheadItemRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def update_daily_overhead_item(
+    overhead_id: int,
+    item_id: int,
+    payload: DailyOverheadItemUpdate,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DailyOverheadItemRead:
+    _get_daily_overhead_or_404(session, overhead_id)
+    item = session.get(DailyOverheadItem, item_id)
+    if not item or item.daily_overhead_id != overhead_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de overhead no encontrado")
+    update_data = payload.model_dump(exclude_unset=True)
+    if "amount" in update_data:
+        if update_data["amount"] is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El monto es obligatorio")
+        if update_data["amount"] < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El monto debe ser mayor o igual a cero")
+    if "concept_name" in update_data and update_data["concept_name"] is not None:
+        if not update_data["concept_name"].strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El concepto es obligatorio")
+        update_data["concept_name"] = update_data["concept_name"].strip()
+
+    diff = _build_diff_from_payload(item, update_data)
+    for field, value in update_data.items():
+        setattr(item, field, value)
+    item.updated_at = datetime.utcnow()
+    session.add(item)
+    audit_context = _build_audit_context(request)
+    if diff:
+        changes = _build_audit_changes(
+            "update",
+            "daily_overhead_items",
+            item.id,
+            diff=diff,
+            metadata=audit_context.get("metadata", {}),
+        )
+        _log_audit(session, "daily_overhead_items", item.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+@router.delete(
+    "/overheads/daily/{overhead_id}/items/{item_id}",
+    tags=["production"],
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def delete_daily_overhead_item(
+    overhead_id: int,
+    item_id: int,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    _get_daily_overhead_or_404(session, overhead_id)
+    item = session.get(DailyOverheadItem, item_id)
+    if not item or item.daily_overhead_id != overhead_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ítem de overhead no encontrado")
+    audit_context = _build_audit_context(request)
+    changes = _build_audit_changes(
+        "delete",
+        "daily_overhead_items",
+        item.id,
+        diff=_delete_diff_from_fields(
+            _serialize_daily_overhead_item(item),
+            ["daily_overhead_id", "concept_type", "concept_name", "amount", "notes"],
+        ),
+        metadata=audit_context.get("metadata", {}),
+    )
+    _log_audit(session, "daily_overhead_items", item.id, AuditAction.DELETE, current_user.id, changes, audit_context=audit_context)
+    session.delete(item)
+    session.commit()
+
+
+@router.get(
     "/overheads/daily/{overhead_id}/allocations",
     tags=["production"],
     response_model=DailyOverheadAllocationsRead,
@@ -5891,6 +6249,85 @@ def get_daily_overhead_allocations(
 ) -> DailyOverheadAllocationsRead:
     overhead = _get_daily_overhead_or_404(session, overhead_id)
     return _calculate_daily_overhead_allocations(session, overhead)
+
+
+@router.get(
+    "/production/piecework",
+    tags=["production"],
+    response_model=PieceworkDailyRead,
+    dependencies=[Depends(require_permissions("production.view"))],
+)
+def get_daily_piecework(
+    date_value: date = Query(alias="date"),
+    include_sku: bool = False,
+    session: Session = Depends(get_session),
+) -> PieceworkDailyRead:
+    lines = session.exec(select(ProductionLine).where(ProductionLine.is_active.is_(True)).order_by(ProductionLine.name)).all()
+    line_ids = [line.id for line in lines]
+    rates_by_line = _load_piece_rates_for_lines(session, line_ids, date_value)
+
+    # Fuente de unidades: producción del día en production_lots (produced_at) por línea.
+    units_statement = (
+        select(
+            ProductionLot.production_line_id,
+            func.sum(ProductionLot.produced_quantity).label("units_produced"),
+        )
+        .where(ProductionLot.produced_at == date_value)
+        .where(ProductionLot.production_line_id.isnot(None))
+        .group_by(ProductionLot.production_line_id)
+    )
+    units_rows = session.exec(units_statement).all()
+    units_by_line = {line_id: 0.0 for line_id in line_ids}
+    for row in units_rows:
+        if row.production_line_id:
+            units_by_line[row.production_line_id] = float(row.units_produced or 0)
+
+    sku_breakdown_map: dict[int, list[PieceworkSkuBreakdown]] = {}
+    if include_sku and line_ids:
+        sku_statement = (
+            select(
+                ProductionLot.production_line_id,
+                ProductionLot.sku_id,
+                func.sum(ProductionLot.produced_quantity).label("units_produced"),
+                SKU.code,
+                SKU.name,
+            )
+            .join(SKU, SKU.id == ProductionLot.sku_id)
+            .where(ProductionLot.produced_at == date_value)
+            .where(ProductionLot.production_line_id.in_(line_ids))
+            .group_by(ProductionLot.production_line_id, ProductionLot.sku_id, SKU.code, SKU.name)
+        )
+        sku_rows = session.exec(sku_statement).all()
+        for row in sku_rows:
+            rate = rates_by_line.get(row.production_line_id)
+            cost = float(row.units_produced or 0) * float(rate.rate_per_unit) if rate else None
+            sku_breakdown_map.setdefault(row.production_line_id, []).append(
+                PieceworkSkuBreakdown(
+                    sku_id=row.sku_id,
+                    sku_code=row.code,
+                    sku_name=row.name,
+                    units_produced=float(row.units_produced or 0),
+                    cost_piecework=cost,
+                )
+            )
+
+    lines_payload = []
+    for line in lines:
+        rate = rates_by_line.get(line.id)
+        units = units_by_line.get(line.id, 0.0)
+        cost = units * float(rate.rate_per_unit) if rate else None
+        lines_payload.append(
+            {
+                "production_line_id": line.id,
+                "production_line_name": line.name,
+                "units_produced": units,
+                "rate_per_unit": rate.rate_per_unit if rate else None,
+                "cost_piecework": cost,
+                "sku_breakdown": sku_breakdown_map.get(line.id) if include_sku else None,
+            }
+        )
+
+    return PieceworkDailyRead(date=date_value, lines=lines_payload)
 
 
 @router.get(

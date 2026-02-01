@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import UniqueConstraint
@@ -21,6 +21,20 @@ class ProductionLine(TimestampedModel, table=True):
     is_active: bool = Field(default=True)
 
     merma_events: list["MermaEvent"] = Relationship(back_populates="production_line")
+    piece_rates: list["ProductionLinePieceRate"] = Relationship(back_populates="production_line")
+
+
+class ProductionLinePieceRate(TimestampedModel, table=True):
+    __tablename__ = "production_line_piece_rates"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    production_line_id: int = Field(foreign_key="production_lines.id")
+    rate_per_unit: float = Field(ge=0)
+    active_from: date | None = Field(default=None)
+    active_to: date | None = Field(default=None)
+    notes: str | None = Field(default=None, max_length=500)
+
+    production_line: ProductionLine = Relationship(back_populates="piece_rates")
 
 
 class MermaType(TimestampedModel, table=True):
