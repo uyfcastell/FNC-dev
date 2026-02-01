@@ -1290,6 +1290,10 @@ export async function updateUser(id: number, payload: Partial<{ email: string; f
   return apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "No se pudo actualizar el usuario");
 }
 
+export async function updateUserPin(id: number, payload: { pin: string | null }): Promise<User> {
+  return apiRequest(`/users/${id}/pin`, { method: "PATCH", body: JSON.stringify(payload) }, "No se pudo actualizar el PIN del usuario");
+}
+
 export async function deleteUser(id: number): Promise<void> {
   await apiRequest(`/users/${id}`, { method: "DELETE" }, "No se pudo eliminar el usuario");
 }
