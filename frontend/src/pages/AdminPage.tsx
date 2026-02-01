@@ -93,6 +93,7 @@ import {
   updateSkuStatus,
   updateSupplier,
   updateUser,
+  updateUserPin,
   updateRolePermissions,
   Permission,
   Role,
@@ -214,15 +215,24 @@ export function AdminPage() {
       is_active: true,
     }
   );
-  const [userForm, setUserForm] = useState<{ id?: number; email: string; full_name: string; password: string; role_id: string; is_active: boolean }>(
-    {
-      email: "",
-      full_name: "",
-      password: "",
-      role_id: "",
-      is_active: true,
-    }
-  );
+  const [userForm, setUserForm] = useState<{
+    id?: number;
+    email: string;
+    full_name: string;
+    password: string;
+    role_id: string;
+    is_active: boolean;
+    pin: string;
+    clear_pin: boolean;
+  }>({
+    email: "",
+    full_name: "",
+    password: "",
+    role_id: "",
+    is_active: true,
+    pin: "",
+    clear_pin: false,
+  });
   const [supplierForm, setSupplierForm] = useState<{ id?: number; name: string; tax_id: string; email: string; phone: string; is_active: boolean }>(
     {
       name: "",
@@ -665,6 +675,11 @@ export function AdminPage() {
         setError("No se puede desactivar el usuario admin.");
         return;
       }
+      const normalizedPin = userForm.pin.trim();
+      if (normalizedPin && normalizedPin.length < 4) {
+        setError("El PIN debe tener entre 4 y 6 dígitos.");
+        return;
+      }
       const payload = {
         email: userForm.email,
         full_name: userForm.full_name,
@@ -674,12 +689,20 @@ export function AdminPage() {
       };
       if (userForm.id) {
         await updateUser(userForm.id, { ...payload, password: userForm.password || undefined });
+        if (userForm.clear_pin) {
+          await updateUserPin(userForm.id, { pin: "" });
+        } else if (normalizedPin) {
+          await updateUserPin(userForm.id, { pin: normalizedPin });
+        }
         setSuccess("Usuario actualizado");
       } else {
-        await createUser(payload);
+        const createdUser = await createUser(payload);
+        if (normalizedPin) {
+          await updateUserPin(createdUser.id, { pin: normalizedPin });
+        }
         setSuccess("Usuario creado");
       }
-      setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true });
+      setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true, pin: "", clear_pin: false });
       await loadData();
     } catch (err) {
       console.error(err);
@@ -802,6 +825,8 @@ export function AdminPage() {
       password: "",
       role_id: user.role_id ? String(user.role_id) : "",
       is_active: user.is_active,
+      pin: "",
+      clear_pin: false,
     });
     queueScrollToForm(userEmailRef);
   };
@@ -2313,6 +2338,34 @@ export function AdminPage() {
                   onChange={(e) => setUserForm((prev) => ({ ...prev, password: e.target.value }))}
                 />
                 <TextField
+                  label="PIN (opcional)"
+                  type="password"
+                  value={userForm.pin}
+                  onChange={(e) =>
+                    setUserForm((prev) => ({
+                      ...prev,
+                      pin: e.target.value.replace(/\D/g, "").slice(0, 6),
+                      clear_pin: false,
+                    }))
+                  }
+                  disabled={userForm.clear_pin}
+                  helperText="Solo números, entre 4 y 6 dígitos."
+                  inputProps={{ inputMode: "numeric", pattern: "\\d*", maxLength: 6 }}
+                />
+                {userForm.id && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={userForm.clear_pin}
+                        onChange={(e) =>
+                          setUserForm((prev) => ({ ...prev, clear_pin: e.target.checked, pin: e.target.checked ? "" : prev.pin }))
+                        }
+                      />
+                    }
+                    label="Quitar PIN actual"
+                  />
+                )}
+                <TextField
                   select
                   label="Rol"
                   value={userForm.role_id}
@@ -2342,7 +2395,11 @@ export function AdminPage() {
                     {userForm.id ? "Actualizar" : "Crear"}
                   </Button>
                   {userForm.id && (
-                    <Button onClick={() => setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true })}>
+                    <Button
+                      onClick={() =>
+                        setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true, pin: "", clear_pin: false })
+                      }
+                    >
                       Cancelar
                     </Button>
                   )}
