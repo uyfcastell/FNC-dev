@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date as dt_date, datetime
 from enum import Enum
 
 from sqlmodel import Field, SQLModel
@@ -15,6 +15,7 @@ from .models.common import (
     ShipmentStatus,
     UnitOfMeasure,
 )
+
 
 class SKUTypeBase(SQLModel):
     code: str
@@ -72,7 +73,7 @@ class SKURead(SKUBase):
 
 
 class DailyOverheadBase(SQLModel):
-    date: date
+    date: dt_date
     energy_cost: float = 0
     gas_cost: float = 0
     allocation_method: DailyOverheadAllocationMethod = DailyOverheadAllocationMethod.UNITS
@@ -84,7 +85,7 @@ class DailyOverheadCreate(DailyOverheadBase):
 
 
 class DailyOverheadUpdate(SQLModel):
-    date: date | None = None
+    date: dt_date | None = None
     energy_cost: float | None = None
     gas_cost: float | None = None
     allocation_method: DailyOverheadAllocationMethod | None = None
@@ -124,12 +125,14 @@ class DepositCreate(SQLModel):
     is_store: bool = False
     is_active: bool = True
 
+
 class DepositUpdate(SQLModel):
     name: str | None = None
     location: str | None = None
     controls_lot: bool | None = None
     is_store: bool | None = None
     is_active: bool | None = None
+
 
 class DepositRead(SQLModel):
     id: int
@@ -157,11 +160,13 @@ class RecipeCreate(SQLModel):
     items: list[RecipeItemPayload]
     is_active: bool = True
 
+
 class RecipeUpdate(SQLModel):
     product_id: int | None = None
     name: str | None = None
     items: list[RecipeItemPayload] | None = None
     is_active: bool | None = None
+
 
 class RecipeRead(SQLModel):
     id: int
@@ -189,8 +194,8 @@ class StockMovementCreate(SQLModel):
     lot_code: str | None = None
     production_lot_id: int | None = None
     production_line_id: int | None = None
-    expiry_date: date | None = None
-    movement_date: date | None = None
+    expiry_date: dt_date | None = None
+    movement_date: dt_date | None = None
     created_by_user_id: int | None = None
 
 
@@ -201,8 +206,8 @@ class ProductionLotBase(SQLModel):
     produced_quantity: float
     remaining_quantity: float
     lot_code: str
-    produced_at: date
-    expiry_date: date | None = None
+    produced_at: dt_date
+    expiry_date: dt_date | None = None
     is_blocked: bool
     notes: str | None = None
 
@@ -267,8 +272,8 @@ class StockMovementRead(SQLModel):
     production_lot_id: int | None = None
     production_line_id: int | None = None
     production_line_name: str | None = None
-    expiry_date: date | None = None
-    movement_date: date
+    expiry_date: dt_date | None = None
+    movement_date: dt_date
     created_at: datetime
     current_balance: float | None = None
     created_by_user_id: int | None = None
@@ -351,14 +356,14 @@ class PurchaseReceiptItemPayload(SQLModel):
     quantity: float
     unit: UnitOfMeasure
     lot_code: str | None = None
-    expiry_date: date | None = None
+    expiry_date: dt_date | None = None
     unit_cost: float | None = None
 
 
 class PurchaseReceiptCreate(SQLModel):
     supplier_id: int
     deposit_id: int
-    received_at: date | None = None
+    received_at: dt_date | None = None
     document_number: str | None = None
     notes: str | None = None
     items: list[PurchaseReceiptItemPayload]
@@ -377,7 +382,7 @@ class PurchaseReceiptRead(SQLModel):
     supplier_name: str | None = None
     deposit_id: int
     deposit_name: str | None = None
-    received_at: date
+    received_at: dt_date
     document_number: str | None = None
     notes: str | None = None
     created_at: datetime
@@ -403,8 +408,8 @@ class ExpiryReportRow(SQLModel):
     deposit_name: str
     remaining_quantity: float
     unit: UnitOfMeasure
-    produced_at: date
-    expiry_date: date | None = None
+    produced_at: dt_date
+    expiry_date: dt_date | None = None
     days_to_expiry: int | None = None
     status: ExpiryReportStatus
     source_type: str | None = None
@@ -417,14 +422,14 @@ class ExpiryReport(SQLModel):
 
 
 class LotExpiryUpdate(SQLModel):
-    expiry_date: date | None = None
+    expiry_date: dt_date | None = None
     note: str | None = None
 
 
 class LotExpiryUpdateResponse(SQLModel):
     source_type: str
     source_id: int
-    expiry_date: date | None = None
+    expiry_date: dt_date | None = None
 
 
 class StockAlertThresholdUpdate(SQLModel):
@@ -504,8 +509,8 @@ class OrderItemPayload(SQLModel):
 
 class OrderCreate(SQLModel):
     destination_deposit_id: int
-    requested_for: date | None = None
-    required_delivery_date: date | None = None
+    requested_for: dt_date | None = None
+    required_delivery_date: dt_date | None = None
     requested_by: str | None = None
     status: OrderStatus = OrderStatus.SUBMITTED
     notes: str | None = None
@@ -515,8 +520,8 @@ class OrderCreate(SQLModel):
 
 class OrderUpdate(SQLModel):
     destination_deposit_id: int | None = None
-    requested_for: date | None = None
-    required_delivery_date: date | None = None
+    requested_for: dt_date | None = None
+    required_delivery_date: dt_date | None = None
     requested_by: str | None = None
     status: OrderStatus | None = None
     notes: str | None = None
@@ -543,10 +548,10 @@ class OrderRead(SQLModel):
     id: int
     destination: str
     destination_deposit_id: int | None = None
-    requested_for: date | None = None
-    required_delivery_date: date | None = None
+    requested_for: dt_date | None = None
+    required_delivery_date: dt_date | None = None
     requested_by: str | None = None
-    estimated_delivery_date: date | None = None
+    estimated_delivery_date: dt_date | None = None
     status: OrderStatus
     notes: str | None = None
     plant_internal_note: str | None = None
@@ -565,8 +570,8 @@ class OrderSummaryRead(SQLModel):
     id: int
     status: OrderStatus
     destination: str
-    requested_for: date | None = None
-    required_delivery_date: date | None = None
+    requested_for: dt_date | None = None
+    required_delivery_date: dt_date | None = None
 
 
 class RemitoItemRead(SQLModel):
@@ -589,7 +594,7 @@ class RemitoRead(SQLModel):
     destination_deposit_id: int | None = None
     source_deposit_name: str | None = None
     destination_deposit_name: str | None = None
-    issue_date: date
+    issue_date: dt_date
     dispatched_at: datetime | None = None
     received_at: datetime | None = None
     cancelled_at: datetime | None = None
@@ -604,21 +609,21 @@ class RemitoRead(SQLModel):
 
 
 class RemitoDispatchRequest(SQLModel):
-    movement_date: date | None = None
+    movement_date: dt_date | None = None
 
 
 class RemitoReceiveRequest(SQLModel):
-    movement_date: date | None = None
+    movement_date: dt_date | None = None
 
 
 class ShipmentCreate(SQLModel):
     deposit_id: int
-    estimated_delivery_date: date
+    estimated_delivery_date: dt_date
 
 
 class ShipmentUpdate(SQLModel):
     deposit_id: int | None = None
-    estimated_delivery_date: date | None = None
+    estimated_delivery_date: dt_date | None = None
 
 
 class ShipmentAddOrders(SQLModel):
@@ -658,7 +663,7 @@ class ShipmentRead(SQLModel):
     id: int
     deposit_id: int
     deposit_name: str | None = None
-    estimated_delivery_date: date
+    estimated_delivery_date: dt_date
     status: ShipmentStatus
     prep_status: ShipmentPrepStatus
     created_at: datetime
@@ -790,13 +795,13 @@ class InventoryCountItemCreate(SQLModel):
 
 class InventoryCountCreate(SQLModel):
     deposit_id: int
-    count_date: date | None = None
+    count_date: dt_date | None = None
     notes: str | None = None
     items: list[InventoryCountItemCreate]
 
 
 class InventoryCountUpdate(SQLModel):
-    count_date: date | None = None
+    count_date: dt_date | None = None
     notes: str | None = None
     items: list[InventoryCountItemCreate] | None = None
 
@@ -820,7 +825,7 @@ class InventoryCountRead(SQLModel):
     deposit_id: int
     deposit_name: str
     status: InventoryCountStatus
-    count_date: date
+    count_date: dt_date
     notes: str | None = None
     submitted_at: datetime | None = None
     approved_at: datetime | None = None
@@ -846,3 +851,4 @@ class AuditLogRead(SQLModel):
     user_name: str | None = None
     ip_address: str | None = None
     created_at: datetime
+

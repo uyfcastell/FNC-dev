@@ -10,6 +10,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
+from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -29,6 +30,7 @@ def upgrade() -> None:
     insp = inspect(conn)
     schema = "public"
 
+    # --- 1) Add overhead_weight to skus (idempotent)
     if not _has_column(insp, "skus", "overhead_weight", schema=schema):
         op.add_column(
             "skus",
@@ -36,9 +38,27 @@ def upgrade() -> None:
         )
         op.alter_column("skus", "overhead_weight", server_default=None)
 
+    # --- 2) Ensure enum exists (idempotent + robust for Postgres)
+    enum_name = "dailyoverheadallocationmethod"
+
+    # Create enum type only if missing
+    enum_for_create = postgresql.ENUM(
+        "units",
+        "weighted_units",
+        name=enum_name,
+    )
+    enum_for_create.create(conn, checkfirst=True)
+
+    # IMPORTANT: use create_type=False in the column enum so create_table does NOT try to CREATE TYPE again
+    allocation_enum = postgresql.ENUM(
+        "units",
+        "weighted_units",
+        name=enum_name,
+        create_type=False,
+    )
+
+    # --- 3) Create daily_overheads table (idempotent)
     if "daily_overheads" not in insp.get_table_names(schema=schema):
-        allocation_enum = sa.Enum("units", "weighted_units", name="dailyoverheadallocationmethod")
-        allocation_enum.create(op.get_bind(), checkfirst=True)
         op.create_table(
             "daily_overheads",
             sa.Column("id", sa.Integer(), primary_key=True),
@@ -64,11 +84,17 @@ def downgrade() -> None:
     insp = inspect(conn)
     schema = "public"
 
+    # Drop table/index if exist
     if "daily_overheads" in insp.get_table_names(schema=schema):
         op.drop_index("ix_daily_overheads_date", table_name="daily_overheads")
         op.drop_table("daily_overheads")
-    allocation_enum = sa.Enum("units", "weighted_units", name="dailyoverheadallocationmethod")
-    allocation_enum.drop(op.get_bind(), checkfirst=True)
 
+    # Drop enum if exists (may fail if still referenced elsewhere; checkfirst helps)
+    enum_name = "dailyoverheadallocationmethod"
+    enum_for_drop = postgresql.ENUM(name=enum_name)
+    enum_for_drop.drop(conn, checkfirst=True)
+
+    # Drop overhead_weight if exists
     if _has_column(insp, "skus", "overhead_weight", schema=schema):
         op.drop_column("skus", "overhead_weight")
+

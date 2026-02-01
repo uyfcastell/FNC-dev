@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date as dt_date
 from typing import Optional, TYPE_CHECKING
 
 from sqlmodel import Field, Relationship
@@ -15,7 +15,7 @@ class DailyOverhead(TimestampedModel, table=True):
     __table_args__ = (UniqueConstraint("date", name="uq_daily_overheads_date"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    date: date = Field(index=True)
+    date: dt_date = Field(index=True)
     energy_cost: float = Field(default=0, ge=0)
     gas_cost: float = Field(default=0, ge=0)
     allocation_method: DailyOverheadAllocationMethod = Field(
@@ -28,3 +28,4 @@ class DailyOverhead(TimestampedModel, table=True):
     created_by_user: Optional["User"] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[DailyOverhead.created_by_user_id]"},
     )
+
