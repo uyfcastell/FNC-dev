@@ -657,7 +657,7 @@ export function ProductionPage() {
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <ManufacturingIcon color="primary" />
-        Producción en curso
+        Producción
       </Typography>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
@@ -667,7 +667,7 @@ export function ProductionPage() {
       )}
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Tab value="production" label="Producción" />
-        <Tab value="overheads" label="Costos indirectos" />
+        <Tab value="overheads" label="Indirectos (Versión BETA)" />
       </Tabs>
 
       {tab === "production" && (
@@ -783,110 +783,14 @@ export function ProductionPage() {
                 </Stack>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader title="Definir receta" subheader="SKU producido y componentes requeridos" />
-              <Divider />
-              <CardContent>
-                <Stack component="form" spacing={2} onSubmit={handleRecipeSubmit}>
-                  <SearchableSelect
-                    label="Producto final"
-                    required
-                    options={productOptions}
-                    value={recipeForm.product_id}
-                    onChange={(value) => setRecipeForm((prev) => ({ ...prev, product_id: value }))}
-                  />
-                  <TextField
-                    label="Nombre de receta"
-                    placeholder="Si lo dejas vacío usamos el nombre del SKU"
-                    value={recipeForm.name}
-                    onChange={(e) => setRecipeForm((prev) => ({ ...prev, name: e.target.value }))}
-                  />
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle2">Componentes</Typography>
-                    {recipeForm.items.map((item, index) => (
-                      <Stack key={index} direction="row" spacing={1} alignItems="center">
-                        <Box sx={{ flex: 1 }}>
-                          <SearchableSelect
-                            label="Componente"
-                            required
-                            options={componentOptions}
-                            value={item.component_id}
-                            onChange={(value) => handleItemChange(index, "component_id", value)}
-                          />
-                        </Box>
-                        <TextField label="Unidad" value={getComponentUnit(item.component_id)} sx={{ width: 140 }} InputProps={{ readOnly: true }} />
-                        <TextField
-                          required
-                          label="Cantidad"
-                          type="number"
-                          inputProps={{ step: "0.01" }}
-                          sx={{ width: 140 }}
-                          value={item.quantity}
-                          onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
-                        />
-                        <Tooltip title="Eliminar componente">
-                          <IconButton color="error" onClick={() => removeComponentRow(index)} disabled={recipeForm.items.length <= 1}>
-                            <DeleteForever />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                    ))}
-                    <Button startIcon={<AddCircleOutline />} onClick={addComponentRow}>
-                      Agregar componente
-                    </Button>
-                  </Stack>
-                  <Button type="submit" variant="contained">
-                    Guardar receta
-                  </Button>
-                </Stack>
-              </CardContent>
-            </Card>
           </Stack>
-          <Card variant="outlined">
-            <CardHeader title="Recetas registradas" subheader="Componentes por producto" />
-            <Divider />
-            <CardContent>
-              {recipes.length === 0 && <Alert severity="info">Aún no hay recetas cargadas.</Alert>}
-              {recipes.length > 0 && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Producto</TableCell>
-                      <TableCell>Receta</TableCell>
-                      <TableCell>Componentes</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {recipes.map((recipe) => (
-                      <TableRow key={recipe.id}>
-                        <TableCell>{getSkuLabel(recipe.product_id)}</TableCell>
-                        <TableCell>{recipe.name}</TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={1} flexWrap="wrap">
-                            {recipe.items.map((item, idx) => (
-                              <Chip
-                                key={`${recipe.id}-${idx}`}
-                                label={`${getSkuLabel(item.component_id)} · ${item.quantity} ${
-                                  item.component_unit ? unitLabels[item.component_unit] ?? item.component_unit : getComponentUnit(item.component_id ?? null)
-                                }`}
-                              />
-                            ))}
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
 
       {tab === "overheads" && (
         <Stack spacing={2}>
           <Card>
-            <CardHeader title="Costos indirectos diarios" subheader="Carga posterior a la producción (UTE / Gas)" />
+            <CardHeader title="Indirectos" subheader="Carga posterior a la producción (UTE / Gas)" />
             <Divider />
             <CardContent>
               {overheadError && <Alert severity="warning" sx={{ mb: 2 }}>{overheadError}</Alert>}
@@ -907,7 +811,7 @@ export function ProductionPage() {
                 />
                 <Stack spacing={2} direction={{ xs: "column", md: "row" }}>
                   <TextField
-                    label="Costo energía"
+                    label="Energía"
                     type="number"
                     inputProps={{ min: 0, step: "0.01" }}
                     value={overheadForm.energy_cost}
@@ -915,7 +819,7 @@ export function ProductionPage() {
                     InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                   />
                   <TextField
-                    label="Costo gas"
+                    label="Gas"
                     type="number"
                     inputProps={{ min: 0, step: "0.01" }}
                     value={overheadForm.gas_cost}

@@ -16,8 +16,8 @@ export const ORDER_SECTIONS: OrderSectionConfig[] = [
   },
   {
     key: "consumibles",
-    title: "Consumibles (depósito)",
-    filter: (sku) => sku.sku_type_code === "CON" && sku.is_active,
+    title: "Depósito (consumibles)",
+    filter: (sku) => sku.sku_type_code === "DEP" && sku.is_active,
   },
   {
     key: "papeleria",
@@ -34,6 +34,7 @@ export const ORDER_SECTIONS: OrderSectionConfig[] = [
 export const sectionForSku = (sku?: SKU | null): OrderSectionKey => {
   if (!sku) return "consumibles";
   if (sku.sku_type_code === "PT") return "pt";
+  if (sku.sku_type_code === "DEP") return "consumibles";
   if (sku.sku_type_code === "PAP") return "papeleria";
   if (sku.sku_type_code === "LIM") return "limpieza";
   return "consumibles";
