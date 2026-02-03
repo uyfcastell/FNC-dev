@@ -3,6 +3,7 @@ import { PropsWithChildren, ReactNode, createContext, useContext, useEffect, use
 import { Navigate, useLocation } from "react-router-dom";
 
 import { User, fetchCurrentUser, loginWithCredentials, loginWithPin as loginWithPinRequest, setStoredToken, getStoredToken } from "./api";
+import { getDeviceProfile } from "./device";
 
 type AuthContextValue = {
   user: User | null;
@@ -106,6 +107,7 @@ export function useAuth(): AuthContextValue {
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
+  const deviceProfile = getDeviceProfile();
 
   if (loading) {
     return (
@@ -116,7 +118,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    const redirectPath = deviceProfile.mode === "mobile" ? "/mobile/login-pin" : "/login";
+    return <Navigate to={redirectPath} state={{ from: location }} replace />;
   }
 
   return <>{children}</>;

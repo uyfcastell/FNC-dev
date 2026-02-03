@@ -45,7 +45,6 @@ export function LoginPage() {
         <CardHeader
           avatar={<LockOpenIcon color="primary" />}
           title="Ingreso"
-          subheader="Autenticación contra API"
         />
         <CardContent>
           <Stack spacing={2}>

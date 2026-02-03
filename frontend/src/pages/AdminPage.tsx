@@ -101,7 +101,8 @@ import {
 } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 
-const RECIPE_PRODUCT_CODES = ["PT", "SEMI", "MP"];
+const RECIPE_PRODUCT_CODES = ["MA", "PI", "PT", "PACK"];
+const RECIPE_COMPONENT_CODES = ["MA", "MP", "CON", "PI", "PT", "PACK"];
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
   { value: "PRODUCTION", label: "Producción" },
   { value: "EMPAQUE", label: "Empaque" },
@@ -344,8 +345,12 @@ export function AdminPage() {
       }),
     [sortedSkus, showInactiveSkus, skuNameFilter, skuCodeFilter, skuTypeFilter, skuUnitFilter, skuAlertFilter]
   );
-  const recipeComponents = useMemo(
+  const recipeProducts = useMemo(
     () => sortedSkus.filter((sku) => RECIPE_PRODUCT_CODES.includes(sku.sku_type_code) && sku.is_active),
+    [sortedSkus]
+  );
+  const recipeComponents = useMemo(
+    () => sortedSkus.filter((sku) => RECIPE_COMPONENT_CODES.includes(sku.sku_type_code) && sku.is_active),
     [sortedSkus]
   );
   const skuNameOptions = useMemo(
@@ -847,7 +852,7 @@ export function AdminPage() {
     return component ? unitLabel(component.unit) : "";
   };
 
-  const filteredProducts = recipeComponents;
+  const filteredProducts = recipeProducts;
 
   const handleDelete = async (type: "sku" | "deposit" | "recipe" | "user", id: number) => {
     if (!window.confirm("¿Eliminar el registro?")) return;
@@ -2195,7 +2200,7 @@ export function AdminPage() {
                   sx={{ width: 220 }}
                 >
                   <MenuItem value="">Todos</MenuItem>
-                  {recipeComponents.map((sku) => (
+                  {recipeProducts.map((sku) => (
                     <MenuItem key={sku.id} value={String(sku.id)}>
                       {skuLabel(sku)}
                     </MenuItem>

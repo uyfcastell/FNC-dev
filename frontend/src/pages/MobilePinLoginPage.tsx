@@ -1,7 +1,7 @@
 import LockIcon from "@mui/icons-material/Lock";
 import { Alert, Box, Button, Card, CardContent, CardHeader, Stack, TextField } from "@mui/material";
 import { FormEvent, useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 import { isLocalUser } from "../lib/roles";
@@ -58,6 +58,9 @@ export function MobilePinLoginPage() {
             />
             <Button variant="contained" color="primary" fullWidth type="submit" disabled={submitting || loading || !pin}>
               {submitting || loading ? "Ingresando..." : "Ingresar"}
+            </Button>
+            <Button component={RouterLink} to="/login" variant="text" fullWidth>
+              Ingresar con usuario y contraseña
             </Button>
           </Stack>
         </CardContent>
