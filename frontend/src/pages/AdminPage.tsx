@@ -32,6 +32,7 @@ import {
   ListItemText,
   MenuItem,
   FormControlLabel,
+  Snackbar,
   Switch,
   Table,
   TableBody,
@@ -48,6 +49,7 @@ import {
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { ChangeEvent, Dispatch, FormEvent, Fragment, RefObject, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import {
   ApiError,
@@ -130,9 +132,26 @@ type RecipeFormItem = { component_id: string; quantity: string };
 type TabKey = "productos" | "recetas" | "depositos" | "proveedores" | "usuarios" | "catalogos" | "permisos";
 type CatalogKey = "sku_types" | "movement_types" | "production_lines" | "merma_types" | "merma_causes";
 
+const CATALOG_QUERY_PARAM_MAP: Record<CatalogKey, string> = {
+  sku_types: "sku-types",
+  movement_types: "movement-types",
+  production_lines: "production-lines",
+  merma_types: "merma-types",
+  merma_causes: "merma-causes",
+};
+
+const catalogParamToKey = (value: string | null): CatalogKey | null => {
+  if (!value) return null;
+  const entry = Object.entries(CATALOG_QUERY_PARAM_MAP).find(([, param]) => param === value);
+  return (entry?.[0] as CatalogKey | undefined) ?? null;
+};
+
+const catalogStatusKey = (catalog: CatalogKey, id: number) => `${catalog}:${id}`;
+
 export function AdminPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<TabKey>("productos");
   const [skus, setSkus] = useState<SKU[]>([]);
   const [skuTypes, setSkuTypes] = useState<SKUType[]>([]);
@@ -177,7 +196,16 @@ export function AdminPage() {
   const [expandedDeposits, setExpandedDeposits] = useState<Record<number, boolean>>({});
   const [expandedUsers, setExpandedUsers] = useState<Record<number, boolean>>({});
   const [expandedSuppliers, setExpandedSuppliers] = useState<Record<number, boolean>>({});
-  const [selectedCatalog, setSelectedCatalog] = useState<CatalogKey>("sku_types");
+  const [selectedCatalog, setSelectedCatalog] = useState<CatalogKey>(() => catalogParamToKey(searchParams.get("cat")) ?? "sku_types");
+  const [catalogLoadErrors, setCatalogLoadErrors] = useState<Record<CatalogKey, string | null>>({
+    sku_types: null,
+    movement_types: null,
+    production_lines: null,
+    merma_types: null,
+    merma_causes: null,
+  });
+  const [catalogStatusSaving, setCatalogStatusSaving] = useState<Record<string, boolean>>({});
+  const [catalogStatusToast, setCatalogStatusToast] = useState<string | null>(null);
   const [catalogSearch, setCatalogSearch] = useState<Record<CatalogKey, string>>({
     sku_types: "",
     movement_types: "",
@@ -311,6 +339,22 @@ export function AdminPage() {
     void loadData();
   }, []);
 
+  useEffect(() => {
+    const catalogFromParams = catalogParamToKey(searchParams.get("cat"));
+    if (catalogFromParams && catalogFromParams !== selectedCatalog) {
+      setSelectedCatalog(catalogFromParams);
+    }
+  }, [searchParams, selectedCatalog]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    const nextValue = CATALOG_QUERY_PARAM_MAP[selectedCatalog];
+    if (nextParams.get("cat") !== nextValue) {
+      nextParams.set("cat", nextValue);
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, selectedCatalog, setSearchParams]);
+
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
   const skuMap = useMemo(() => new Map(skus.map((sku) => [sku.id, sku])), [skus]);
@@ -326,6 +370,16 @@ export function AdminPage() {
     [mermaCauses]
   );
   const sortedProductionLines = useMemo(() => [...productionLines].sort((a, b) => a.name.localeCompare(b.name)), [productionLines]);
+  const catalogBaseCounts = useMemo(
+    () => ({
+      sku_types: skuTypes.length,
+      movement_types: movementTypes.length,
+      production_lines: productionLines.length,
+      merma_types: mermaTypes.length,
+      merma_causes: mermaCauses.length,
+    }),
+    [skuTypes.length, movementTypes.length, productionLines.length, mermaTypes.length, mermaCauses.length]
+  );
   const catalogMeta: Record<CatalogKey, { title: string; description: string; searchPlaceholder: string }> = {
     sku_types: {
       title: "Tipos de SKU",
@@ -545,21 +599,7 @@ export function AdminPage() {
 
   const loadData = async () => {
     try {
-      const [
-        skuList,
-        depositList,
-        recipeList,
-        roleList,
-        userList,
-        unitList,
-        skuTypeList,
-        movementTypeList,
-        mermaTypeList,
-        mermaCauseList,
-        supplierList,
-        permissionList,
-        productionLineList,
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchSkus({ include_inactive: true }),
         fetchDeposits({ include_inactive: true }),
         fetchRecipes({ include_inactive: true }),
@@ -574,33 +614,65 @@ export function AdminPage() {
         fetchPermissions(),
         fetchProductionLines(),
       ]);
-      setSkus(skuList);
-      setDeposits(depositList);
-      setRecipes(recipeList);
-      setRoles(roleList);
-      setUsers(userList);
-      setUnits(unitList);
-      setSkuTypes(skuTypeList);
-      setMovementTypes(movementTypeList);
-      setMermaTypes(mermaTypeList);
-      setMermaCauses(mermaCauseList);
-      setSuppliers(supplierList);
-      setPermissions(permissionList);
-      setProductionLines(productionLineList);
 
-      const rolePermissionEntries = await Promise.all(
-        roleList.map(async (role) => {
-          const keys = await fetchRolePermissions(role.id);
-          return [role.id, new Set(keys)] as const;
-        })
-      );
-      setRolePermissions(Object.fromEntries(rolePermissionEntries));
+      const [
+        skuList,
+        depositList,
+        recipeList,
+        roleList,
+        userList,
+        unitList,
+        skuTypeList,
+        movementTypeList,
+        mermaTypeList,
+        mermaCauseList,
+        supplierList,
+        permissionList,
+        productionLineList,
+      ] = results;
 
-      const defaultSkuType = skuTypeList.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.find((t) => t.is_active);
-      if (defaultSkuType && !skuForm.sku_type_id) {
-        setSkuForm((prev) => ({ ...prev, sku_type_id: defaultSkuType.id }));
+      if (skuList.status === "fulfilled") setSkus(skuList.value);
+      if (depositList.status === "fulfilled") setDeposits(depositList.value);
+      if (recipeList.status === "fulfilled") setRecipes(recipeList.value);
+      if (roleList.status === "fulfilled") setRoles(roleList.value);
+      if (userList.status === "fulfilled") setUsers(userList.value);
+      if (unitList.status === "fulfilled") setUnits(unitList.value);
+      if (skuTypeList.status === "fulfilled") setSkuTypes(skuTypeList.value);
+      if (movementTypeList.status === "fulfilled") setMovementTypes(movementTypeList.value);
+      if (mermaTypeList.status === "fulfilled") setMermaTypes(mermaTypeList.value);
+      if (mermaCauseList.status === "fulfilled") setMermaCauses(mermaCauseList.value);
+      if (supplierList.status === "fulfilled") setSuppliers(supplierList.value);
+      if (permissionList.status === "fulfilled") setPermissions(permissionList.value);
+      if (productionLineList.status === "fulfilled") setProductionLines(productionLineList.value);
+
+      setCatalogLoadErrors({
+        sku_types: skuTypeList.status === "rejected" ? "No pudimos cargar los tipos de SKU." : null,
+        movement_types: movementTypeList.status === "rejected" ? "No pudimos cargar los tipos de movimiento." : null,
+        production_lines: productionLineList.status === "rejected" ? "No pudimos cargar las líneas de producción." : null,
+        merma_types: mermaTypeList.status === "rejected" ? "No pudimos cargar los tipos de merma." : null,
+        merma_causes: mermaCauseList.status === "rejected" ? "No pudimos cargar las causas de merma." : null,
+      });
+
+      if (roleList.status === "fulfilled") {
+        const rolePermissionEntries = await Promise.all(
+          roleList.value.map(async (role) => {
+            const keys = await fetchRolePermissions(role.id);
+            return [role.id, new Set(keys)] as const;
+          })
+        );
+        setRolePermissions(Object.fromEntries(rolePermissionEntries));
       }
-      setError(null);
+
+      if (skuTypeList.status === "fulfilled") {
+        const defaultSkuType =
+          skuTypeList.value.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.value.find((t) => t.is_active);
+        if (defaultSkuType && !skuForm.sku_type_id) {
+          setSkuForm((prev) => ({ ...prev, sku_type_id: defaultSkuType.id }));
+        }
+      }
+
+      const hadFailure = results.some((result) => result.status === "rejected");
+      setError(hadFailure ? "No pudimos cargar algunos datos. Reintenta." : null);
     } catch (err) {
       console.error(err);
       setError("No pudimos cargar los catálogos. ¿Está levantado el backend?");
@@ -986,6 +1058,13 @@ export function AdminPage() {
     }
   };
 
+  const openNewCatalogModal = (catalog: CatalogKey) => {
+    resetCatalogForm(catalog);
+    openCatalogModal(catalog);
+  };
+
+  const isCatalogStatusSaving = (catalog: CatalogKey, id: number) => Boolean(catalogStatusSaving[catalogStatusKey(catalog, id)]);
+
   const openCatalogModal = (catalog: CatalogKey) => {
     setCatalogModalCatalog(catalog);
     setCatalogModalOpen(true);
@@ -1225,55 +1304,85 @@ export function AdminPage() {
   const handleProductionLineStatus = async (line: ProductionLine, isActive: boolean) => {
     if (!isActive && !confirmInactivate()) return;
     try {
+      const statusKey = catalogStatusKey("production_lines", line.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: true }));
+      setProductionLines((prev) => prev.map((item) => (item.id === line.id ? { ...item, is_active: isActive } : item)));
       await updateProductionLine(line.id, { is_active: isActive });
-      await loadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos actualizar el estado");
+      setProductionLines((prev) => prev.map((item) => (item.id === line.id ? { ...item, is_active: line.is_active } : item)));
+      setCatalogStatusToast("No pudimos actualizar el estado de la línea.");
+    } finally {
+      const statusKey = catalogStatusKey("production_lines", line.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: false }));
     }
   };
 
   const handleSkuTypeStatus = async (skuType: SKUType, isActive: boolean) => {
     if (!isActive && !confirmInactivate()) return;
     try {
+      const statusKey = catalogStatusKey("sku_types", skuType.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: true }));
+      setSkuTypes((prev) => prev.map((item) => (item.id === skuType.id ? { ...item, is_active: isActive } : item)));
       await updateSkuType(skuType.id, { label: skuType.label, is_active: isActive });
-      await loadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos actualizar el estado");
+      setSkuTypes((prev) => prev.map((item) => (item.id === skuType.id ? { ...item, is_active: skuType.is_active } : item)));
+      setCatalogStatusToast("No pudimos actualizar el estado del tipo de SKU.");
+    } finally {
+      const statusKey = catalogStatusKey("sku_types", skuType.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: false }));
     }
   };
 
   const handleMovementTypeStatus = async (movementType: StockMovementType, isActive: boolean) => {
     if (!isActive && !confirmInactivate()) return;
     try {
+      const statusKey = catalogStatusKey("movement_types", movementType.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: true }));
+      setMovementTypes((prev) => prev.map((item) => (item.id === movementType.id ? { ...item, is_active: isActive } : item)));
       await updateStockMovementType(movementType.id, { label: movementType.label, is_active: isActive });
-      await loadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos actualizar el estado");
+      setMovementTypes((prev) => prev.map((item) => (item.id === movementType.id ? { ...item, is_active: movementType.is_active } : item)));
+      setCatalogStatusToast("No pudimos actualizar el estado del tipo de movimiento.");
+    } finally {
+      const statusKey = catalogStatusKey("movement_types", movementType.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: false }));
     }
   };
 
   const handleMermaTypeStatus = async (mermaType: MermaType, isActive: boolean) => {
     if (!isActive && !confirmInactivate()) return;
     try {
+      const statusKey = catalogStatusKey("merma_types", mermaType.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: true }));
+      setMermaTypes((prev) => prev.map((item) => (item.id === mermaType.id ? { ...item, is_active: isActive } : item)));
       await updateMermaType(mermaType.id, { stage: mermaType.stage, label: mermaType.label, is_active: isActive });
-      await loadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos actualizar el estado");
+      setMermaTypes((prev) => prev.map((item) => (item.id === mermaType.id ? { ...item, is_active: mermaType.is_active } : item)));
+      setCatalogStatusToast("No pudimos actualizar el estado del tipo de merma.");
+    } finally {
+      const statusKey = catalogStatusKey("merma_types", mermaType.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: false }));
     }
   };
 
   const handleMermaCauseStatus = async (mermaCause: MermaCause, isActive: boolean) => {
     if (!isActive && !confirmInactivate()) return;
     try {
+      const statusKey = catalogStatusKey("merma_causes", mermaCause.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: true }));
+      setMermaCauses((prev) => prev.map((item) => (item.id === mermaCause.id ? { ...item, is_active: isActive } : item)));
       await updateMermaCause(mermaCause.id, { stage: mermaCause.stage, label: mermaCause.label, is_active: isActive });
-      await loadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos actualizar el estado");
+      setMermaCauses((prev) => prev.map((item) => (item.id === mermaCause.id ? { ...item, is_active: mermaCause.is_active } : item)));
+      setCatalogStatusToast("No pudimos actualizar el estado de la causa de merma.");
+    } finally {
+      const statusKey = catalogStatusKey("merma_causes", mermaCause.id);
+      setCatalogStatusSaving((prev) => ({ ...prev, [statusKey]: false }));
     }
   };
 
@@ -1643,562 +1752,619 @@ export function AdminPage() {
     </Grid>
   );
 
-  const renderCatalogos = () => (
-    <Grid container spacing={2} alignItems="flex-start">
-      <Grid item xs={12} md={3}>
-        <Card>
-          <CardHeader title="Catálogos" subheader="Selecciona un catálogo para administrar" avatar={<LibraryAddIcon color="primary" />} />
-          <Divider />
-          <CardContent>
-            {isMobile ? (
-              <TextField
-                select
-                fullWidth
-                label="Catálogo"
-                value={selectedCatalog}
-                onChange={(event) => setSelectedCatalog(event.target.value as CatalogKey)}
-              >
-                {Object.entries(catalogMeta).map(([key, meta]) => (
-                  <MenuItem key={key} value={key}>
-                    {meta.title}
-                  </MenuItem>
-                ))}
-              </TextField>
-            ) : (
-              <List disablePadding>
-                {Object.entries(catalogMeta).map(([key, meta]) => (
-                  <ListItemButton key={key} selected={selectedCatalog === key} onClick={() => setSelectedCatalog(key as CatalogKey)}>
-                    <ListItemText primary={meta.title} secondary={meta.description} />
-                  </ListItemButton>
-                ))}
-              </List>
-            )}
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid item xs={12} md={9}>
-        <Card>
-          <CardHeader title={catalogMeta[selectedCatalog].title} subheader={catalogMeta[selectedCatalog].description} />
-          <Divider />
-          <CardContent>
-            <Stack spacing={2}>
-              <Stack
-                direction={{ xs: "column", md: "row" }}
-                spacing={2}
-                alignItems={{ xs: "stretch", md: "center" }}
-                justifyContent="space-between"
-              >
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={2}
-                  alignItems={{ xs: "stretch", md: "center" }}
-                  flexWrap="wrap"
-                  sx={{ flex: 1 }}
-                >
+  const renderCatalogos = () => {
+    const selectedCatalogError = catalogLoadErrors[selectedCatalog];
+    const isCatalogEmpty = catalogBaseCounts[selectedCatalog] === 0;
+
+    return (
+      <>
+        <Grid container spacing={2} alignItems="flex-start">
+          <Grid item xs={12} md={3}>
+            <Card>
+              <CardHeader
+                title="Catálogos"
+                subheader="Selecciona un catálogo para administrar"
+                avatar={<LibraryAddIcon color="primary" />}
+              />
+              <Divider />
+              <CardContent>
+                {isMobile ? (
                   <TextField
-                    label="Buscar"
-                    placeholder={catalogMeta[selectedCatalog].searchPlaceholder}
-                    value={catalogSearch[selectedCatalog]}
-                    onChange={(event) =>
-                      setCatalogSearch((prev) => ({
-                        ...prev,
-                        [selectedCatalog]: event.target.value,
-                      }))
-                    }
-                    size="small"
-                  />
-                  {selectedCatalog === "merma_types" && (
-                    <TextField
-                      select
-                      label="Etapa"
-                      value={mermaTypeStageFilter}
-                      onChange={(event) => setMermaTypeStageFilter(event.target.value as MermaStage | "todos")}
-                      size="small"
+                    select
+                    fullWidth
+                    label="Catálogo"
+                    value={selectedCatalog}
+                    onChange={(event) => setSelectedCatalog(event.target.value as CatalogKey)}
+                  >
+                    {Object.entries(catalogMeta).map(([key, meta]) => (
+                      <MenuItem key={key} value={key}>
+                        {meta.title}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                ) : (
+                  <List disablePadding>
+                    {Object.entries(catalogMeta).map(([key, meta]) => (
+                      <ListItemButton key={key} selected={selectedCatalog === key} onClick={() => setSelectedCatalog(key as CatalogKey)}>
+                        <ListItemText primary={meta.title} secondary={meta.description} />
+                      </ListItemButton>
+                    ))}
+                  </List>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={9}>
+            <Card>
+              <CardHeader title={catalogMeta[selectedCatalog].title} subheader={catalogMeta[selectedCatalog].description} />
+              <Divider />
+              <CardContent>
+                <Stack spacing={2}>
+                  <Stack
+                    direction={{ xs: "column", md: "row" }}
+                    spacing={2}
+                    alignItems={{ xs: "stretch", md: "center" }}
+                    justifyContent="space-between"
+                  >
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={2}
+                      alignItems={{ xs: "stretch", md: "center" }}
+                      flexWrap="wrap"
+                      sx={{ flex: 1 }}
                     >
-                      <MenuItem value="todos">Todas</MenuItem>
-                      {MERMA_STAGE_OPTIONS.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                  {selectedCatalog === "merma_causes" && (
-                    <TextField
-                      select
-                      label="Etapa"
-                      value={mermaCauseStageFilter}
-                      onChange={(event) => setMermaCauseStageFilter(event.target.value as MermaStage | "todos")}
-                      size="small"
-                    >
-                      <MenuItem value="todos">Todas</MenuItem>
-                      {MERMA_STAGE_OPTIONS.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={catalogShowInactive[selectedCatalog]}
+                      <TextField
+                        label="Buscar"
+                        placeholder={catalogMeta[selectedCatalog].searchPlaceholder}
+                        value={catalogSearch[selectedCatalog]}
                         onChange={(event) =>
-                          setCatalogShowInactive((prev) => ({
+                          setCatalogSearch((prev) => ({
                             ...prev,
-                            [selectedCatalog]: event.target.checked,
+                            [selectedCatalog]: event.target.value,
                           }))
                         }
+                        size="small"
                       />
-                    }
-                    label="Mostrar inactivos"
-                  />
+                      {selectedCatalog === "merma_types" && (
+                        <TextField
+                          select
+                          label="Etapa"
+                          value={mermaTypeStageFilter}
+                          onChange={(event) => setMermaTypeStageFilter(event.target.value as MermaStage | "todos")}
+                          size="small"
+                        >
+                          <MenuItem value="todos">Todas</MenuItem>
+                          {MERMA_STAGE_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      )}
+                      {selectedCatalog === "merma_causes" && (
+                        <TextField
+                          select
+                          label="Etapa"
+                          value={mermaCauseStageFilter}
+                          onChange={(event) => setMermaCauseStageFilter(event.target.value as MermaStage | "todos")}
+                          size="small"
+                        >
+                          <MenuItem value="todos">Todas</MenuItem>
+                          {MERMA_STAGE_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      )}
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={catalogShowInactive[selectedCatalog]}
+                            onChange={(event) =>
+                              setCatalogShowInactive((prev) => ({
+                                ...prev,
+                                [selectedCatalog]: event.target.checked,
+                              }))
+                            }
+                          />
+                        }
+                        label="Mostrar inactivos"
+                      />
+                    </Stack>
+                    <Button variant="contained" startIcon={<LibraryAddIcon />} onClick={() => openNewCatalogModal(selectedCatalog)}>
+                      Nuevo
+                    </Button>
+                  </Stack>
+                  {selectedCatalogError && (
+                    <Alert
+                      severity="error"
+                      action={
+                        <Button color="inherit" size="small" onClick={() => void loadData()}>
+                          Reintentar
+                        </Button>
+                      }
+                    >
+                      {selectedCatalogError}
+                    </Alert>
+                  )}
+                  {!selectedCatalogError && isCatalogEmpty && (
+                    <Box
+                      sx={{
+                        border: "1px dashed",
+                        borderColor: "divider",
+                        borderRadius: 2,
+                        p: 4,
+                        textAlign: "center",
+                      }}
+                    >
+                      <Typography variant="h6" gutterBottom>
+                        Aún no hay registros en este catálogo
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Crea el primer registro para comenzar a cargar datos.
+                      </Typography>
+                      <Button variant="contained" onClick={() => openNewCatalogModal(selectedCatalog)}>
+                        Crear el primero
+                      </Button>
+                    </Box>
+                  )}
+                  {!selectedCatalogError && !isCatalogEmpty && selectedCatalog === "sku_types" && (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Código</TableCell>
+                          <TableCell>Nombre</TableCell>
+                          <TableCell>Estado</TableCell>
+                          <TableCell align="right">Acciones</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredSkuTypes.map((type) => {
+                          const isSaving = isCatalogStatusSaving("sku_types", type.id);
+                          return (
+                            <TableRow key={type.id} hover sx={{ opacity: isSaving ? 0.6 : 1 }}>
+                              <TableCell>{type.code}</TableCell>
+                              <TableCell>{type.label}</TableCell>
+                              <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                                  <Switch
+                                    size="small"
+                                    checked={type.is_active}
+                                    disabled={isSaving}
+                                    onChange={(event) => void handleSkuTypeStatus(type, event.target.checked)}
+                                  />
+                                  <Tooltip title="Editar">
+                                    <IconButton size="small" onClick={() => startEditSkuType(type)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {!filteredSkuTypes.length && (
+                          <TableRow>
+                            <TableCell colSpan={4}>
+                              <Typography align="center" variant="body2" color="text.secondary">
+                                No hay tipos de SKU que coincidan con la búsqueda.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {!selectedCatalogError && !isCatalogEmpty && selectedCatalog === "movement_types" && (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Código</TableCell>
+                          <TableCell>Nombre</TableCell>
+                          <TableCell>Estado</TableCell>
+                          <TableCell align="right">Acciones</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredMovementTypes.map((type) => {
+                          const isSaving = isCatalogStatusSaving("movement_types", type.id);
+                          return (
+                            <TableRow key={type.id} hover sx={{ opacity: isSaving ? 0.6 : 1 }}>
+                              <TableCell>{type.code}</TableCell>
+                              <TableCell>{type.label}</TableCell>
+                              <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                                  <Switch
+                                    size="small"
+                                    checked={type.is_active}
+                                    disabled={isSaving}
+                                    onChange={(event) => void handleMovementTypeStatus(type, event.target.checked)}
+                                  />
+                                  <Tooltip title="Editar">
+                                    <IconButton size="small" onClick={() => startEditMovementType(type)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {!filteredMovementTypes.length && (
+                          <TableRow>
+                            <TableCell colSpan={4}>
+                              <Typography align="center" variant="body2" color="text.secondary">
+                                No hay tipos de movimiento que coincidan con la búsqueda.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {!selectedCatalogError && !isCatalogEmpty && selectedCatalog === "production_lines" && (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Nombre</TableCell>
+                          <TableCell>Estado</TableCell>
+                          <TableCell align="right">Acciones</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredProductionLines.map((line) => {
+                          const isSaving = isCatalogStatusSaving("production_lines", line.id);
+                          return (
+                            <TableRow key={line.id} hover sx={{ opacity: isSaving ? 0.6 : 1 }}>
+                              <TableCell>{line.name}</TableCell>
+                              <TableCell>{line.is_active ? "Activa" : "Inactiva"}</TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                                  <Switch
+                                    size="small"
+                                    checked={line.is_active}
+                                    disabled={isSaving}
+                                    onChange={(event) => void handleProductionLineStatus(line, event.target.checked)}
+                                  />
+                                  <Tooltip title="Editar">
+                                    <IconButton size="small" onClick={() => startEditProductionLine(line)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {!filteredProductionLines.length && (
+                          <TableRow>
+                            <TableCell colSpan={3}>
+                              <Typography align="center" variant="body2" color="text.secondary">
+                                No hay líneas que coincidan con la búsqueda.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {!selectedCatalogError && !isCatalogEmpty && selectedCatalog === "merma_types" && (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Etapa</TableCell>
+                          <TableCell>Código</TableCell>
+                          <TableCell>Nombre</TableCell>
+                          <TableCell>Estado</TableCell>
+                          <TableCell align="right">Acciones</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredMermaTypes.map((type) => {
+                          const isSaving = isCatalogStatusSaving("merma_types", type.id);
+                          return (
+                            <TableRow key={type.id} hover sx={{ opacity: isSaving ? 0.6 : 1 }}>
+                              <TableCell>{mermaStageLabel(type.stage)}</TableCell>
+                              <TableCell>{type.code}</TableCell>
+                              <TableCell>{type.label}</TableCell>
+                              <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                                  <Switch
+                                    size="small"
+                                    checked={type.is_active}
+                                    disabled={isSaving}
+                                    onChange={(event) => void handleMermaTypeStatus(type, event.target.checked)}
+                                  />
+                                  <Tooltip title="Editar">
+                                    <IconButton size="small" onClick={() => startEditMermaType(type)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {!filteredMermaTypes.length && (
+                          <TableRow>
+                            <TableCell colSpan={5}>
+                              <Typography align="center" variant="body2" color="text.secondary">
+                                No hay tipos de merma que coincidan con la búsqueda.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {!selectedCatalogError && !isCatalogEmpty && selectedCatalog === "merma_causes" && (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Etapa</TableCell>
+                          <TableCell>Código</TableCell>
+                          <TableCell>Nombre</TableCell>
+                          <TableCell>Estado</TableCell>
+                          <TableCell align="right">Acciones</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {filteredMermaCauses.map((cause) => {
+                          const isSaving = isCatalogStatusSaving("merma_causes", cause.id);
+                          return (
+                            <TableRow key={cause.id} hover sx={{ opacity: isSaving ? 0.6 : 1 }}>
+                              <TableCell>{mermaStageLabel(cause.stage)}</TableCell>
+                              <TableCell>{cause.code}</TableCell>
+                              <TableCell>{cause.label}</TableCell>
+                              <TableCell>{cause.is_active ? "Activo" : "Inactivo"}</TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                                  <Switch
+                                    size="small"
+                                    checked={cause.is_active}
+                                    disabled={isSaving}
+                                    onChange={(event) => void handleMermaCauseStatus(cause, event.target.checked)}
+                                  />
+                                  <Tooltip title="Editar">
+                                    <IconButton size="small" onClick={() => startEditMermaCause(cause)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        {!filteredMermaCauses.length && (
+                          <TableRow>
+                            <TableCell colSpan={5}>
+                              <Typography align="center" variant="body2" color="text.secondary">
+                                No hay causas de merma que coincidan con la búsqueda.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
                 </Stack>
-                <Button
-                  variant="contained"
-                  startIcon={<LibraryAddIcon />}
-                  onClick={() => {
-                    resetCatalogForm(selectedCatalog);
-                    openCatalogModal(selectedCatalog);
-                  }}
-                >
-                  Nuevo
-                </Button>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+        <Dialog
+          open={catalogModalOpen}
+          onClose={() => setCatalogModalOpen(false)}
+          fullWidth
+          maxWidth="sm"
+          PaperProps={{
+            component: "form",
+            onSubmit: (event: FormEvent) => {
+              if (catalogModalCatalog === "sku_types") {
+                void handleSkuTypeSubmit(event);
+                return;
+              }
+              if (catalogModalCatalog === "movement_types") {
+                void handleMovementTypeSubmit(event);
+                return;
+              }
+              if (catalogModalCatalog === "production_lines") {
+                void handleProductionLineSubmit(event);
+                return;
+              }
+              if (catalogModalCatalog === "merma_types") {
+                void handleMermaTypeSubmit(event);
+                return;
+              }
+              void handleMermaCauseSubmit(event);
+            },
+          }}
+        >
+          <DialogTitle>
+            {catalogModalCatalog === "sku_types" && (skuTypeForm.id ? "Editar tipo de SKU" : "Nuevo tipo de SKU")}
+            {catalogModalCatalog === "movement_types" &&
+              (movementTypeForm.id ? "Editar tipo de movimiento" : "Nuevo tipo de movimiento")}
+            {catalogModalCatalog === "production_lines" &&
+              (productionLineForm.id ? "Editar línea de producción" : "Nueva línea de producción")}
+            {catalogModalCatalog === "merma_types" && (mermaTypeForm.id ? "Editar tipo de merma" : "Nuevo tipo de merma")}
+            {catalogModalCatalog === "merma_causes" && (mermaCauseForm.id ? "Editar causa de merma" : "Nueva causa de merma")}
+          </DialogTitle>
+          <DialogContent>
+            {catalogModalCatalog === "sku_types" && (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <TextField
+                  label="Código"
+                  value={skuTypeForm.code}
+                  onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                  inputProps={{ style: { textTransform: "uppercase" } }}
+                  required
+                  disabled={!!skuTypeForm.id}
+                  inputRef={skuTypeCodeRef}
+                />
+                <TextField
+                  label="Nombre visible"
+                  value={skuTypeForm.label}
+                  onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, label: e.target.value }))}
+                  required
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={skuTypeForm.is_active}
+                      onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                  }
+                  label="Activo"
+                />
               </Stack>
-              {selectedCatalog === "sku_types" && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Código</TableCell>
-                      <TableCell>Nombre</TableCell>
-                      <TableCell>Estado</TableCell>
-                      <TableCell align="right">Acciones</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredSkuTypes.map((type) => (
-                      <TableRow key={type.id} hover>
-                        <TableCell>{type.code}</TableCell>
-                        <TableCell>{type.label}</TableCell>
-                        <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                            <Switch
-                              size="small"
-                              checked={type.is_active}
-                              onChange={(event) => void handleSkuTypeStatus(type, event.target.checked)}
-                            />
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => startEditSkuType(type)}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!filteredSkuTypes.length && (
-                      <TableRow>
-                        <TableCell colSpan={4}>
-                          <Typography align="center" variant="body2" color="text.secondary">
-                            No hay tipos de SKU que coincidan con la búsqueda.
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-              {selectedCatalog === "movement_types" && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Código</TableCell>
-                      <TableCell>Nombre</TableCell>
-                      <TableCell>Estado</TableCell>
-                      <TableCell align="right">Acciones</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredMovementTypes.map((type) => (
-                      <TableRow key={type.id} hover>
-                        <TableCell>{type.code}</TableCell>
-                        <TableCell>{type.label}</TableCell>
-                        <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                            <Switch
-                              size="small"
-                              checked={type.is_active}
-                              onChange={(event) => void handleMovementTypeStatus(type, event.target.checked)}
-                            />
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => startEditMovementType(type)}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!filteredMovementTypes.length && (
-                      <TableRow>
-                        <TableCell colSpan={4}>
-                          <Typography align="center" variant="body2" color="text.secondary">
-                            No hay tipos de movimiento que coincidan con la búsqueda.
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-              {selectedCatalog === "production_lines" && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Nombre</TableCell>
-                      <TableCell>Estado</TableCell>
-                      <TableCell align="right">Acciones</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredProductionLines.map((line) => (
-                      <TableRow key={line.id} hover>
-                        <TableCell>{line.name}</TableCell>
-                        <TableCell>{line.is_active ? "Activa" : "Inactiva"}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                            <Switch
-                              size="small"
-                              checked={line.is_active}
-                              onChange={(event) => void handleProductionLineStatus(line, event.target.checked)}
-                            />
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => startEditProductionLine(line)}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!filteredProductionLines.length && (
-                      <TableRow>
-                        <TableCell colSpan={3}>
-                          <Typography align="center" variant="body2" color="text.secondary">
-                            No hay líneas que coincidan con la búsqueda.
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-              {selectedCatalog === "merma_types" && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Etapa</TableCell>
-                      <TableCell>Código</TableCell>
-                      <TableCell>Nombre</TableCell>
-                      <TableCell>Estado</TableCell>
-                      <TableCell align="right">Acciones</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredMermaTypes.map((type) => (
-                      <TableRow key={type.id} hover>
-                        <TableCell>{mermaStageLabel(type.stage)}</TableCell>
-                        <TableCell>{type.code}</TableCell>
-                        <TableCell>{type.label}</TableCell>
-                        <TableCell>{type.is_active ? "Activo" : "Inactivo"}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                            <Switch
-                              size="small"
-                              checked={type.is_active}
-                              onChange={(event) => void handleMermaTypeStatus(type, event.target.checked)}
-                            />
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => startEditMermaType(type)}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!filteredMermaTypes.length && (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <Typography align="center" variant="body2" color="text.secondary">
-                            No hay tipos de merma que coincidan con la búsqueda.
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-              {selectedCatalog === "merma_causes" && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Etapa</TableCell>
-                      <TableCell>Código</TableCell>
-                      <TableCell>Nombre</TableCell>
-                      <TableCell>Estado</TableCell>
-                      <TableCell align="right">Acciones</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredMermaCauses.map((cause) => (
-                      <TableRow key={cause.id} hover>
-                        <TableCell>{mermaStageLabel(cause.stage)}</TableCell>
-                        <TableCell>{cause.code}</TableCell>
-                        <TableCell>{cause.label}</TableCell>
-                        <TableCell>{cause.is_active ? "Activo" : "Inactivo"}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                            <Switch
-                              size="small"
-                              checked={cause.is_active}
-                              onChange={(event) => void handleMermaCauseStatus(cause, event.target.checked)}
-                            />
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => startEditMermaCause(cause)}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {!filteredMermaCauses.length && (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <Typography align="center" variant="body2" color="text.secondary">
-                            No hay causas de merma que coincidan con la búsqueda.
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              )}
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Dialog
-        open={catalogModalOpen}
-        onClose={() => setCatalogModalOpen(false)}
-        fullWidth
-        maxWidth="sm"
-        PaperProps={{
-          component: "form",
-          onSubmit: (event: FormEvent) => {
-            if (catalogModalCatalog === "sku_types") {
-              void handleSkuTypeSubmit(event);
-              return;
-            }
-            if (catalogModalCatalog === "movement_types") {
-              void handleMovementTypeSubmit(event);
-              return;
-            }
-            if (catalogModalCatalog === "production_lines") {
-              void handleProductionLineSubmit(event);
-              return;
-            }
-            if (catalogModalCatalog === "merma_types") {
-              void handleMermaTypeSubmit(event);
-              return;
-            }
-            void handleMermaCauseSubmit(event);
-          },
-        }}
-      >
-        <DialogTitle>
-          {catalogModalCatalog === "sku_types" && (skuTypeForm.id ? "Editar tipo de SKU" : "Nuevo tipo de SKU")}
-          {catalogModalCatalog === "movement_types" &&
-            (movementTypeForm.id ? "Editar tipo de movimiento" : "Nuevo tipo de movimiento")}
-          {catalogModalCatalog === "production_lines" &&
-            (productionLineForm.id ? "Editar línea de producción" : "Nueva línea de producción")}
-          {catalogModalCatalog === "merma_types" && (mermaTypeForm.id ? "Editar tipo de merma" : "Nuevo tipo de merma")}
-          {catalogModalCatalog === "merma_causes" && (mermaCauseForm.id ? "Editar causa de merma" : "Nueva causa de merma")}
-        </DialogTitle>
-        <DialogContent>
-          {catalogModalCatalog === "sku_types" && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                label="Código"
-                value={skuTypeForm.code}
-                onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                inputProps={{ style: { textTransform: "uppercase" } }}
-                required
-                disabled={!!skuTypeForm.id}
-                inputRef={skuTypeCodeRef}
-              />
-              <TextField
-                label="Nombre visible"
-                value={skuTypeForm.label}
-                onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, label: e.target.value }))}
-                required
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={skuTypeForm.is_active}
-                    onChange={(e) => setSkuTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                  />
-                }
-                label="Activo"
-              />
-            </Stack>
-          )}
-          {catalogModalCatalog === "movement_types" && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                label="Código"
-                value={movementTypeForm.code}
-                onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                inputProps={{ style: { textTransform: "uppercase" } }}
-                required
-                disabled={!!movementTypeForm.id}
-                inputRef={movementTypeCodeRef}
-              />
-              <TextField
-                label="Nombre visible"
-                value={movementTypeForm.label}
-                onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, label: e.target.value }))}
-                required
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={movementTypeForm.is_active}
-                    onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                  />
-                }
-                label="Activo"
-              />
-            </Stack>
-          )}
-          {catalogModalCatalog === "production_lines" && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                label="Nombre"
-                value={productionLineForm.name}
-                onChange={(e) => setProductionLineForm((prev) => ({ ...prev, name: e.target.value }))}
-                required
-                inputRef={productionLineNameRef}
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={productionLineForm.is_active}
-                    onChange={(e) => setProductionLineForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                  />
-                }
-                label="Activo"
-              />
-            </Stack>
-          )}
-          {catalogModalCatalog === "merma_types" && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                select
-                label="Etapa"
-                value={mermaTypeForm.stage}
-                onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
-                inputRef={mermaTypeStageRef}
-              >
-                {MERMA_STAGE_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label="Código"
-                value={mermaTypeForm.code}
-                onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                inputProps={{ style: { textTransform: "uppercase" } }}
-                required
-                disabled={!!mermaTypeForm.id}
-              />
-              <TextField
-                label="Nombre visible"
-                value={mermaTypeForm.label}
-                onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, label: e.target.value }))}
-                required
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={mermaTypeForm.is_active}
-                    onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                  />
-                }
-                label="Activo"
-              />
-            </Stack>
-          )}
-          {catalogModalCatalog === "merma_causes" && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                select
-                label="Etapa"
-                value={mermaCauseForm.stage}
-                onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
-                inputRef={mermaCauseStageRef}
-              >
-                {MERMA_STAGE_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                label="Código"
-                value={mermaCauseForm.code}
-                onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                inputProps={{ style: { textTransform: "uppercase" } }}
-                required
-                disabled={!!mermaCauseForm.id}
-              />
-              <TextField
-                label="Nombre visible"
-                value={mermaCauseForm.label}
-                onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, label: e.target.value }))}
-                required
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={mermaCauseForm.is_active}
-                    onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                  />
-                }
-                label="Activo"
-              />
-            </Stack>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCatalogModalOpen(false)}>Cancelar</Button>
-          <Button type="submit" variant="contained">
-            {catalogModalCatalog === "sku_types" && (skuTypeForm.id ? "Actualizar" : "Crear")}
-            {catalogModalCatalog === "movement_types" && (movementTypeForm.id ? "Actualizar" : "Crear")}
-            {catalogModalCatalog === "production_lines" && (productionLineForm.id ? "Actualizar" : "Crear")}
-            {catalogModalCatalog === "merma_types" && (mermaTypeForm.id ? "Actualizar" : "Crear")}
-            {catalogModalCatalog === "merma_causes" && (mermaCauseForm.id ? "Actualizar" : "Crear")}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Grid>
-  );
+            )}
+            {catalogModalCatalog === "movement_types" && (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <TextField
+                  label="Código"
+                  value={movementTypeForm.code}
+                  onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                  inputProps={{ style: { textTransform: "uppercase" } }}
+                  required
+                  disabled={!!movementTypeForm.id}
+                  inputRef={movementTypeCodeRef}
+                />
+                <TextField
+                  label="Nombre visible"
+                  value={movementTypeForm.label}
+                  onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, label: e.target.value }))}
+                  required
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={movementTypeForm.is_active}
+                      onChange={(e) => setMovementTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                  }
+                  label="Activo"
+                />
+              </Stack>
+            )}
+            {catalogModalCatalog === "production_lines" && (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <TextField
+                  label="Nombre"
+                  value={productionLineForm.name}
+                  onChange={(e) => setProductionLineForm((prev) => ({ ...prev, name: e.target.value }))}
+                  required
+                  inputRef={productionLineNameRef}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={productionLineForm.is_active}
+                      onChange={(e) => setProductionLineForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                  }
+                  label="Activo"
+                />
+              </Stack>
+            )}
+            {catalogModalCatalog === "merma_types" && (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <TextField
+                  select
+                  label="Etapa"
+                  value={mermaTypeForm.stage}
+                  onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
+                  inputRef={mermaTypeStageRef}
+                >
+                  {MERMA_STAGE_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Código"
+                  value={mermaTypeForm.code}
+                  onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                  inputProps={{ style: { textTransform: "uppercase" } }}
+                  required
+                  disabled={!!mermaTypeForm.id}
+                />
+                <TextField
+                  label="Nombre visible"
+                  value={mermaTypeForm.label}
+                  onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, label: e.target.value }))}
+                  required
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={mermaTypeForm.is_active}
+                      onChange={(e) => setMermaTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                  }
+                  label="Activo"
+                />
+              </Stack>
+            )}
+            {catalogModalCatalog === "merma_causes" && (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <TextField
+                  select
+                  label="Etapa"
+                  value={mermaCauseForm.stage}
+                  onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
+                  inputRef={mermaCauseStageRef}
+                >
+                  {MERMA_STAGE_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Código"
+                  value={mermaCauseForm.code}
+                  onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                  inputProps={{ style: { textTransform: "uppercase" } }}
+                  required
+                  disabled={!!mermaCauseForm.id}
+                />
+                <TextField
+                  label="Nombre visible"
+                  value={mermaCauseForm.label}
+                  onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, label: e.target.value }))}
+                  required
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={mermaCauseForm.is_active}
+                      onChange={(e) => setMermaCauseForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                  }
+                  label="Activo"
+                />
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCatalogModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" variant="contained">
+              {catalogModalCatalog === "sku_types" && (skuTypeForm.id ? "Actualizar" : "Crear")}
+              {catalogModalCatalog === "movement_types" && (movementTypeForm.id ? "Actualizar" : "Crear")}
+              {catalogModalCatalog === "production_lines" && (productionLineForm.id ? "Actualizar" : "Crear")}
+              {catalogModalCatalog === "merma_types" && (mermaTypeForm.id ? "Actualizar" : "Crear")}
+              {catalogModalCatalog === "merma_causes" && (mermaCauseForm.id ? "Actualizar" : "Crear")}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </>
+    );
+  };
 
   const renderDepositos = () => (
     <Grid container spacing={2} alignItems="stretch">
@@ -3130,6 +3296,16 @@ export function AdminPage() {
           {success}
         </Alert>
       )}
+      <Snackbar
+        open={Boolean(catalogStatusToast)}
+        autoHideDuration={4000}
+        onClose={() => setCatalogStatusToast(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert onClose={() => setCatalogStatusToast(null)} severity="error" variant="filled">
+          {catalogStatusToast}
+        </Alert>
+      </Snackbar>
       <Card>
         <Tabs
           value={tab}
