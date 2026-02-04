@@ -11,7 +11,7 @@ export type OrderSectionConfig = {
 export const ORDER_SECTIONS: OrderSectionConfig[] = [
   {
     key: "pt",
-    title: "Productos terminados",
+    title: "FNC (cucuruchos)",
     filter: (sku) => sku.sku_type_code === "PT" && sku.is_active,
   },
   {

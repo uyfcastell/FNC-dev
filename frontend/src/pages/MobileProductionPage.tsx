@@ -22,6 +22,7 @@ import {
   Deposit,
   fetchDeposits,
   fetchProductionLines,
+  fetchProductionLots,
   fetchSkus,
   fetchStockMovementTypes,
   ProductionLine,
@@ -38,6 +39,7 @@ export function MobileProductionPage() {
   const [productionLines, setProductionLines] = useState<ProductionLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [productionDate, setProductionDate] = useState(() => new Date().toISOString().split("T")[0]);
 
   const [productionForm, setProductionForm] = useState({
     sku_id: null as number | null,
@@ -114,6 +116,47 @@ export function MobileProductionPage() {
   const selectedProductionSku = productionSkus.find((sku) => sku.id === productionForm.sku_id);
   const selectedMermaSku = productionSkus.find((sku) => sku.id === mermaForm.sku_id);
 
+  useEffect(() => {
+    let isActive = true;
+    const generateLotCode = async () => {
+      if (!productionForm.sku_id || !productionForm.production_line_id || !productionDate) {
+        setProductionForm((prev) => (prev.lot_code ? { ...prev, lot_code: "" } : prev));
+        return;
+      }
+      const sku = skus.find((item) => item.id === productionForm.sku_id);
+      if (!sku) {
+        setProductionForm((prev) => (prev.lot_code ? { ...prev, lot_code: "" } : prev));
+        return;
+      }
+      const datePart = productionDate.replace(/-/g, "").slice(2);
+      const prefix = `${datePart}-L${productionForm.production_line_id}-${sku.code}`;
+      try {
+        const lots = await fetchProductionLots({
+          sku_id: productionForm.sku_id,
+          production_line_id: productionForm.production_line_id,
+        });
+        const maxSeq = lots
+          .filter((lot) => lot.produced_at === productionDate && lot.lot_code.startsWith(prefix))
+          .map((lot) => Number(lot.lot_code.split("-").at(-1) ?? 0))
+          .filter((value) => Number.isFinite(value))
+          .reduce((acc, value) => Math.max(acc, value), 0);
+        const nextLot = `${prefix}-${String(maxSeq + 1).padStart(3, "0")}`;
+        if (isActive) {
+          setProductionForm((prev) => ({ ...prev, lot_code: nextLot }));
+        }
+      } catch (err) {
+        console.error(err);
+        if (isActive) {
+          setProductionForm((prev) => ({ ...prev, lot_code: `${prefix}-001` }));
+        }
+      }
+    };
+    void generateLotCode();
+    return () => {
+      isActive = false;
+    };
+  }, [productionDate, productionForm.production_line_id, productionForm.sku_id, skus]);
+
   const handleMovement = async (
     event: FormEvent,
     movementTypeCode: string,
@@ -143,10 +186,12 @@ export function MobileProductionPage() {
         reference: formState.reference || undefined,
         production_line_id: "production_line_id" in formState ? (formState.production_line_id ?? undefined) : undefined,
         lot_code: "lot_code" in formState ? formState.lot_code.trim() || undefined : undefined,
+        movement_date: movementTypeCode === "PRODUCTION" ? productionDate || undefined : undefined,
       });
       setSuccess("Registrado correctamente");
       setError(null);
       reset();
+      setProductionDate(new Date().toISOString().split("T")[0]);
       await loadCatalog();
     } catch (err) {
       console.error(err);
@@ -213,11 +258,18 @@ export function MobileProductionPage() {
               textFieldProps={{ InputLabelProps: { sx: { fontSize: 16 } } }}
             />
             <TextField
-              label="Lote (opcional)"
+              label="Fecha"
+              type="date"
+              value={productionDate}
+              onChange={(e) => setProductionDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ style: { fontSize: 16 } }}
+            />
+            <TextField
+              label="Lote"
               placeholder="YYMMDD-Lx-SKU-###"
               value={productionForm.lot_code}
-              onChange={(e) => setProductionForm((prev) => ({ ...prev, lot_code: e.target.value }))}
-              InputProps={{ sx: { fontSize: 16 } }}
+              InputProps={{ readOnly: true, sx: { fontSize: 16 } }}
             />
             <TextField
               required
