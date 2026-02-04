@@ -63,6 +63,7 @@ import {
   fetchSkuTypes,
   fetchSkusExport,
   fetchStockMovementTypes,
+  fetchProductionLines,
   fetchSkus,
   fetchSuppliers,
   fetchUnits,
@@ -77,6 +78,7 @@ import {
   Supplier,
   UnitOfMeasure,
   UnitOption,
+  ProductionLine,
   createSkuType,
   updateSkuType,
   deleteSkuType,
@@ -98,6 +100,8 @@ import {
   Permission,
   Role,
   User,
+  createProductionLine,
+  updateProductionLine,
 } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 
@@ -123,6 +127,7 @@ export function AdminPage() {
   const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
   const [mermaTypes, setMermaTypes] = useState<MermaType[]>([]);
   const [mermaCauses, setMermaCauses] = useState<MermaCause[]>([]);
+  const [productionLines, setProductionLines] = useState<ProductionLine[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -169,6 +174,7 @@ export function AdminPage() {
   const movementTypeCodeRef = useRef<HTMLInputElement>(null);
   const mermaTypeStageRef = useRef<HTMLInputElement>(null);
   const mermaCauseStageRef = useRef<HTMLInputElement>(null);
+  const productionLineNameRef = useRef<HTMLInputElement>(null);
 
   const [skuForm, setSkuForm] = useState<{
     id?: number;
@@ -265,6 +271,10 @@ export function AdminPage() {
     label: "",
     is_active: true,
   });
+  const [productionLineForm, setProductionLineForm] = useState<{ id?: number; name: string; is_active: boolean }>({
+    name: "",
+    is_active: true,
+  });
 
   useEffect(() => {
     void loadData();
@@ -284,6 +294,7 @@ export function AdminPage() {
     () => [...mermaCauses].sort((a, b) => a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code)),
     [mermaCauses]
   );
+  const sortedProductionLines = useMemo(() => [...productionLines].sort((a, b) => a.name.localeCompare(b.name)), [productionLines]);
   const sortedRoles = useMemo(() => [...roles].sort((a, b) => a.name.localeCompare(b.name)), [roles]);
   const sortedPermissions = useMemo(
     () => [...permissions].sort((a, b) => a.category.localeCompare(b.category) || a.action.localeCompare(b.action)),
@@ -447,6 +458,7 @@ export function AdminPage() {
         mermaCauseList,
         supplierList,
         permissionList,
+        productionLineList,
       ] = await Promise.all([
         fetchSkus({ include_inactive: true }),
         fetchDeposits({ include_inactive: true }),
@@ -460,6 +472,7 @@ export function AdminPage() {
         fetchMermaCauses({ include_inactive: true }),
         fetchSuppliers({ include_inactive: true }),
         fetchPermissions(),
+        fetchProductionLines(),
       ]);
       setSkus(skuList);
       setDeposits(depositList);
@@ -473,6 +486,7 @@ export function AdminPage() {
       setMermaCauses(mermaCauseList);
       setSuppliers(supplierList);
       setPermissions(permissionList);
+      setProductionLines(productionLineList);
 
       const rolePermissionEntries = await Promise.all(
         roleList.map(async (role) => {
@@ -917,6 +931,11 @@ export function AdminPage() {
     queueScrollToForm(mermaCauseStageRef);
   };
 
+  const startEditProductionLine = (line: ProductionLine) => {
+    setProductionLineForm({ ...line });
+    queueScrollToForm(productionLineNameRef);
+  };
+
   const handleSkuTypeSubmit = async (event: FormEvent) => {
     event.preventDefault();
     try {
@@ -1031,6 +1050,39 @@ export function AdminPage() {
     } catch (err) {
       console.error(err);
       setError("No pudimos guardar la causa de merma. ¿Código duplicado?");
+    }
+  };
+
+  const handleProductionLineSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const trimmedName = productionLineForm.name.trim();
+      if (!trimmedName) {
+        setError("Completa el nombre de la línea");
+        return;
+      }
+      if (productionLineForm.id) {
+        await updateProductionLine(productionLineForm.id, { name: trimmedName, is_active: productionLineForm.is_active });
+        setSuccess("Línea de producción actualizada");
+      } else {
+        await createProductionLine({ name: trimmedName, is_active: productionLineForm.is_active });
+        setSuccess("Línea de producción creada");
+      }
+      setProductionLineForm({ id: undefined, name: "", is_active: true });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos guardar la línea. ¿Nombre duplicado?");
+    }
+  };
+
+  const handleProductionLineStatus = async (line: ProductionLine, isActive: boolean) => {
+    try {
+      await updateProductionLine(line.id, { is_active: isActive });
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos actualizar el estado");
     }
   };
 
@@ -1542,6 +1594,73 @@ export function AdminPage() {
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </Grid>
+      <Grid item xs={12} md={6}>
+        <Card>
+          <CardHeader title="Líneas de producción" subheader="Catálogo de producción" avatar={<LibraryAddIcon color="primary" />} />
+          <Divider />
+          <CardContent>
+            <Stack component="form" spacing={2} onSubmit={handleProductionLineSubmit}>
+              <TextField
+                label="Nombre"
+                value={productionLineForm.name}
+                onChange={(e) => setProductionLineForm((prev) => ({ ...prev, name: e.target.value }))}
+                required
+                inputRef={productionLineNameRef}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={productionLineForm.is_active}
+                    onChange={(e) => setProductionLineForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                  />
+                }
+                label="Activo"
+              />
+              <Stack direction="row" spacing={1}>
+                <Button type="submit" variant="contained">
+                  {productionLineForm.id ? "Actualizar" : "Crear"}
+                </Button>
+                {productionLineForm.id && (
+                  <Button onClick={() => setProductionLineForm({ id: undefined, name: "", is_active: true })}>Cancelar</Button>
+                )}
+              </Stack>
+            </Stack>
+            <Divider sx={{ my: 2 }} />
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedProductionLines.map((line) => (
+                  <TableRow key={line.id} hover>
+                    <TableCell>{line.name}</TableCell>
+                    <TableCell>{line.is_active ? "Activa" : "Inactiva"}</TableCell>
+                    <TableCell align="right">
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                        <Switch
+                          checked={line.is_active}
+                          onChange={(e) => {
+                            void handleProductionLineStatus(line, e.target.checked);
+                          }}
+                        />
+                        <Tooltip title="Editar">
+                          <IconButton size="small" onClick={() => startEditProductionLine(line)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 ))}
