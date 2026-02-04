@@ -103,16 +103,17 @@ export function MobileProductionPage() {
       })),
     [sortedDeposits]
   );
-  const productionLineOptions = useMemo(
-    () =>
-      productionLines
-        .filter((line) => line.is_active)
-        .map((line) => ({
-          value: line.id,
-          label: line.name,
-        })),
-    [productionLines]
+  const selectedProductionLine = useMemo(
+    () => productionLines.find((line) => line.id === productionForm.production_line_id) ?? null,
+    [productionForm.production_line_id, productionLines]
   );
+  const productionLineOptions = useMemo(() => {
+    const visibleLines = productionLines.filter((line) => line.is_active || line.id === selectedProductionLine?.id);
+    return visibleLines.map((line) => ({
+      value: line.id,
+      label: line.is_active ? line.name : `${line.name} (inactiva)`,
+    }));
+  }, [productionLines, selectedProductionLine]);
   const selectedProductionSku = productionSkus.find((sku) => sku.id === productionForm.sku_id);
   const selectedMermaSku = productionSkus.find((sku) => sku.id === mermaForm.sku_id);
 

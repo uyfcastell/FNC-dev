@@ -301,16 +301,17 @@ export function MermasPage() {
     [deposits]
   );
 
-  const productionLineOptions = useMemo(
-    () =>
-      productionLines
-        .filter((line) => line.is_active)
-        .map((line) => ({
-          value: line.id,
-          label: line.name,
-        })),
-    [productionLines]
+  const selectedProductionLine = useMemo(
+    () => productionLines.find((line) => line.id === eventForm.production_line_id) ?? null,
+    [eventForm.production_line_id, productionLines]
   );
+  const productionLineOptions = useMemo(() => {
+    const visibleLines = productionLines.filter((line) => line.is_active || line.id === selectedProductionLine?.id);
+    return visibleLines.map((line) => ({
+      value: line.id,
+      label: line.is_active ? line.name : `${line.name} (inactiva)`,
+    }));
+  }, [productionLines, selectedProductionLine]);
 
   const handleEventSubmit = async (event: FormEvent) => {
     event.preventDefault();

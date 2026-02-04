@@ -45,6 +45,13 @@ def _get_production_line_id(client):
     return lines[0]["id"]
 
 
+def _create_production_line(client, name: str, is_active: bool = True) -> dict:
+    payload = {"name": name, "is_active": is_active}
+    res = client.post("/api/production-lines", json=payload)
+    assert res.status_code in (200, 201)
+    return res.json()
+
+
 def test_list_movement_types(client):
     res = client.get("/api/stock/movement-types")
     assert res.status_code == 200
@@ -151,6 +158,25 @@ def test_invalid_lot_code_is_rejected(client):
         "lot_code": "250101-L99-WRONG-001",
     }
     res = client.post("/api/stock/movements", json=bad_payload)
+    assert res.status_code == 400
+
+
+def test_production_rejects_inactive_line(client):
+    sku_id = _get_sku_id(client, "CUC-PT-24")
+    movement_type_id = _get_movement_type_id(client, "PRODUCTION")
+    deposit_id = 1
+    line = _create_production_line(client, f"LINEA_INACTIVA_{uuid.uuid4().hex[:6]}")
+    res = client.put(f"/api/production-lines/{line['id']}", json={"is_active": False})
+    assert res.status_code in (200, 201)
+
+    payload = {
+        "sku_id": sku_id,
+        "deposit_id": deposit_id,
+        "quantity": 2,
+        "movement_type_id": movement_type_id,
+        "production_line_id": line["id"],
+    }
+    res = client.post("/api/stock/movements", json=payload)
     assert res.status_code == 400
 
 
