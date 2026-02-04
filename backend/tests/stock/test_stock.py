@@ -1,3 +1,27 @@
+import uuid
+
+
+def _get_sku_type_id(client, code: str) -> int:
+    res = client.get("/api/sku-types")
+    assert res.status_code == 200
+    data = res.json()
+    return next(item["id"] for item in data if item["code"] == code)
+
+
+def _create_sku(client, sku_type_code: str, name: str) -> dict:
+    sku_type_id = _get_sku_type_id(client, sku_type_code)
+    payload = {
+        "code": f"TEST-{sku_type_code}-{uuid.uuid4().hex[:6]}",
+        "name": name,
+        "sku_type_id": sku_type_id,
+        "unit": "unit",
+        "is_active": True,
+    }
+    res = client.post("/api/skus", json=payload)
+    assert res.status_code in (200, 201)
+    return res.json()
+
+
 def _get_sku_id(client, code):
     res = client.get("/api/skus")
     assert res.status_code == 200
@@ -76,6 +100,41 @@ def test_production_requires_line_and_generates_lot(client):
     assert newest_lot["sku_id"] == sku_id
     assert newest_lot["lot_code"].startswith(newest_lot["produced_at"].replace("-", "")[2:] + f"-L{line_id}-")
     assert newest_lot["remaining_quantity"] >= valid_payload["quantity"]
+
+
+def test_production_allows_ma_pi_types_and_rejects_invalid(client):
+    movement_type_id = _get_movement_type_id(client, "PRODUCTION")
+    line_id = _get_production_line_id(client)
+    deposit_id = 1
+
+    for sku_type in ("MA", "PI"):
+        sku = _create_sku(client, sku_type, f"Producto {sku_type}")
+        payload = {
+            "sku_id": sku["id"],
+            "deposit_id": deposit_id,
+            "quantity": 2,
+            "movement_type_id": movement_type_id,
+            "production_line_id": line_id,
+        }
+        res = client.post("/api/stock/movements", json=payload)
+        assert res.status_code in (200, 201)
+
+    invalid_sku = _create_sku(client, "LIM", "Producto LIM")
+    invalid_payload = {
+        "sku_id": invalid_sku["id"],
+        "deposit_id": deposit_id,
+        "quantity": 1,
+        "movement_type_id": movement_type_id,
+        "production_line_id": line_id,
+    }
+    res = client.post("/api/stock/movements", json=invalid_payload)
+    assert res.status_code == 400
+    detail = res.json().get("detail", "")
+    assert "permitido" in detail
+    assert "MA" in detail
+    assert "PI" in detail
+    assert "PT" in detail
+    assert "PACK" in detail
 
 
 def test_invalid_lot_code_is_rejected(client):

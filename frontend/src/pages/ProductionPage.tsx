@@ -59,7 +59,7 @@ import {
   updateDailyOverheadItem,
 } from "../lib/api";
 
-const PRODUCTION_TYPE_CODES: string[] = ["PT", "SEMI", "MP"];
+const PRODUCTION_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 type RecipeFormItem = { component_id: number | null; quantity: string };
 type OverheadItemDraft = {
   tempId: string;
