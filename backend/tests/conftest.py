@@ -7,7 +7,7 @@ os.environ["DATABASE_URL"] = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:20251212@localhost:5432/fnc_test"
 )
-os.environ["LOAD_SEED"] = "true"
+os.environ["APP_ENV"] = "test"
 # -----------------------------------
 
 # Asegura que la carpeta backend esté en PYTHONPATH
@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db import init_db
+from app.core.seed import seed_demo
 
 
 # =======================
@@ -56,6 +57,11 @@ def setup_database():
     Se ejecuta una sola vez por sesión de pytest.
     """
     init_db()
+    from app.db import engine
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        seed_demo(session)
     yield
 
 

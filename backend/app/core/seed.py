@@ -1,3 +1,5 @@
+import os
+
 from sqlmodel import Session, select
 
 from ..models import (
@@ -350,10 +352,12 @@ DEFAULT_DEPOSITS = [
 ]
 
 DEFAULT_SKU_TYPES = [
+    {"code": "MA", "label": "Masas"},
     {"code": "MP", "label": "Materia Prima"},
-    {"code": "SEMI", "label": "Semielaborado"},
+    {"code": "PI", "label": "Producto Intermedio"},
     {"code": "PT", "label": "Producto Terminado"},
     {"code": "CON", "label": "Consumible"},
+    {"code": "DEP", "label": "Depósito"},
     {"code": "PAP", "label": "Papelería"},
     {"code": "LIM", "label": "Limpieza"},
     {"code": "PACK", "label": "Pack / Packaging"},
@@ -362,7 +366,6 @@ DEFAULT_SKU_TYPES = [
 
 DEFAULT_SKUS = [
     {"code": "CUC-PT-24", "name": "Cucuruchos x24", "sku_type_code": "PT", "unit": UnitOfMeasure.BOX},
-    {"code": "CUC-GRANEL", "name": "Cucurucho granel", "sku_type_code": "SEMI", "unit": UnitOfMeasure.UNIT},
     {"code": "MP-HARINA", "name": "Harina 0000", "sku_type_code": "MP", "unit": UnitOfMeasure.KG},
 ]
 
@@ -371,7 +374,6 @@ DEFAULT_RECIPES = [
         "product_code": "CUC-PT-24",
         "name": "Receta cucuruchos x24",
         "items": [
-            {"component_code": "CUC-GRANEL", "quantity": 24},
             {"component_code": "MP-HARINA", "quantity": 0.5},
         ],
     }
@@ -448,8 +450,23 @@ def _get_existing_map(session: Session, model, field: str):
     return {getattr(item, field): item for item in records}
 
 
-def seed_initial_data(session: Session) -> None:
-    """Carga datos mínimos sin duplicar registros."""
+def _get_app_env() -> str:
+    return (
+        os.getenv("APP_ENV")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("ENV")
+        or "production"
+    ).strip().lower()
+
+
+def _require_demo_environment() -> None:
+    app_env = _get_app_env()
+    if app_env not in {"dev", "test"}:
+        raise RuntimeError("seed_demo solo puede ejecutarse en entornos dev/test.")
+
+
+def seed_baseline(session: Session) -> None:
+    """Carga datos base (catálogos/config) sin duplicar registros."""
 
     existing_roles = _get_existing_map(session, Role, "name")
     for payload in DEFAULT_ROLES:
@@ -497,25 +514,6 @@ def seed_initial_data(session: Session) -> None:
             session.add(RolePermission(role_id=role.id, permission_id=permission.id))
             existing_role_permissions.add(pair)
 
-    sku_type_map = _get_existing_map(session, SKUType, "code")
-    existing_skus = _get_existing_map(session, SKU, "code")
-    for payload in DEFAULT_SKUS:
-        if payload["code"] in existing_skus:
-            continue
-        sku_type = sku_type_map.get(payload["sku_type_code"])
-        if not sku_type:
-            continue
-        session.add(
-            SKU(
-                code=payload["code"],
-                name=payload["name"],
-                sku_type_id=sku_type.id,
-                unit=payload["unit"],
-            )
-        )
-
-    session.commit()
-
     existing_lines = _get_existing_map(session, ProductionLine, "name")
     for payload in DEFAULT_PRODUCTION_LINES:
         if payload["name"] not in existing_lines:
@@ -532,6 +530,30 @@ def seed_initial_data(session: Session) -> None:
         key = (payload["stage"], payload["code"])
         if key not in existing_causes:
             session.add(MermaCause(**payload))
+
+    session.commit()
+
+def seed_demo(session: Session) -> None:
+    """Carga datos demo para dev/test, sin duplicar registros."""
+    _require_demo_environment()
+    seed_baseline(session)
+
+    sku_type_map = _get_existing_map(session, SKUType, "code")
+    existing_skus = _get_existing_map(session, SKU, "code")
+    for payload in DEFAULT_SKUS:
+        if payload["code"] in existing_skus:
+            continue
+        sku_type = sku_type_map.get(payload["sku_type_code"])
+        if not sku_type:
+            continue
+        session.add(
+            SKU(
+                code=payload["code"],
+                name=payload["name"],
+                sku_type_id=sku_type.id,
+                unit=payload["unit"],
+            )
+        )
 
     session.commit()
 
@@ -565,7 +587,29 @@ def seed_initial_data(session: Session) -> None:
 
 
 if __name__ == "__main__":  # Manual seeding helper
+    import argparse
+
     from ..db import engine
 
+    parser = argparse.ArgumentParser(description="Seed baseline or demo data.")
+    parser.add_argument("--baseline", action="store_true", help="Seed baseline catalog data.")
+    parser.add_argument("--demo", action="store_true", help="Seed demo data (dev/test only).")
+    parser.add_argument(
+        "--confirm-production",
+        action="store_true",
+        help="Required to run baseline seeding in production environments.",
+    )
+    args = parser.parse_args()
+
+    if not args.baseline and not args.demo:
+        parser.error("Debes indicar --baseline o --demo.")
+
+    app_env = _get_app_env()
+    if args.baseline and app_env in {"production", "prod"} and not args.confirm_production:
+        raise SystemExit("Confirma --confirm-production para ejecutar baseline en producción.")
+
     with Session(engine) as session:
-        seed_initial_data(session)
+        if args.baseline:
+            seed_baseline(session)
+        if args.demo:
+            seed_demo(session)
