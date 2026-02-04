@@ -118,6 +118,8 @@ import {
 } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 
+const LAST_SKU_TYPE_STORAGE_KEY = "fnc.lastSkuTypeCode";
+
 const RECIPE_PRODUCT_CODES = ["MA", "PI", "PT", "PACK"];
 const RECIPE_COMPONENT_CODES = ["MA", "MP", "CON", "PI", "PT", "PACK"];
 const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
@@ -626,6 +628,25 @@ export function AdminPage() {
   const selectedSkuType = skuForm.sku_type_id ? skuTypeMap.get(Number(skuForm.sku_type_id)) : undefined;
   const isSemiSku = selectedSkuType?.code === "SEMI";
 
+  const getLastSkuTypeCode = () => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.sessionStorage.getItem(LAST_SKU_TYPE_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  };
+
+  const resolveDefaultSkuTypeId = (types: SKUType[]) => {
+    const lastSkuTypeCode = getLastSkuTypeCode();
+    if (lastSkuTypeCode) {
+      const lastType = types.find((type) => type.code === lastSkuTypeCode && type.is_active);
+      if (lastType) return lastType.id;
+    }
+    const defaultSkuType = types.find((t) => t.code === "MP" && t.is_active) ?? types.find((t) => t.is_active);
+    return defaultSkuType?.id;
+  };
+
   const loadData = async () => {
     try {
       const results = await Promise.allSettled([
@@ -693,10 +714,9 @@ export function AdminPage() {
       }
 
       if (skuTypeList.status === "fulfilled") {
-        const defaultSkuType =
-          skuTypeList.value.find((t) => t.code === "MP" && t.is_active) ?? skuTypeList.value.find((t) => t.is_active);
-        if (defaultSkuType && !skuForm.sku_type_id) {
-          setSkuForm((prev) => ({ ...prev, sku_type_id: defaultSkuType.id }));
+        const defaultSkuTypeId = resolveDefaultSkuTypeId(skuTypeList.value);
+        if (defaultSkuTypeId && !skuForm.sku_type_id) {
+          setSkuForm((prev) => ({ ...prev, sku_type_id: defaultSkuTypeId }));
         }
       }
 
@@ -820,11 +840,11 @@ export function AdminPage() {
         await createSku(payload);
         setSuccess("Producto creado");
       }
-      const defaultSkuType = skuTypes.find((t) => t.code === "MP" && t.is_active) ?? skuTypes.find((t) => t.is_active);
+      const defaultSkuTypeId = resolveDefaultSkuTypeId(skuTypes);
       setSkuForm({
         code: "",
         name: "",
-        sku_type_id: defaultSkuType?.id ?? "",
+        sku_type_id: defaultSkuTypeId ?? "",
         unit: "unit",
         units_per_kg: "",
         notes: "",
@@ -1487,6 +1507,13 @@ export function AdminPage() {
                 onChange={(e) => {
                   const typeId = Number(e.target.value);
                   const type = skuTypeMap.get(typeId);
+                  if (type && typeof window !== "undefined") {
+                    try {
+                      window.sessionStorage.setItem(LAST_SKU_TYPE_STORAGE_KEY, type.code);
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }
                   setSkuForm((prev) => ({
                     ...prev,
                     sku_type_id: typeId,
@@ -1565,12 +1592,12 @@ export function AdminPage() {
                 {skuForm.id && (
                   <Button
                     onClick={() => {
-                      const defaultSkuType = skuTypes.find((t) => t.code === "MP" && t.is_active) ?? skuTypes.find((t) => t.is_active);
+                      const defaultSkuTypeId = resolveDefaultSkuTypeId(skuTypes);
                       setSkuForm({
                         id: undefined,
                         code: "",
                         name: "",
-                        sku_type_id: defaultSkuType?.id ?? "",
+                        sku_type_id: defaultSkuTypeId ?? "",
                         unit: "unit",
                         units_per_kg: "",
                         notes: "",
