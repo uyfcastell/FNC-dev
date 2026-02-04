@@ -773,6 +773,14 @@ export function AdminPage() {
     }, 0);
   };
 
+  const queueScrollIntoView = (ref?: RefObject<HTMLInputElement>) => {
+    window.setTimeout(() => {
+      if (!ref?.current) return;
+      ref.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      ref.current.focus({ preventScroll: true });
+    }, 0);
+  };
+
   const startEditRecipe = (recipe: Recipe) => {
     setRecipeForm({
       id: recipe.id,
@@ -933,7 +941,7 @@ export function AdminPage() {
 
   const startEditProductionLine = (line: ProductionLine) => {
     setProductionLineForm({ ...line });
-    queueScrollToForm(productionLineNameRef);
+    queueScrollIntoView(productionLineNameRef);
   };
 
   const handleSkuTypeSubmit = async (event: FormEvent) => {
