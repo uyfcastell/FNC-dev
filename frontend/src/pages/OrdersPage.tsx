@@ -31,10 +31,10 @@ import { useAuth } from "../lib/auth";
 import {
   createOrder,
   fetchDeposits,
+  fetchOrderEntrySkus,
   fetchOrders,
   fetchShipment,
   fetchShipments,
-  fetchSkus,
   Order,
   OrderItem,
   OrderStatus,
@@ -141,7 +141,7 @@ export function OrdersPage() {
     try {
       const [orderList, skuList, depositList] = await Promise.all([
         fetchOrders(),
-        fetchSkus({ include_inactive: true }),
+        fetchOrderEntrySkus({ include_inactive: true }),
         fetchDeposits(),
       ]);
       setOrders(orderList);

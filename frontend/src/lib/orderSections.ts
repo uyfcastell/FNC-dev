@@ -12,7 +12,7 @@ export const ORDER_SECTIONS: OrderSectionConfig[] = [
   {
     key: "pt",
     title: "FNC (cucuruchos)",
-    filter: (sku) => sku.sku_type_code === "PT" && sku.is_active,
+    filter: (sku) => ["PT", "PACK"].includes(sku.sku_type_code) && sku.is_active,
   },
   {
     key: "consumibles",
@@ -33,7 +33,7 @@ export const ORDER_SECTIONS: OrderSectionConfig[] = [
 
 export const sectionForSku = (sku?: SKU | null): OrderSectionKey => {
   if (!sku) return "consumibles";
-  if (sku.sku_type_code === "PT") return "pt";
+  if (["PT", "PACK"].includes(sku.sku_type_code)) return "pt";
   if (sku.sku_type_code === "DEP") return "consumibles";
   if (sku.sku_type_code === "PAP") return "papeleria";
   if (sku.sku_type_code === "LIM") return "limpieza";

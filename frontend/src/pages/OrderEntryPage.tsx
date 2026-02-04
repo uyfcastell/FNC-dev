@@ -18,7 +18,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { createOrder, fetchDeposits, fetchSkus, Deposit, SKU } from "../lib/api";
+import { createOrder, fetchDeposits, fetchOrderEntrySkus, Deposit, SKU } from "../lib/api";
 import { ORDER_SECTIONS, OrderSectionKey } from "../lib/orderSections";
 
 const ORDER_PIN = "1959";
@@ -78,10 +78,7 @@ export function OrderEntryPage() {
 
   const loadCatalog = async () => {
     try {
-      const [skuList, depositList] = await Promise.all([
-        fetchSkus({ tags: ["PT", "CON", "PAP", "LIM"], include_inactive: false }),
-        fetchDeposits(),
-      ]);
+      const [skuList, depositList] = await Promise.all([fetchOrderEntrySkus(), fetchDeposits()]);
       setSkus(skuList);
       setDeposits(depositList);
     } catch (err) {
