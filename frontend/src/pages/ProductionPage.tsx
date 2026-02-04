@@ -204,7 +204,7 @@ export function ProductionPage() {
         });
         const maxSeq = lots
           .filter((lot) => lot.produced_at === productionDate && lot.lot_code.startsWith(prefix))
-          .map((lot) => Number(lot.lot_code.split("-").at(-1) ?? 0))
+          .map((lot) => Number(lot.lot_code.split("-").slice(-1)[0] ?? 0))
           .filter((value) => Number.isFinite(value))
           .reduce((acc, value) => Math.max(acc, value), 0);
         const nextLot = `${prefix}-${String(maxSeq + 1).padStart(3, "0")}`;
