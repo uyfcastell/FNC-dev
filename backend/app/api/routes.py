@@ -175,6 +175,7 @@ ALLOWED_RECIPE_PRODUCT_TYPES = {"MA", "PI", "PT", "PACK"}
 ALLOWED_PRODUCTION_PRODUCT_TYPES = {"MA", "PI", "PT", "PACK"}
 ALLOWED_RECIPE_COMPONENT_TYPES = {"MA", "MP", "CON", "PI", "PT", "PACK"}
 ALLOWED_ORDER_DEPOSIT_CONSUMABLE_TYPES = {"DEP"}
+ORDER_ENTRY_SKU_TYPES = {"PT", "PACK", "DEP", "PAP", "LIM"}
 SKU_PRODUCTION_TYPES = ALLOWED_PRODUCTION_PRODUCT_TYPES
 SKU_CONSUMABLE_CODE = "CON"
 SKU_SEMI_CODE = "SEMI"
@@ -929,10 +930,11 @@ def _validate_order_items(session: Session, items: list[dict]) -> None:
         type_code = sku.sku_type.code if sku.sku_type else ""
         if not (sku.sku_type and sku.sku_type.is_active):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún tipo de SKU está inactivo")
-        if type_code in {"MP", "SEMI"}:
+        if type_code not in ORDER_ENTRY_SKU_TYPES:
+            allowed_label = _format_allowed_types(ORDER_ENTRY_SKU_TYPES)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No se permiten MP o SEMI en pedidos",
+                detail=f"Tipo de producto no permitido para pedidos. Permitidos: {allowed_label}",
             )
         if not sku.is_active:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún SKU está inactivo")
@@ -2463,6 +2465,29 @@ def list_skus(
     if tags:
         normalized_tags = [tag.upper() for tag in tags]
         statement = statement.where(SKUType.code.in_(normalized_tags))
+    if not include_inactive:
+        statement = statement.where(SKU.is_active.is_(True), SKUType.is_active.is_(True))
+    if search:
+        like = f"%{search.lower()}%"
+        statement = statement.where((SKU.name.ilike(like)) | (SKU.code.ilike(like)))
+    statement = statement.order_by(SKU.name, SKU.code)
+    skus = session.exec(statement).all()
+    return [_map_sku(item, session) for item in skus]
+
+
+@router.get(
+    "/orders/catalog",
+    tags=["orders"],
+    response_model=list[SKURead],
+    dependencies=[Depends(require_permissions("skus.view"))],
+)
+def list_order_entry_skus(
+    include_inactive: bool = False,
+    search: str | None = None,
+    session: Session = Depends(get_session),
+) -> list[SKURead]:
+    """Listado de SKUs permitidos para ingreso/edición de pedidos."""
+    statement = select(SKU).join(SKUType).where(SKUType.code.in_(ORDER_ENTRY_SKU_TYPES))
     if not include_inactive:
         statement = statement.where(SKU.is_active.is_(True), SKUType.is_active.is_(True))
     if search:

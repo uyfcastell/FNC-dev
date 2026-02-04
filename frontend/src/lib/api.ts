@@ -844,6 +844,18 @@ export async function fetchSkus(params?: { sku_type_ids?: number[]; tags?: strin
   return apiRequest(`/skus${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener la lista de SKUs");
 }
 
+export async function fetchOrderEntrySkus(params?: { include_inactive?: boolean; search?: string }): Promise<SKU[]> {
+  const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  if (params?.search) {
+    query.append("search", params.search);
+  }
+  const queryString = query.toString();
+  return apiRequest(`/orders/catalog${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener los SKUs de pedidos");
+}
+
 export async function fetchDailyOverheads(params?: { date_from?: string; date_to?: string }): Promise<DailyOverhead[]> {
   const query = new URLSearchParams();
   if (params?.date_from) {

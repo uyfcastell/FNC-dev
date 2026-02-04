@@ -30,8 +30,8 @@ import { useAuth } from "../lib/auth";
 import {
   createOrder,
   fetchDeposits,
+  fetchOrderEntrySkus,
   fetchOrders,
-  fetchSkus,
   updateOrder,
   updateOrderStatus,
   Deposit,
@@ -123,9 +123,9 @@ export function MobileOrdersPage() {
 
   const loadCatalog = async () => {
     try {
-      const [depositList, skuList] = await Promise.all([fetchDeposits(), fetchSkus({ include_inactive: true })]);
+      const [depositList, skuList] = await Promise.all([fetchDeposits(), fetchOrderEntrySkus({ include_inactive: true })]);
       setDeposits(depositList.filter((deposit) => deposit.is_store));
-      setSkus(skuList.filter((sku) => !["MP", "SEMI"].includes(sku.sku_type_code)));
+      setSkus(skuList);
       setError(null);
     } catch (err) {
       console.error(err);
