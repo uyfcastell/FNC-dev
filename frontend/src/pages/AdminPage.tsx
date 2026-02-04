@@ -339,21 +339,38 @@ export function AdminPage() {
     void loadData();
   }, []);
 
-  useEffect(() => {
-    const catalogFromParams = catalogParamToKey(searchParams.get("cat"));
-    if (catalogFromParams && catalogFromParams !== selectedCatalog) {
-      setSelectedCatalog(catalogFromParams);
-    }
-  }, [searchParams, selectedCatalog]);
+  const selectedCatalogRef = useRef(selectedCatalog);
 
   useEffect(() => {
+    selectedCatalogRef.current = selectedCatalog;
+  }, [selectedCatalog]);
+
+  useEffect(() => {
+    const catalogFromParams = catalogParamToKey(searchParams.get("cat"));
+    if (catalogFromParams && catalogFromParams !== selectedCatalogRef.current) {
+      setSelectedCatalog(catalogFromParams);
+      return;
+    }
+
+    if (!catalogFromParams) {
+      const nextParams = new URLSearchParams(searchParams);
+      const nextValue = CATALOG_QUERY_PARAM_MAP[selectedCatalogRef.current];
+      if (nextParams.get("cat") !== nextValue) {
+        nextParams.set("cat", nextValue);
+        setSearchParams(nextParams, { replace: true });
+      }
+    }
+  }, [searchParams, setSearchParams]);
+
+  const updateSelectedCatalog = (catalog: CatalogKey) => {
+    setSelectedCatalog(catalog);
     const nextParams = new URLSearchParams(searchParams);
-    const nextValue = CATALOG_QUERY_PARAM_MAP[selectedCatalog];
+    const nextValue = CATALOG_QUERY_PARAM_MAP[catalog];
     if (nextParams.get("cat") !== nextValue) {
       nextParams.set("cat", nextValue);
       setSearchParams(nextParams, { replace: true });
     }
-  }, [searchParams, selectedCatalog, setSearchParams]);
+  };
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
@@ -1774,7 +1791,7 @@ export function AdminPage() {
                     fullWidth
                     label="Catálogo"
                     value={selectedCatalog}
-                    onChange={(event) => setSelectedCatalog(event.target.value as CatalogKey)}
+                    onChange={(event) => updateSelectedCatalog(event.target.value as CatalogKey)}
                   >
                     {Object.entries(catalogMeta).map(([key, meta]) => (
                       <MenuItem key={key} value={key}>
@@ -1785,7 +1802,11 @@ export function AdminPage() {
                 ) : (
                   <List disablePadding>
                     {Object.entries(catalogMeta).map(([key, meta]) => (
-                      <ListItemButton key={key} selected={selectedCatalog === key} onClick={() => setSelectedCatalog(key as CatalogKey)}>
+                      <ListItemButton
+                        key={key}
+                        selected={selectedCatalog === key}
+                        onClick={() => updateSelectedCatalog(key as CatalogKey)}
+                      >
                         <ListItemText primary={meta.title} secondary={meta.description} />
                       </ListItemButton>
                     ))}
