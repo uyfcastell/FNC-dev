@@ -29,7 +29,7 @@ import {
   StockMovementType,
 } from "../lib/api";
 
-const ALLOWED_TYPE_CODES: string[] = ["MP", "SEMI", "PT"];
+const ALLOWED_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 
 export function MobileProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);

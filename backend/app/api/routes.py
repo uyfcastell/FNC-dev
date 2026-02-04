@@ -172,9 +172,10 @@ api_router = APIRouter()
 AUDIT_EXPORT_LIMIT = 10000
 
 ALLOWED_RECIPE_PRODUCT_TYPES = {"MA", "PI", "PT", "PACK"}
+ALLOWED_PRODUCTION_PRODUCT_TYPES = {"MA", "PI", "PT", "PACK"}
 ALLOWED_RECIPE_COMPONENT_TYPES = {"MA", "MP", "CON", "PI", "PT", "PACK"}
 ALLOWED_ORDER_DEPOSIT_CONSUMABLE_TYPES = {"DEP"}
-SKU_PRODUCTION_TYPES = ALLOWED_RECIPE_PRODUCT_TYPES
+SKU_PRODUCTION_TYPES = ALLOWED_PRODUCTION_PRODUCT_TYPES
 SKU_CONSUMABLE_CODE = "CON"
 SKU_SEMI_CODE = "SEMI"
 OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
@@ -5350,6 +5351,8 @@ def _apply_stock_movement(
     delta = -base_quantity if is_outgoing else base_quantity
 
     produced_at = payload.movement_date or date.today()
+    if movement_code == "PRODUCTION":
+        _validate_sku_type_allowed(sku, ALLOWED_PRODUCTION_PRODUCT_TYPES, "Tipo de producto")
     if movement_code == "PRODUCTION" and not production_line:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La línea de producción es obligatoria")
     if movement_code == "PURCHASE" and deposit.controls_lot and not (payload.lot_code or payload.production_lot_id):
