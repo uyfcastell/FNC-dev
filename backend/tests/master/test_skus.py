@@ -47,7 +47,7 @@ def test_create_valid_sku(client):
 def test_delete_sku_in_use_returns_conflict(client):
     res = client.get("/api/skus")
     assert res.status_code == 200
-    sku = next(item for item in res.json() if item["code"] == "CUC-GRANEL")
+    sku = next(item for item in res.json() if item["code"] == "CUC-PT-24")
     delete_res = client.delete(f"/api/skus/{sku['id']}")
     assert delete_res.status_code == 409
 

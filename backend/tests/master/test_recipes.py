@@ -8,6 +8,20 @@ def _get_sku_type_id(client, code: str) -> int:
     return next(item["id"] for item in data if item["code"] == code)
 
 
+def _create_sku(client, sku_type_code: str, name: str) -> dict:
+    sku_type_id = _get_sku_type_id(client, sku_type_code)
+    payload = {
+        "code": f"TEST-{sku_type_code}-{uuid.uuid4().hex[:6]}",
+        "name": name,
+        "sku_type_id": sku_type_id,
+        "unit": "unit",
+        "is_active": True,
+    }
+    res = client.post("/api/skus", json=payload)
+    assert res.status_code in (200, 201)
+    return res.json()
+
+
 def test_inactivate_recipe_filters_by_default(client):
     sku_type_id = _get_sku_type_id(client, "PT")
     sku_code = f"TEST-REC-{uuid.uuid4().hex[:6]}"
@@ -78,3 +92,54 @@ def test_delete_recipe_in_use_returns_conflict(client):
 
     delete_res = client.delete(f"/api/recipes/{recipe['id']}")
     assert delete_res.status_code == 409
+
+
+def test_recipe_allows_ma_pi_products_and_components(client):
+    component_ma = _create_sku(client, "MA", "Componente MA")
+    component_pi = _create_sku(client, "PI", "Componente PI")
+
+    for product_type in ["MA", "PI"]:
+        product = _create_sku(client, product_type, f"Producto {product_type}")
+        recipe_payload = {
+            "product_id": product["id"],
+            "name": f"Receta {product_type}",
+            "items": [
+                {"component_id": component_ma["id"], "quantity": 1},
+                {"component_id": component_pi["id"], "quantity": 2},
+            ],
+            "is_active": True,
+        }
+        res = client.post("/api/recipes", json=recipe_payload)
+        assert res.status_code in (200, 201)
+
+
+def test_recipe_rejects_disallowed_types(client):
+    product = _create_sku(client, "CON", "Producto CON")
+    component = _create_sku(client, "PAP", "Componente PAP")
+
+    res = client.post(
+        "/api/recipes",
+        json={
+            "product_id": product["id"],
+            "name": "Receta inválida",
+            "items": [{"component_id": component["id"], "quantity": 1}],
+            "is_active": True,
+        },
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Tipo de producto CON no permitido; permitido: MA, PACK, PI, PT"
+
+    product_ok = _create_sku(client, "MA", "Producto MA")
+    res = client.post(
+        "/api/recipes",
+        json={
+            "product_id": product_ok["id"],
+            "name": "Receta inválida componente",
+            "items": [{"component_id": component["id"], "quantity": 1}],
+            "is_active": True,
+        },
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == (
+        "Tipo de componente PAP no permitido; permitido: CON, MA, MP, PACK, PI, PT"
+    )

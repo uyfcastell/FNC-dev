@@ -171,7 +171,10 @@ api_router = APIRouter()
 
 AUDIT_EXPORT_LIMIT = 10000
 
-SKU_PRODUCTION_TYPES = {"PT", "SEMI"}
+ALLOWED_RECIPE_PRODUCT_TYPES = {"MA", "PI", "PT", "PACK"}
+ALLOWED_RECIPE_COMPONENT_TYPES = {"MA", "MP", "CON", "PI", "PT", "PACK"}
+ALLOWED_ORDER_DEPOSIT_CONSUMABLE_TYPES = {"DEP"}
+SKU_PRODUCTION_TYPES = ALLOWED_RECIPE_PRODUCT_TYPES
 SKU_CONSUMABLE_CODE = "CON"
 SKU_SEMI_CODE = "SEMI"
 OUTGOING_MOVEMENTS = {"CONSUMPTION", "MERMA", "REMITO"}
@@ -189,6 +192,20 @@ def _encode_changes(payload: dict | list | None) -> dict | None:
         return None
     encoded = jsonable_encoder(payload, exclude_none=True)
     return encoded if isinstance(encoded, dict) else {"items": encoded}
+
+
+def _format_allowed_types(types: set[str]) -> str:
+    return ", ".join(sorted(types))
+
+
+def _validate_sku_type_allowed(sku: SKU, allowed_types: set[str], label: str) -> None:
+    type_code = sku.sku_type.code if sku.sku_type else ""
+    if type_code not in allowed_types:
+        allowed_label = _format_allowed_types(allowed_types)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{label} {type_code} no permitido; permitido: {allowed_label}",
+        )
 
 def _get_request_ip_address(request: Request | None) -> str | None:
     if not request:
@@ -3314,21 +3331,19 @@ def create_recipe(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
 
     session.refresh(product, attribute_names=["sku_type"])
-    product_type = product.sku_type.code if product.sku_type else ""
-    if product_type not in SKU_PRODUCTION_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Solo se pueden crear recetas para productos PT o SEMI",
-        )
+    _validate_sku_type_allowed(product, ALLOWED_RECIPE_PRODUCT_TYPES, "Tipo de producto")
 
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La receta debe tener al menos un componente")
 
     # Validate components exist
     component_ids = {item.component_id for item in payload.items}
-    existing_components = session.exec(select(SKU.id).where(SKU.id.in_(component_ids))).all()
-    if len(existing_components) != len(component_ids):
+    components = session.exec(select(SKU).where(SKU.id.in_(component_ids))).all()
+    if len(components) != len(component_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún componente no existe")
+    for component in components:
+        session.refresh(component, attribute_names=["sku_type"])
+        _validate_sku_type_allowed(component, ALLOWED_RECIPE_COMPONENT_TYPES, "Tipo de componente")
 
     recipe = Recipe(product_id=payload.product_id, name=payload.name, is_active=payload.is_active)
     session.add(recipe)
@@ -3389,17 +3404,18 @@ def update_recipe(
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado")
     session.refresh(product, attribute_names=["sku_type"])
-    product_type = product.sku_type.code if product.sku_type else ""
-    if product_type not in SKU_PRODUCTION_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se permiten PT o SEMI")
+    _validate_sku_type_allowed(product, ALLOWED_RECIPE_PRODUCT_TYPES, "Tipo de producto")
 
     if not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La receta debe tener al menos un componente")
 
     component_ids = {item.component_id for item in payload.items}
-    existing_components = session.exec(select(SKU.id).where(SKU.id.in_(component_ids))).all()
-    if len(existing_components) != len(component_ids):
+    components = session.exec(select(SKU).where(SKU.id.in_(component_ids))).all()
+    if len(components) != len(component_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún componente no existe")
+    for component in components:
+        session.refresh(component, attribute_names=["sku_type"])
+        _validate_sku_type_allowed(component, ALLOWED_RECIPE_COMPONENT_TYPES, "Tipo de componente")
 
     update_fields = payload.model_dump(exclude_unset=True)
     items_payload = update_fields.pop("items", None)
