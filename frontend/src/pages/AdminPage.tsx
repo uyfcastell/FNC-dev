@@ -43,6 +43,8 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
   useMediaQuery,
@@ -182,6 +184,7 @@ export function AdminPage() {
   const [recipeNameFilter, setRecipeNameFilter] = useState("");
   const [recipeProductFilter, setRecipeProductFilter] = useState("");
   const [recipeIngredientFilter, setRecipeIngredientFilter] = useState("");
+  const [recipeComponentOrder, setRecipeComponentOrder] = useState<"name" | "code">("name");
   const [depositSearch, setDepositSearch] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [userNameFilter, setUserNameFilter] = useState("");
@@ -505,6 +508,7 @@ export function AdminPage() {
 
   const matchesSearch = (text: string, search: string) => text.toLowerCase().includes(search.trim().toLowerCase());
   const skuLabel = (sku: SKU) => `${sku.name} (${sku.code})`;
+  const recipeComponentLabel = (sku: SKU) => (recipeComponentOrder === "code" ? `${sku.code} (${sku.name})` : skuLabel(sku));
   const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label || unitCode || "";
   const skuAlertSummary = (sku: SKU) => {
     const parts: string[] = [];
@@ -532,8 +536,16 @@ export function AdminPage() {
     [sortedSkus]
   );
   const recipeComponents = useMemo(
-    () => sortedSkus.filter((sku) => RECIPE_COMPONENT_CODES.includes(sku.sku_type_code) && sku.is_active),
-    [sortedSkus]
+    () => {
+      const base = skus.filter((sku) => RECIPE_COMPONENT_CODES.includes(sku.sku_type_code) && sku.is_active);
+      const locale = ["es-ES", "es-UY"];
+      return [...base].sort((a, b) =>
+        recipeComponentOrder === "code"
+          ? a.code.localeCompare(b.code, locale)
+          : a.name.localeCompare(b.name, locale)
+      );
+    },
+    [recipeComponentOrder, skus]
   );
   const skuNameOptions = useMemo(
     () => Array.from(new Set(sortedSkus.map((sku) => sku.name))).sort((a, b) => a.localeCompare(b)),
@@ -2730,7 +2742,24 @@ export function AdminPage() {
                 }
                 label="Activo"
               />
-              <Typography variant="subtitle2">Componentes</Typography>
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Typography variant="subtitle2">Componentes</Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="caption" color="text.secondary">
+                    Orden:
+                  </Typography>
+                  <ToggleButtonGroup
+                    size="small"
+                    value={recipeComponentOrder}
+                    exclusive
+                    onChange={(_, value) => value && setRecipeComponentOrder(value)}
+                    aria-label="Ordenar componentes"
+                  >
+                    <ToggleButton value="name">Nombre</ToggleButton>
+                    <ToggleButton value="code">Código</ToggleButton>
+                  </ToggleButtonGroup>
+                </Stack>
+              </Stack>
               <Stack spacing={1}>
                 {recipeForm.items.map((item, index) => (
                   <Stack key={index} direction="row" spacing={1} alignItems="center">
@@ -2744,7 +2773,7 @@ export function AdminPage() {
                     >
                       {recipeComponents.map((sku) => (
                         <MenuItem key={sku.id} value={sku.id}>
-                          {skuLabel(sku)}
+                          {recipeComponentLabel(sku)}
                         </MenuItem>
                       ))}
                     </TextField>
@@ -2843,7 +2872,7 @@ export function AdminPage() {
                   <MenuItem value="">Todos</MenuItem>
                   {recipeComponents.map((sku) => (
                     <MenuItem key={sku.id} value={String(sku.id)}>
-                      {skuLabel(sku)}
+                      {recipeComponentLabel(sku)}
                     </MenuItem>
                   ))}
                 </TextField>
