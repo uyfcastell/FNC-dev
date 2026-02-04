@@ -46,6 +46,7 @@ import {
   Deposit,
   fetchDeposits,
   fetchProductionLines,
+  fetchProductionLots,
   fetchRecipes,
   fetchSkus,
   fetchStockMovementTypes,
@@ -83,6 +84,7 @@ export function ProductionPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"production" | "overheads">("production");
 
+  const [productionDate, setProductionDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [overheadDate, setOverheadDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [dailyOverhead, setDailyOverhead] = useState<DailyOverhead | null>(null);
   const [overheadForm, setOverheadForm] = useState({
@@ -180,6 +182,47 @@ export function ProductionPage() {
     () => (productionForm.quantity ? Number(productionForm.quantity) : 0),
     [productionForm.quantity]
   );
+
+  useEffect(() => {
+    let isActive = true;
+    const generateLotCode = async () => {
+      if (!productionForm.product_sku_id || !productionForm.production_line_id || !productionDate) {
+        setProductionForm((prev) => (prev.lot_code ? { ...prev, lot_code: "" } : prev));
+        return;
+      }
+      const sku = skus.find((item) => item.id === productionForm.product_sku_id);
+      if (!sku) {
+        setProductionForm((prev) => (prev.lot_code ? { ...prev, lot_code: "" } : prev));
+        return;
+      }
+      const datePart = productionDate.replace(/-/g, "").slice(2);
+      const prefix = `${datePart}-L${productionForm.production_line_id}-${sku.code}`;
+      try {
+        const lots = await fetchProductionLots({
+          sku_id: productionForm.product_sku_id,
+          production_line_id: productionForm.production_line_id,
+        });
+        const maxSeq = lots
+          .filter((lot) => lot.produced_at === productionDate && lot.lot_code.startsWith(prefix))
+          .map((lot) => Number(lot.lot_code.split("-").at(-1) ?? 0))
+          .filter((value) => Number.isFinite(value))
+          .reduce((acc, value) => Math.max(acc, value), 0);
+        const nextLot = `${prefix}-${String(maxSeq + 1).padStart(3, "0")}`;
+        if (isActive) {
+          setProductionForm((prev) => ({ ...prev, lot_code: nextLot }));
+        }
+      } catch (err) {
+        console.error(err);
+        if (isActive) {
+          setProductionForm((prev) => ({ ...prev, lot_code: `${prefix}-001` }));
+        }
+      }
+    };
+    void generateLotCode();
+    return () => {
+      isActive = false;
+    };
+  }, [productionDate, productionForm.product_sku_id, productionForm.production_line_id, skus]);
 
   useEffect(() => {
     void loadData();
@@ -520,10 +563,12 @@ export function ProductionPage() {
         movement_type_id: productionMovementType.id,
         unit: unit,
         lot_code: productionForm.lot_code.trim() || undefined,
+        movement_date: productionDate || undefined,
         reference: productionForm.reference || "Orden de producción",
       });
       setSuccess("Producción registrada en stock");
       setProductionForm({ product_sku_id: null, deposit_id: null, production_line_id: null, lot_code: "", quantity: "", reference: "" });
+      setProductionDate(new Date().toISOString().split("T")[0]);
       await loadData();
     } catch (err) {
       console.error(err);
@@ -674,7 +719,7 @@ export function ProductionPage() {
         <>
           <Stack spacing={2}>
             <Card>
-              <CardHeader title="Registrar producción" subheader="Suma stock de PT o SEMI en un depósito" />
+              <CardHeader title="Registrar producción" />
               <Divider />
               <CardContent>
                 <Stack component="form" spacing={2} onSubmit={handleProductionSubmit}>
@@ -704,14 +749,19 @@ export function ProductionPage() {
                     options={productionLineOptions}
                     value={productionForm.production_line_id}
                     onChange={(value) => setProductionForm((prev) => ({ ...prev, production_line_id: value }))}
-                    helperText="Obligatorio para registrar un lote de producción"
                   />
                   <TextField
-                    label="Lote (opcional)"
+                    label="Fecha"
+                    type="date"
+                    value={productionDate}
+                    onChange={(e) => setProductionDate(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <TextField
+                    label="Lote"
                     placeholder="YYMMDD-Lx-SKU-###"
                     value={productionForm.lot_code}
-                    onChange={(e) => setProductionForm((prev) => ({ ...prev, lot_code: e.target.value }))}
-                    helperText="Si lo dejas vacío, el sistema lo generará"
+                    InputProps={{ readOnly: true }}
                   />
                   <TextField
                     required
