@@ -30,8 +30,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import {
   createOrder,
-  fetchDeposits,
   fetchOrderEntrySkus,
+  fetchOrderStores,
   fetchOrders,
   fetchShipment,
   fetchShipments,
@@ -146,7 +146,7 @@ export function OrdersPage() {
       const [orderList, skuList, depositList] = await Promise.all([
         fetchOrders(),
         fetchOrderEntrySkus({ include_inactive: true }),
-        fetchDeposits(),
+        fetchOrderStores(),
       ]);
       setOrders(orderList);
       setSkus(skuList);

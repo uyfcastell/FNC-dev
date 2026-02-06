@@ -29,8 +29,8 @@ import { SearchableSelect } from "../components/SearchableSelect";
 import { useAuth } from "../lib/auth";
 import {
   createOrder,
-  fetchDeposits,
   fetchOrderEntrySkus,
+  fetchOrderStores,
   fetchOrders,
   updateOrder,
   updateOrderStatus,
@@ -124,13 +124,13 @@ export function MobileOrdersPage() {
 
   const loadCatalog = async () => {
     try {
-      const [depositList, skuList] = await Promise.all([fetchDeposits(), fetchOrderEntrySkus({ include_inactive: true })]);
+      const [depositList, skuList] = await Promise.all([fetchOrderStores(), fetchOrderEntrySkus({ include_inactive: true })]);
       setDeposits(depositList.filter((deposit) => deposit.is_store));
       setSkus(skuList);
       setError(null);
     } catch (err) {
       console.error(err);
-      setError("No pudimos cargar locales o productos.");
+      setError("No pudimos cargar los locales destino.");
     }
   };
 

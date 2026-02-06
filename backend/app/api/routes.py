@@ -2495,7 +2495,7 @@ def list_skus(
     "/orders/catalog",
     tags=["orders"],
     response_model=list[SKURead],
-    dependencies=[Depends(require_permissions("skus.view"))],
+    dependencies=[Depends(require_permissions("orders.create"))],
 )
 def list_order_entry_skus(
     include_inactive: bool = False,
@@ -2512,6 +2512,19 @@ def list_order_entry_skus(
     statement = statement.order_by(SKU.name, SKU.code)
     skus = session.exec(statement).all()
     return [_map_sku(item, session) for item in skus]
+
+
+@router.get(
+    "/orders/stores",
+    tags=["orders"],
+    response_model=list[DepositRead],
+    dependencies=[Depends(require_permissions("orders.create"))],
+)
+def list_order_stores(include_inactive: bool = False, session: Session = Depends(get_session)) -> list[Deposit]:
+    statement = select(Deposit).where(Deposit.is_store.is_(True))
+    if not include_inactive:
+        statement = statement.where(Deposit.is_active.is_(True))
+    return session.exec(statement.order_by(Deposit.name)).all()
 
 
 @router.get("/skus/export.xlsx", tags=["sku"], dependencies=[Depends(require_permissions("skus.view"))])

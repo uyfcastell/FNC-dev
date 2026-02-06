@@ -18,7 +18,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { createOrder, fetchDeposits, fetchOrderEntrySkus, Deposit, SKU } from "../lib/api";
+import { createOrder, fetchOrderEntrySkus, fetchOrderStores, Deposit, SKU } from "../lib/api";
 import { ORDER_SECTIONS, OrderSectionKey } from "../lib/orderSections";
 
 const ORDER_PIN = "1959";
@@ -78,12 +78,12 @@ export function OrderEntryPage() {
 
   const loadCatalog = async () => {
     try {
-      const [skuList, depositList] = await Promise.all([fetchOrderEntrySkus(), fetchDeposits()]);
+      const [skuList, depositList] = await Promise.all([fetchOrderEntrySkus(), fetchOrderStores()]);
       setSkus(skuList);
       setDeposits(depositList);
     } catch (err) {
       console.error(err);
-      setError("No pudimos cargar productos o locales. ¿Backend activo?");
+      setError("No pudimos cargar los locales destino. ¿Backend activo?");
     }
   };
 
