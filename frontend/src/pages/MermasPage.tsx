@@ -41,6 +41,7 @@ import {
   fetchDeposits,
   fetchMermaCauses,
   fetchMermaEvents,
+  fetchMermaLots,
   fetchMermaTypes,
   fetchProductionLines,
   fetchSkus,
@@ -106,6 +107,8 @@ export function MermasPage() {
   const [events, setEvents] = useState<MermaEvent[] | null>(null);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<MermaEvent | null>(null);
+  const [availableLots, setAvailableLots] = useState<{ id: number; lot_code: string }[]>([]);
+  const [lotsLoading, setLotsLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -168,6 +171,34 @@ export function MermasPage() {
       }
     }
   }, [eventForm.sku_id, eventForm.unit, skus]);
+
+  useEffect(() => {
+    const loadLotsForSku = async () => {
+      if (!eventForm.sku_id) {
+        setAvailableLots([]);
+        return;
+      }
+      setLotsLoading(true);
+      try {
+        const lots = await fetchMermaLots({
+          sku_id: eventForm.sku_id,
+          deposit_id: eventForm.deposit_id ?? undefined,
+          available_only: true,
+        });
+        setAvailableLots(lots.map((lot) => ({ id: lot.id, lot_code: lot.lot_code })));
+        setEventForm((prev) => {
+          const lotExists = !!prev.lot_code && lots.some((lot) => lot.lot_code === prev.lot_code);
+          return lotExists ? prev : { ...prev, lot_code: "" };
+        });
+      } catch (err) {
+        console.error("No pudimos cargar lotes para merma", err);
+        setAvailableLots([]);
+      } finally {
+        setLotsLoading(false);
+      }
+    };
+    void loadLotsForSku();
+  }, [eventForm.sku_id, eventForm.deposit_id]);
 
   const handleFilterChange = (patch: Partial<typeof filters>) => {
     setFilters((prev) => {
@@ -336,7 +367,7 @@ export function MermasPage() {
         order_id: eventForm.order_id ? Number(eventForm.order_id) : undefined,
         production_line_id: eventForm.production_line_id ? Number(eventForm.production_line_id) : undefined,
         detected_at: eventForm.detected_at || undefined,
-        lot_code: eventForm.lot_code || undefined,
+        lot_code: eventForm.lot_code?.trim() ? eventForm.lot_code.trim() : undefined,
         affects_stock: eventForm.affects_stock,
         action: eventForm.action,
       });
@@ -504,11 +535,29 @@ export function MermasPage() {
                 )}
                 <Grid item xs={12} md={3}>
                   <TextField
+                    select
                     fullWidth
                     label="Lote"
                     value={eventForm.lot_code || ""}
                     onChange={(e) => setEventForm((prev) => ({ ...prev, lot_code: e.target.value }))}
-                  />
+                    disabled={!eventForm.sku_id || lotsLoading || availableLots.length === 0}
+                    helperText={
+                      !eventForm.sku_id
+                        ? "Seleccioná un SKU para ver lotes"
+                        : lotsLoading
+                          ? "Cargando lotes..."
+                          : availableLots.length === 0
+                            ? "Este producto no tiene lotes disponibles. Se registrará sin lote."
+                            : "Opcional: seleccioná un lote o dejalo vacío"
+                    }
+                  >
+                    <MenuItem value="">Sin lote</MenuItem>
+                    {availableLots.map((lot) => (
+                      <MenuItem key={lot.id} value={lot.lot_code}>
+                        {lot.lot_code}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                 </Grid>
                 <Grid item xs={12} md={3}>
                   <TextField
