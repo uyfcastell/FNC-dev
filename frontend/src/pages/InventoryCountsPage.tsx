@@ -280,8 +280,12 @@ export function InventoryCountsPage() {
               Ítems del conteo
             </Typography>
             <Stack spacing={1.5}>
-              {lines.map((line, idx) => (
-                <Grid container spacing={2} key={idx} alignItems="center">
+              {lines.map((line, idx) => {
+                const skuLots = line.sku_id ? lotsBySku[Number(line.sku_id)] ?? [] : [];
+                const hasLotOptions = skuLots.length > 0;
+
+                return (
+                  <Grid container spacing={2} key={idx} alignItems="center">
                   <Grid item xs={12} md={5}>
                     <SearchableSelect
                       label="SKU"
@@ -301,34 +305,10 @@ export function InventoryCountsPage() {
                     />
                   </Grid>
                   <Grid item xs={12} md={3}>
-                    <SearchableSelect
-                      label={selectedDeposit?.controls_lot ? "Lote" : "Lote (opcional)"}
-                      value={line.production_lot_id ? Number(line.production_lot_id) : null}
-                      options={(line.sku_id ? lotsBySku[Number(line.sku_id)] ?? [] : []).map((lot) => ({
-                        value: lot.id,
-                        label: `${lot.lot_code} · ${lot.sku_name}`,
-                        description: `Disponible: ${lot.remaining_quantity.toFixed(2)}`,
-                      }))}
-                      onChange={(value) => {
-                        handleLineChange(idx, "production_lot_id", value ? String(value) : "");
-                        if (value) {
-                          const selectedLot = (line.sku_id ? lotsBySku[Number(line.sku_id)] ?? [] : []).find((lot) => lot.id === value);
-                          handleLineChange(idx, "lot_code", selectedLot?.lot_code ?? "");
-                        }
-                      }}
-                      noOptionsText={line.sku_id ? "No hay lotes disponibles para este producto" : "Selecciona un SKU"}
-                      disabled={!selectedDeposit?.controls_lot || !line.sku_id}
-                    />
-                    {selectedDeposit?.controls_lot && line.sku_id && ((lotsBySku[Number(line.sku_id)] ?? []).length === 0) && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                        No hay lotes disponibles para este producto.
-                      </Typography>
-                    )}
-                    {selectedDeposit?.controls_lot && (
+                    {selectedDeposit?.controls_lot && !hasLotOptions ? (
                       <TextField
-                        label="Lote manual (opcional)"
+                        label="Lote (opcional)"
                         fullWidth
-                        sx={{ mt: 1 }}
                         value={line.lot_code}
                         onChange={(e) => {
                           handleLineChange(idx, "lot_code", e.target.value);
@@ -336,6 +316,26 @@ export function InventoryCountsPage() {
                             handleLineChange(idx, "production_lot_id", "");
                           }
                         }}
+                        helperText="No hay lotes disponibles para este producto."
+                      />
+                    ) : (
+                      <SearchableSelect
+                        label={selectedDeposit?.controls_lot ? "Lote" : "Lote (opcional)"}
+                        value={line.production_lot_id ? Number(line.production_lot_id) : null}
+                        options={skuLots.map((lot) => ({
+                          value: lot.id,
+                          label: `${lot.lot_code} · ${lot.sku_name}`,
+                          description: `Disponible: ${lot.remaining_quantity.toFixed(2)}`,
+                        }))}
+                        onChange={(value) => {
+                          handleLineChange(idx, "production_lot_id", value ? String(value) : "");
+                          if (value) {
+                            const selectedLot = skuLots.find((lot) => lot.id === value);
+                            handleLineChange(idx, "lot_code", selectedLot?.lot_code ?? "");
+                          }
+                        }}
+                        noOptionsText={line.sku_id ? "No hay lotes disponibles para este producto" : "Selecciona un SKU"}
+                        disabled={!selectedDeposit?.controls_lot || !line.sku_id}
                       />
                     )}
                   </Grid>
@@ -344,8 +344,9 @@ export function InventoryCountsPage() {
                       <DeleteForever />
                     </IconButton>
                   </Grid>
-                </Grid>
-              ))}
+                  </Grid>
+                );
+              })}
               <Button startIcon={<AddCircleOutline />} onClick={addLine} sx={{ alignSelf: "flex-start" }}>
                 Agregar ítem
               </Button>
