@@ -29,9 +29,18 @@ import {
   SKU,
   StockMovementType,
 } from "../lib/api";
-import { normalizeQuantity, parseQuantityInput } from "../lib/quantity";
+import { normalizeQuantity, parseQuantityInput, shouldUseIntegerQuantity } from "../lib/quantity";
 
 const ALLOWED_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
+
+const getQuantityValidationError = (unitCode: string | null | undefined, inputText: string): string | null => {
+  const parsed = parseQuantityInput(inputText);
+  if (parsed === null) return null;
+  if (shouldUseIntegerQuantity(unitCode) && !Number.isInteger(parsed)) {
+    return `${(unitCode ?? "La unidad").toUpperCase()} debe ser entero`;
+  }
+  return null;
+};
 
 export function MobileProductionPage() {
   const [skus, setSkus] = useState<SKU[]>([]);
@@ -121,6 +130,14 @@ export function MobileProductionPage() {
   const selectedMermaSku = productionSkus.find((sku) => sku.id === mermaForm.sku_id);
   const productionUnitCode = selectedProductionSku?.sku_type_code === "SEMI" ? "kg" : selectedProductionSku?.unit;
   const mermaUnitCode = selectedMermaSku?.sku_type_code === "SEMI" ? "kg" : selectedMermaSku?.unit;
+  const productionQuantityValidationError = useMemo(
+    () => getQuantityValidationError(productionUnitCode, productionQuantityInput),
+    [productionQuantityInput, productionUnitCode]
+  );
+  const mermaQuantityValidationError = useMemo(
+    () => getQuantityValidationError(mermaUnitCode, mermaQuantityInput),
+    [mermaQuantityInput, mermaUnitCode]
+  );
 
   const updateQuantityInput = (
     scope: "production" | "merma",
@@ -137,23 +154,25 @@ export function MobileProductionPage() {
   const commitQuantity = (scope: "production" | "merma", source: "blur" | "submit") => {
     const inputText = scope === "production" ? productionQuantityInput : mermaQuantityInput;
     const unitCode = scope === "production" ? productionUnitCode : mermaUnitCode;
-    const normalized = normalizeQuantity(unitCode, inputText);
+    const validationError = getQuantityValidationError(unitCode, inputText);
+    const normalized = validationError ? "" : normalizeQuantity(unitCode, inputText);
     if (import.meta.env.DEV) {
       console.debug("[MobileProductionQuantity] quantityCommitted updated", {
         scope,
         source,
         fromInput: inputText,
         normalized,
+        validationError,
       });
     }
     if (scope === "production") {
       setProductionQuantityCommitted(normalized);
-      setProductionQuantityInput(normalized);
+      if (normalized) setProductionQuantityInput(normalized);
     } else {
       setMermaQuantityCommitted(normalized);
-      setMermaQuantityInput(normalized);
+      if (normalized) setMermaQuantityInput(normalized);
     }
-    return normalized;
+    return { normalized, validationError };
   };
 
   useEffect(() => {
@@ -205,7 +224,11 @@ export function MobileProductionPage() {
     reset: () => void
   ) => {
     event.preventDefault();
-    const normalizedQuantity = commitQuantity(quantityScope, "submit");
+    const { normalized: normalizedQuantity, validationError } = commitQuantity(quantityScope, "submit");
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     if (
       !formState.sku_id ||
       !formState.deposit_id ||
@@ -339,14 +362,21 @@ export function MobileProductionPage() {
               value={productionQuantityInput}
               onChange={(e) => updateQuantityInput("production", e.target.value, "user_typing")}
               onBlur={() => commitQuantity("production", "blur")}
-              helperText={productionQuantityCommitted ? `Normalizado: ${productionQuantityCommitted}` : undefined}
+              error={Boolean(productionQuantityValidationError)}
+              helperText={productionQuantityValidationError ?? (productionQuantityCommitted ? `Normalizado: ${productionQuantityCommitted}` : undefined)}
             />
             <TextField
               label="Referencia / Orden"
               value={productionForm.reference}
               onChange={(e) => setProductionForm((prev) => ({ ...prev, reference: e.target.value }))}
             />
-            <Button type="submit" variant="contained" size="large" sx={{ py: 1.5, fontSize: 16 }}>
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              disabled={Boolean(productionQuantityValidationError)}
+              sx={{ py: 1.5, fontSize: 16 }}
+            >
               Guardar producción
             </Button>
           </Stack>
@@ -397,14 +427,22 @@ export function MobileProductionPage() {
               value={mermaQuantityInput}
               onChange={(e) => updateQuantityInput("merma", e.target.value, "user_typing")}
               onBlur={() => commitQuantity("merma", "blur")}
-              helperText={mermaQuantityCommitted ? `Normalizado: ${mermaQuantityCommitted}` : undefined}
+              error={Boolean(mermaQuantityValidationError)}
+              helperText={mermaQuantityValidationError ?? (mermaQuantityCommitted ? `Normalizado: ${mermaQuantityCommitted}` : undefined)}
             />
             <TextField
               label="Motivo / referencia"
               value={mermaForm.reference}
               onChange={(e) => setMermaForm((prev) => ({ ...prev, reference: e.target.value }))}
             />
-            <Button type="submit" variant="contained" color="warning" size="large" sx={{ py: 1.5, fontSize: 16 }}>
+            <Button
+              type="submit"
+              variant="contained"
+              color="warning"
+              size="large"
+              disabled={Boolean(mermaQuantityValidationError)}
+              sx={{ py: 1.5, fontSize: 16 }}
+            >
               Registrar merma
             </Button>
           </Stack>
