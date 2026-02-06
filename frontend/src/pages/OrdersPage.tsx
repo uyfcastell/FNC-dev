@@ -25,7 +25,7 @@ import {
   Typography,
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 import {
@@ -115,6 +115,8 @@ export function OrdersPage() {
     limpieza: [initialLine],
   });
   const { user, can } = useAuth();
+  const [searchParams] = useSearchParams();
+  const mineOnly = searchParams.get("mine")?.toLowerCase() === "true";
   const localUser = isLocalUser(user);
   const canSubmitOrders = can("orders.submit");
   const canCreateOrders = can("orders.create");
@@ -123,7 +125,7 @@ export function OrdersPage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [mineOnly]);
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const storeDeposits = useMemo(() => deposits.filter((d) => d.is_store), [deposits]);
@@ -144,7 +146,7 @@ export function OrdersPage() {
   const loadData = async () => {
     try {
       const [orderList, skuList, depositList] = await Promise.all([
-        fetchOrders(),
+        fetchOrders({ mine: mineOnly }),
         fetchOrderEntrySkus({ include_inactive: true }),
         fetchOrderStores(),
       ]);
