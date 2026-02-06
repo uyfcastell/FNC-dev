@@ -14,21 +14,15 @@ export const shouldUseIntegerQuantity = (unit?: string | null): boolean => {
   return INTEGER_UNITS.has(unit.toUpperCase());
 };
 
-const roundToDecimals = (value: number, decimals: number): number => {
-  if (decimals <= 0) return Math.round(value);
-  const factor = 10 ** decimals;
-  return Math.round((value + Number.EPSILON) * factor) / factor;
-};
-
 const toNormalizedString = (value: number, decimals: number): string => {
-  if (decimals <= 0) return String(Math.round(value));
-  const rounded = roundToDecimals(value, decimals);
-  return String(rounded);
+  if (decimals <= 0) return String(value);
+  return value.toFixed(decimals);
 };
 
 export const normalizeQuantity = (unit: string | null | undefined, inputText: string): string => {
   const parsed = parseQuantityInput(inputText);
   if (parsed === null) return "";
+  if (shouldUseIntegerQuantity(unit) && !Number.isInteger(parsed)) return "";
   const decimals = shouldUseIntegerQuantity(unit) ? 0 : 2;
   return toNormalizedString(parsed, decimals);
 };
