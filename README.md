@@ -212,6 +212,8 @@ Este documento sirve como base de alineación; no se ha agregado código ni estr
    cd backend
    cp .env.example .env  # Ajusta DATABASE_URL si usas otro Postgres
    ```
+   - `CORS_ORIGINS` acepta una lista separada por comas (ej: `http://localhost:5173,http://127.0.0.1:5173,https://tu-frontend-prod`).
+   - `CORS_ALLOW_CREDENTIALS=true` solo si usarás cookies/sesión; para Bearer token mantén `false`.
    - `LOAD_SEED=true` precarga roles, depósitos y SKUs de ejemplo al iniciar.
 2. Instala dependencias y crea tablas:
    ```bash
