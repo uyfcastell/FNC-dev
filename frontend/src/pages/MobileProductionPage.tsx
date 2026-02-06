@@ -29,6 +29,7 @@ import {
   SKU,
   StockMovementType,
 } from "../lib/api";
+import { normalizeQuantity, parseQuantityInput } from "../lib/quantity";
 
 const ALLOWED_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 
@@ -46,16 +47,18 @@ export function MobileProductionPage() {
     deposit_id: null as number | null,
     production_line_id: null as number | null,
     lot_code: "",
-    quantity: "",
     reference: "",
   });
+  const [productionQuantityInput, setProductionQuantityInput] = useState("");
+  const [productionQuantityCommitted, setProductionQuantityCommitted] = useState("");
 
   const [mermaForm, setMermaForm] = useState({
     sku_id: null as number | null,
     deposit_id: null as number | null,
-    quantity: "",
     reference: "Merma/Descarte",
   });
+  const [mermaQuantityInput, setMermaQuantityInput] = useState("");
+  const [mermaQuantityCommitted, setMermaQuantityCommitted] = useState("");
 
   useEffect(() => {
     void loadCatalog();
@@ -116,6 +119,42 @@ export function MobileProductionPage() {
   }, [productionLines, selectedProductionLine]);
   const selectedProductionSku = productionSkus.find((sku) => sku.id === productionForm.sku_id);
   const selectedMermaSku = productionSkus.find((sku) => sku.id === mermaForm.sku_id);
+  const productionUnitCode = selectedProductionSku?.sku_type_code === "SEMI" ? "kg" : selectedProductionSku?.unit;
+  const mermaUnitCode = selectedMermaSku?.sku_type_code === "SEMI" ? "kg" : selectedMermaSku?.unit;
+
+  const updateQuantityInput = (
+    scope: "production" | "merma",
+    nextValue: string,
+    source: "user_typing" | "recompute"
+  ) => {
+    if (scope === "production") setProductionQuantityInput(nextValue);
+    else setMermaQuantityInput(nextValue);
+    if (import.meta.env.DEV) {
+      console.debug("[MobileProductionQuantity] quantityInput updated", { scope, source, nextValue });
+    }
+  };
+
+  const commitQuantity = (scope: "production" | "merma", source: "blur" | "submit") => {
+    const inputText = scope === "production" ? productionQuantityInput : mermaQuantityInput;
+    const unitCode = scope === "production" ? productionUnitCode : mermaUnitCode;
+    const normalized = normalizeQuantity(unitCode, inputText);
+    if (import.meta.env.DEV) {
+      console.debug("[MobileProductionQuantity] quantityCommitted updated", {
+        scope,
+        source,
+        fromInput: inputText,
+        normalized,
+      });
+    }
+    if (scope === "production") {
+      setProductionQuantityCommitted(normalized);
+      setProductionQuantityInput(normalized);
+    } else {
+      setMermaQuantityCommitted(normalized);
+      setMermaQuantityInput(normalized);
+    }
+    return normalized;
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -162,11 +201,23 @@ export function MobileProductionPage() {
     event: FormEvent,
     movementTypeCode: string,
     formState: typeof productionForm | typeof mermaForm,
+    quantityScope: "production" | "merma",
     reset: () => void
   ) => {
     event.preventDefault();
-    if (!formState.sku_id || !formState.deposit_id || !formState.quantity || (movementTypeCode === "PRODUCTION" && !("production_line_id" in formState ? formState.production_line_id : null))) {
+    const normalizedQuantity = commitQuantity(quantityScope, "submit");
+    if (
+      !formState.sku_id ||
+      !formState.deposit_id ||
+      !normalizedQuantity ||
+      (movementTypeCode === "PRODUCTION" && !("production_line_id" in formState ? formState.production_line_id : null))
+    ) {
       setError(movementTypeCode === "PRODUCTION" ? "Completa SKU, depósito, línea y cantidad" : "Completa SKU, depósito y cantidad");
+      return;
+    }
+    const quantityValue = parseQuantityInput(normalizedQuantity);
+    if (quantityValue === null || quantityValue <= 0) {
+      setError("La cantidad debe ser un número mayor a cero.");
       return;
     }
     const movementType = movementTypes.find((type) => type.code === movementTypeCode && type.is_active);
@@ -181,7 +232,7 @@ export function MobileProductionPage() {
       await createStockMovement({
         sku_id: Number(formState.sku_id),
         deposit_id: Number(formState.deposit_id),
-        quantity: Number(formState.quantity),
+        quantity: quantityValue,
         movement_type_id: movementType.id,
         unit: unit,
         reference: formState.reference || undefined,
@@ -192,6 +243,13 @@ export function MobileProductionPage() {
       setSuccess("Registrado correctamente");
       setError(null);
       reset();
+      if (quantityScope === "production") {
+        setProductionQuantityInput("");
+        setProductionQuantityCommitted("");
+      } else {
+        setMermaQuantityInput("");
+        setMermaQuantityCommitted("");
+      }
       setProductionDate(new Date().toISOString().split("T")[0]);
       await loadCatalog();
     } catch (err) {
@@ -224,8 +282,8 @@ export function MobileProductionPage() {
             component="form"
             spacing={2}
             onSubmit={(e) =>
-              handleMovement(e, "PRODUCTION", productionForm, () =>
-                setProductionForm({ sku_id: null, deposit_id: null, production_line_id: null, lot_code: "", quantity: "", reference: "" })
+              handleMovement(e, "PRODUCTION", productionForm, "production", () =>
+                setProductionForm({ sku_id: null, deposit_id: null, production_line_id: null, lot_code: "", reference: "" })
               )
             }
             >
@@ -275,10 +333,13 @@ export function MobileProductionPage() {
             <TextField
               required
               label="Cantidad"
-              type="number"
-              inputProps={{ step: "0.01", style: { fontSize: 18, height: 24 } }}
-              value={productionForm.quantity}
-              onChange={(e) => setProductionForm((prev) => ({ ...prev, quantity: e.target.value }))}
+              type="text"
+              inputMode="decimal"
+              inputProps={{ style: { fontSize: 18, height: 24 } }}
+              value={productionQuantityInput}
+              onChange={(e) => updateQuantityInput("production", e.target.value, "user_typing")}
+              onBlur={() => commitQuantity("production", "blur")}
+              helperText={productionQuantityCommitted ? `Normalizado: ${productionQuantityCommitted}` : undefined}
             />
             <TextField
               label="Referencia / Orden"
@@ -303,7 +364,7 @@ export function MobileProductionPage() {
             component="form"
             spacing={2}
             onSubmit={(e) =>
-              handleMovement(e, "MERMA", mermaForm, () => setMermaForm({ sku_id: null, deposit_id: null, quantity: "", reference: "Merma/Descarte" }))
+              handleMovement(e, "MERMA", mermaForm, "merma", () => setMermaForm({ sku_id: null, deposit_id: null, reference: "Merma/Descarte" }))
             }
           >
             <SearchableSelect
@@ -330,10 +391,13 @@ export function MobileProductionPage() {
             <TextField
               required
               label="Cantidad a descontar"
-              type="number"
-              inputProps={{ step: "0.01", style: { fontSize: 18, height: 24 } }}
-              value={mermaForm.quantity}
-              onChange={(e) => setMermaForm((prev) => ({ ...prev, quantity: e.target.value }))}
+              type="text"
+              inputMode="decimal"
+              inputProps={{ style: { fontSize: 18, height: 24 } }}
+              value={mermaQuantityInput}
+              onChange={(e) => updateQuantityInput("merma", e.target.value, "user_typing")}
+              onBlur={() => commitQuantity("merma", "blur")}
+              helperText={mermaQuantityCommitted ? `Normalizado: ${mermaQuantityCommitted}` : undefined}
             />
             <TextField
               label="Motivo / referencia"

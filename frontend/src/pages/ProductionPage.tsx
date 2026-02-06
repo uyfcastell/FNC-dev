@@ -59,6 +59,7 @@ import {
   updateDailyOverheadItem,
 } from "../lib/api";
 import { getOperationalDeposits } from "../lib/deposits";
+import { normalizeQuantity, parseQuantityInput } from "../lib/quantity";
 
 const PRODUCTION_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 const SHOW_INDIRECT_LABOR_SECTION = false;
@@ -131,9 +132,10 @@ export function ProductionPage() {
     production_line_id: null as number | null,
     lot_code: "",
     expiry_date: "",
-    quantity: "",
     reference: "",
   });
+  const [productionQuantityInput, setProductionQuantityInput] = useState("");
+  const [productionQuantityCommitted, setProductionQuantityCommitted] = useState("");
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const sortedDeposits = useMemo(
@@ -185,10 +187,28 @@ export function ProductionPage() {
     () => recipes.find((recipe) => recipe.product_id === productionForm.product_sku_id) ?? null,
     [productionForm.product_sku_id, recipes]
   );
-  const productionQuantityNumber = useMemo(
-    () => (productionForm.quantity ? Number(productionForm.quantity) : 0),
-    [productionForm.quantity]
-  );
+  const productionQuantityNumber = useMemo(() => parseQuantityInput(productionQuantityInput) ?? 0, [productionQuantityInput]);
+
+  const updateProductionQuantityInput = (nextValue: string, source: "user_typing" | "recompute") => {
+    setProductionQuantityInput(nextValue);
+    if (import.meta.env.DEV) {
+      console.debug("[ProductionQuantity] quantityInput updated", { source, nextValue });
+    }
+  };
+
+  const commitProductionQuantity = (source: "blur" | "submit") => {
+    const normalized = normalizeQuantity(productionUnitCode, productionQuantityInput);
+    if (import.meta.env.DEV) {
+      console.debug("[ProductionQuantity] quantityCommitted updated", {
+        source,
+        fromInput: productionQuantityInput,
+        normalized,
+      });
+    }
+    setProductionQuantityCommitted(normalized);
+    setProductionQuantityInput(normalized);
+    return normalized;
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -556,8 +576,18 @@ export function ProductionPage() {
 
   const handleProductionSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!productionForm.product_sku_id || !productionForm.deposit_id || !productionForm.production_line_id || !productionForm.quantity) {
+    if (!productionForm.product_sku_id || !productionForm.deposit_id || !productionForm.production_line_id) {
       setError("Selecciona SKU, depósito, línea y cantidad para registrar la producción");
+      return;
+    }
+    const normalizedQuantity = commitProductionQuantity("submit");
+    if (!normalizedQuantity) {
+      setError("Selecciona SKU, depósito, línea y cantidad para registrar la producción");
+      return;
+    }
+    const quantityValue = parseQuantityInput(normalizedQuantity);
+    if (quantityValue === null || quantityValue <= 0) {
+      setError("La cantidad debe ser un número mayor a cero.");
       return;
     }
     const productionMovementType = movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active);
@@ -572,7 +602,7 @@ export function ProductionPage() {
         sku_id: Number(productionForm.product_sku_id),
         deposit_id: Number(productionForm.deposit_id),
         production_line_id: Number(productionForm.production_line_id),
-        quantity: Number(productionForm.quantity),
+        quantity: quantityValue,
         movement_type_id: productionMovementType.id,
         unit: unit,
         lot_code: productionForm.lot_code.trim() || undefined,
@@ -587,9 +617,10 @@ export function ProductionPage() {
         production_line_id: null,
         lot_code: "",
         expiry_date: "",
-        quantity: "",
         reference: "",
       });
+      setProductionQuantityInput("");
+      setProductionQuantityCommitted("");
       setProductionDate(new Date().toISOString().split("T")[0]);
       await loadData();
     } catch (err) {
@@ -794,10 +825,13 @@ export function ProductionPage() {
                   <TextField
                     required
                     label="Cantidad producida"
-                    type="number"
-                    inputProps={{ step: "0.01" }}
-                    value={productionForm.quantity}
-                    onChange={(e) => setProductionForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                    type="text"
+                    inputMode="decimal"
+                    value={productionQuantityInput}
+                    onChange={(e) => updateProductionQuantityInput(e.target.value, "user_typing")}
+                    onBlur={() => {
+                      commitProductionQuantity("blur");
+                    }}
                     InputProps={
                       productionUnitBadge
                         ? {
@@ -809,7 +843,11 @@ export function ProductionPage() {
                           }
                         : undefined
                     }
-                    helperText={productionUnitLabel ? `Unidad del producto: ${productionUnitLabel}` : undefined}
+                    helperText={
+                      productionUnitLabel
+                        ? `Unidad del producto: ${productionUnitLabel}${productionQuantityCommitted ? ` · Normalizado: ${productionQuantityCommitted}` : ""}`
+                        : undefined
+                    }
                   />
                   {selectedProductionProduct && (
                     <Card variant="outlined" sx={{ bgcolor: "grey.50" }}>
