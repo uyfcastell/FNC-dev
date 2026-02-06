@@ -27,6 +27,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { SearchableSelect } from "../components/SearchableSelect";
 import {
+  ApiError,
   approveInventoryCount,
   cancelInventoryCount,
   closeInventoryCount,
@@ -91,7 +92,7 @@ export function InventoryCountsPage() {
       }
     } catch (err) {
       console.error(err);
-      setError("No pudimos cargar conteos o catálogos.");
+      setError(err instanceof ApiError ? err.message : "No pudimos cargar conteos o catálogos.");
     } finally {
       setLoading(false);
     }
@@ -146,7 +147,7 @@ export function InventoryCountsPage() {
       });
     } catch (err) {
       console.error(err);
-      setError("No pudimos cargar los lotes disponibles.");
+      setError(err instanceof ApiError ? err.message : "No pudimos cargar los lotes disponibles.");
     }
   };
 
@@ -159,14 +160,14 @@ export function InventoryCountsPage() {
       return;
     }
     const payloadItems: InventoryCountItemPayload[] = lines
-      .filter((line) => line.sku_id && Number(line.counted_quantity) > 0)
+      .filter((line) => line.sku_id && line.counted_quantity !== "" && Number(line.counted_quantity) >= 0)
       .map((line) => ({
         sku_id: Number(line.sku_id),
         counted_quantity: Number(line.counted_quantity),
         production_lot_id: line.production_lot_id ? Number(line.production_lot_id) : undefined,
       }));
     if (!payloadItems.length) {
-      setError("Agrega al menos un SKU con cantidad.");
+      setError("Agrega al menos un SKU con cantidad válida.");
       return;
     }
 
@@ -184,7 +185,7 @@ export function InventoryCountsPage() {
       setLines([emptyLine]);
     } catch (err) {
       console.error(err);
-      setError("No pudimos crear el conteo. Verifica lotes y cantidades.");
+      setError(err instanceof ApiError ? err.message : "No pudimos crear el conteo. Verifica lotes y cantidades.");
     }
   };
 
@@ -206,7 +207,7 @@ export function InventoryCountsPage() {
       setSuccess(`Conteo #${updated.id} actualizado.`);
     } catch (err) {
       console.error(err);
-      setError("No pudimos actualizar el conteo.");
+      setError(err instanceof ApiError ? err.message : "No pudimos actualizar el conteo.");
     } finally {
       setLoading(false);
     }
@@ -292,6 +293,7 @@ export function InventoryCountsPage() {
                     <TextField
                       label="Cantidad contada"
                       type="number"
+                      inputProps={{ min: 0 }}
                       fullWidth
                       value={line.counted_quantity}
                       onChange={(e) => handleLineChange(idx, "counted_quantity", e.target.value)}
