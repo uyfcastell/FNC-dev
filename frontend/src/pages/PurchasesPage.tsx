@@ -105,6 +105,7 @@ export function PurchasesPage() {
   const [items, setItems] = useState<PurchaseItemForm[]>([
     { sku_id: null, quantity: "", unit: "", lot_code: "", expiry_date: "", unit_cost: "" },
   ]);
+  const [itemExpiryErrors, setItemExpiryErrors] = useState<Record<number, string>>({});
 
   const skuOptions = useMemo(
     () =>
@@ -184,10 +185,45 @@ export function PurchasesPage() {
 
   const handleRemoveItem = (index: number) => {
     setItems((prev) => prev.filter((_, idx) => idx !== index));
+    setItemExpiryErrors((prev) => {
+      const next: Record<number, string> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const current = Number(key);
+        if (current < index) {
+          next[current] = value;
+        } else if (current > index) {
+          next[current - 1] = value;
+        }
+      });
+      return next;
+    });
   };
 
   const updateItem = (index: number, patch: Partial<PurchaseItemForm>) => {
     setItems((prev) => prev.map((item, idx) => (idx === index ? { ...item, ...patch } : item)));
+  };
+
+  const validateItemExpiryDate = (index: number, expiryDate: string, receivedAt: string) => {
+    if (!expiryDate) {
+      setItemExpiryErrors((prev) => {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
+      return true;
+    }
+    const receiptDate = receivedAt || new Date().toISOString().split("T")[0];
+    const isValid = expiryDate >= receiptDate;
+    setItemExpiryErrors((prev) => {
+      const next = { ...prev };
+      if (isValid) {
+        delete next[index];
+      } else {
+        next[index] = "La fecha de vencimiento no puede ser anterior a la fecha de recepción";
+      }
+      return next;
+    });
+    return isValid;
   };
 
   const handleCreateSupplier = async (event: FormEvent) => {
@@ -231,6 +267,12 @@ export function PurchasesPage() {
       setError("Completa SKU, cantidad y unidad en cada ítem.");
       return;
     }
+    const receivedAt = receiptForm.received_at || new Date().toISOString().split("T")[0];
+    const hasInvalidExpiry = items.some((item, index) => !validateItemExpiryDate(index, item.expiry_date, receivedAt));
+    if (hasInvalidExpiry) {
+      setError("Corrige la fecha de vencimiento: no puede ser anterior a la fecha de recepción.");
+      return;
+    }
     try {
       await createPurchaseReceipt({
         supplier_id: Number(receiptForm.supplier_id),
@@ -256,6 +298,7 @@ export function PurchasesPage() {
         notes: "",
       });
       setItems([{ sku_id: null, quantity: "", unit: "", lot_code: "", expiry_date: "", unit_cost: "" }]);
+      setItemExpiryErrors({});
       await loadData();
     } catch (err) {
       console.error(err);
@@ -372,7 +415,15 @@ export function PurchasesPage() {
                         label="Fecha recepción"
                         type="date"
                         value={receiptForm.received_at}
-                        onChange={(e) => setReceiptForm((prev) => ({ ...prev, received_at: e.target.value }))}
+                        onChange={(e) => {
+                          const nextValue = e.target.value;
+                          setReceiptForm((prev) => ({ ...prev, received_at: nextValue }));
+                          items.forEach((item, index) => {
+                            if (item.expiry_date) {
+                              validateItemExpiryDate(index, item.expiry_date, nextValue);
+                            }
+                          });
+                        }}
                         fullWidth
                         InputLabelProps={{ shrink: true }}
                       />
@@ -452,7 +503,10 @@ export function PurchasesPage() {
                               type="date"
                               value={item.expiry_date}
                               onChange={(e) => updateItem(index, { expiry_date: e.target.value })}
+                              onBlur={(e) => validateItemExpiryDate(index, e.target.value, receiptForm.received_at)}
                               InputLabelProps={{ shrink: true }}
+                              error={Boolean(itemExpiryErrors[index])}
+                              helperText={itemExpiryErrors[index]}
                             />
                           </TableCell>
                           <TableCell>
