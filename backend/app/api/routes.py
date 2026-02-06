@@ -3591,13 +3591,17 @@ def update_recipe_status(
 def list_orders(
     status_filter: OrderStatus | None = None,
     destination_deposit_id: int | None = None,
+    mine: bool = False,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> list[OrderRead]:
     statement = select(Order)
     if status_filter:
         statement = statement.where(Order.status == status_filter)
     if destination_deposit_id:
         statement = statement.where(Order.destination_deposit_id == destination_deposit_id)
+    if mine:
+        statement = statement.where(Order.created_by_user_id == current_user.id)
     orders = session.exec(statement.order_by(Order.created_at.desc())).all()
     return [_map_order(order, session) for order in orders]
 

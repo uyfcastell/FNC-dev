@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { getDeviceProfile, listenDeviceProfile } from "./lib/device";
 import { AppShell } from "./shell/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
+import { LocalHomePage } from "./pages/LocalHomePage";
 import { ProductionPage } from "./pages/ProductionPage";
 import { StockPage } from "./pages/StockPage";
 import { OrdersPage } from "./pages/OrdersPage";
@@ -16,6 +17,7 @@ import { PurchasesPage } from "./pages/PurchasesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MobilePinLoginPage } from "./pages/MobilePinLoginPage";
 import { MobileShell } from "./shell/MobileShell";
+import { LocalWebShell } from "./shell/LocalWebShell";
 import { MobileHomePage } from "./pages/MobileHomePage";
 import { MobileProductionPage } from "./pages/MobileProductionPage";
 import { MobileOrdersPage } from "./pages/MobileOrdersPage";
@@ -77,10 +79,14 @@ function MobileRoutes() {
 }
 
 function DesktopRoutes() {
+  const { user } = useAuth();
+  const localUser = isLocalUser(user);
+  const ShellComponent = localUser ? LocalWebShell : AppShell;
+
   return (
-    <AppShell>
+    <ShellComponent>
       <Routes>
-        <Route path="/" element={<GuardedRoute path="/" element={<DashboardPage />} />} />
+        <Route path="/" element={<GuardedRoute path="/" element={localUser ? <LocalHomePage /> : <DashboardPage />} />} />
         <Route path="/produccion" element={<GuardedRoute path="/produccion" element={<ProductionPage />} />} />
         <Route path="/stock" element={<GuardedRoute path="/stock" element={<StockPage />} />} />
         <Route path="/stock/movimientos" element={<GuardedRoute path="/stock/movimientos" element={<StockMovementsPage />} />} />
@@ -98,7 +104,7 @@ function DesktopRoutes() {
         <Route path="/reportes" element={<GuardedRoute path="/reportes" element={<ReportsPage />} />} />
         <Route path="*" element={<ForbiddenPage />} />
       </Routes>
-    </AppShell>
+    </ShellComponent>
   );
 }
 

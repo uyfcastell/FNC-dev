@@ -1408,10 +1408,11 @@ export async function createPurchaseReceipt(payload: PurchaseReceiptPayload): Pr
   );
 }
 
-export async function fetchOrders(params?: { status?: OrderStatus; destination_deposit_id?: number }): Promise<Order[]> {
+export async function fetchOrders(params?: { status?: OrderStatus; destination_deposit_id?: number; mine?: boolean }): Promise<Order[]> {
   const query = new URLSearchParams();
   if (params?.status) query.append("status_filter", params.status);
   if (params?.destination_deposit_id) query.append("destination_deposit_id", String(params.destination_deposit_id));
+  if (params?.mine) query.append("mine", "true");
   const queryString = query.toString();
   return apiRequest(`/orders${queryString ? `?${queryString}` : ""}`, {}, "No se pudieron obtener los pedidos");
 }
