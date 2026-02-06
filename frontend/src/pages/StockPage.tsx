@@ -26,6 +26,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { SearchableSelect } from "../components/SearchableSelect";
 import {
+  ApiError,
   createDeposit,
   createSku,
   createStockMovement,
@@ -34,7 +35,9 @@ import {
   fetchSkuTypes,
   fetchStockMovementTypes,
   fetchStockLevels,
+  fetchProductionLines,
   fetchSkus,
+  ProductionLine,
   SKU,
   SKUType,
   StockMovementType,
@@ -52,6 +55,7 @@ export function StockPage() {
   const [deposits, setDeposits] = useState<Deposit[] | null>(null);
   const [skuTypes, setSkuTypes] = useState<SKUType[]>([]);
   const [movementTypes, setMovementTypes] = useState<StockMovementType[]>([]);
+  const [productionLines, setProductionLines] = useState<ProductionLine[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -87,6 +91,7 @@ export function StockPage() {
     unit: UnitOfMeasure | null;
     reference: string;
     lot_code: string;
+    production_line_id: number | null;
   }>({
     sku_id: null,
     deposit_id: null,
@@ -95,6 +100,7 @@ export function StockPage() {
     unit: null,
     reference: "",
     lot_code: "",
+    production_line_id: null,
   });
 
   const sortedSkus = useMemo(() => (skus ? [...skus].sort((a, b) => a.name.localeCompare(b.name)) : []), [skus]);
@@ -133,6 +139,7 @@ export function StockPage() {
   );
   const semiUnitsPerKg = isSemiMovementSku ? selectedMovementSku?.units_per_kg || 1 : null;
   const quantityUnitLabel = movementForm.unit ? unitLabel(movementForm.unit) : movementUnitLabel;
+  const isProductionMovement = selectedMovementType?.code === "PRODUCTION";
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -157,6 +164,7 @@ export function StockPage() {
   useEffect(() => {
     if (!movementForm.movement_type_id && movementTypes.length) {
       const defaultType =
+        movementTypes.find((type) => ["PURCHASE", "ADJUSTMENT", "TRANSFER"].includes(type.code) && type.is_active) ??
         movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active) ??
         movementTypes.find((type) => type.is_active);
       if (defaultType) {
@@ -178,13 +186,14 @@ export function StockPage() {
 
   const reloadData = async () => {
     try {
-      const [stockLevels, skuList, depositList, unitList, skuTypeList, movementTypeList] = await Promise.all([
+      const [stockLevels, skuList, depositList, unitList, skuTypeList, movementTypeList, productionLineList] = await Promise.all([
         fetchStockLevels(),
         fetchSkus(),
         fetchDeposits(),
         fetchUnits(),
         fetchSkuTypes({ include_inactive: true }),
         fetchStockMovementTypes({ include_inactive: true }),
+        fetchProductionLines(),
       ]);
       setStock(stockLevels);
       setSkus(skuList);
@@ -192,6 +201,7 @@ export function StockPage() {
       setUnits(unitList);
       setSkuTypes(skuTypeList);
       setMovementTypes(movementTypeList);
+      setProductionLines(productionLineList);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -264,20 +274,30 @@ export function StockPage() {
 
   const handleCreateMovement = async (event: FormEvent) => {
     event.preventDefault();
+    setError(null);
     if (!movementForm.sku_id || !movementForm.deposit_id || !movementForm.quantity || !movementForm.movement_type_id) {
       setError("Selecciona SKU, depósito, tipo de movimiento y cantidad");
       return;
     }
+    if (isProductionMovement && !movementForm.production_line_id) {
+      setError("Selecciona la línea de producción para movimientos de tipo PRODUCCIÓN");
+      return;
+    }
+    const payload = {
+      sku_id: Number(movementForm.sku_id),
+      deposit_id: Number(movementForm.deposit_id),
+      movement_type_id: Number(movementForm.movement_type_id),
+      quantity: Number(movementForm.quantity),
+      unit: movementForm.unit || undefined,
+      reference: movementForm.reference || undefined,
+      lot_code: movementForm.lot_code || undefined,
+      production_line_id: movementForm.production_line_id || undefined,
+    };
     try {
-      await createStockMovement({
-        sku_id: Number(movementForm.sku_id),
-        deposit_id: Number(movementForm.deposit_id),
-        movement_type_id: Number(movementForm.movement_type_id),
-        quantity: Number(movementForm.quantity),
-        unit: movementForm.unit || undefined,
-        reference: movementForm.reference || undefined,
-        lot_code: movementForm.lot_code || undefined,
-      });
+      if (import.meta.env.DEV) {
+        console.info("[stock] POST /stock/movements payload", payload);
+      }
+      await createStockMovement(payload);
       setSuccess("Movimiento registrado");
       setMovementForm({
         sku_id: null,
@@ -287,13 +307,28 @@ export function StockPage() {
         unit: null,
         reference: "",
         lot_code: "",
+        production_line_id: isProductionMovement ? movementForm.production_line_id : null,
       });
       await reloadData();
     } catch (err) {
-      console.error(err);
+      if (err instanceof ApiError) {
+        console.error("[stock] POST /stock/movements failed", {
+          payload,
+          status: err.status,
+          detail: err.message,
+        });
+        setError(`No pudimos registrar el movimiento: ${err.message}`);
+        return;
+      }
+      console.error("[stock] POST /stock/movements failed", { payload, error: err });
       setError("No pudimos registrar el movimiento. Verifica los datos.");
     }
   };
+
+  const productionLineOptions = useMemo(
+    () => productionLines.filter((line) => line.is_active).map((line) => ({ value: line.id, label: line.name })),
+    [productionLines]
+  );
 
   return (
     <Stack spacing={2}>
@@ -442,7 +477,15 @@ export function StockPage() {
                   select
                   label="Tipo de movimiento"
                   value={movementForm.movement_type_id ?? ""}
-                  onChange={(e) => setMovementForm((prev) => ({ ...prev, movement_type_id: Number(e.target.value) }))}
+                  onChange={(e) => {
+                    const selectedTypeId = Number(e.target.value);
+                    const selectedType = movementTypes.find((type) => type.id === selectedTypeId);
+                    setMovementForm((prev) => ({
+                      ...prev,
+                      movement_type_id: selectedTypeId,
+                      production_line_id: selectedType?.code === "PRODUCTION" ? prev.production_line_id : null,
+                    }));
+                  }}
                   helperText={!movementTypes.length ? "Configura los tipos de movimiento primero" : undefined}
                   required
                 >
@@ -454,6 +497,16 @@ export function StockPage() {
                       </MenuItem>
                     ))}
                 </TextField>
+                {isProductionMovement && (
+                  <SearchableSelect
+                    label="Línea de producción"
+                    required
+                    options={productionLineOptions}
+                    value={movementForm.production_line_id}
+                    onChange={(value) => setMovementForm((prev) => ({ ...prev, production_line_id: value }))}
+                    helperText={!productionLineOptions.length ? "Configura líneas de producción activas" : undefined}
+                  />
+                )}
                 {isSemiMovementSku && (
                   <>
                     <TextField
