@@ -136,6 +136,7 @@ export function ProductionPage() {
   });
   const [productionQuantityInput, setProductionQuantityInput] = useState("");
   const [productionQuantityCommitted, setProductionQuantityCommitted] = useState("");
+  const [productionExpiryError, setProductionExpiryError] = useState<string | null>(null);
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
   const sortedDeposits = useMemo(
@@ -590,6 +591,12 @@ export function ProductionPage() {
       setError("La cantidad debe ser un número mayor a cero.");
       return;
     }
+    if (productionForm.expiry_date && productionForm.expiry_date < productionDate) {
+      setProductionExpiryError("La fecha de vencimiento no puede ser anterior a la fecha de producción");
+      setError("Corrige la fecha de vencimiento antes de guardar.");
+      return;
+    }
+    setProductionExpiryError(null);
     const productionMovementType = movementTypes.find((type) => type.code === "PRODUCTION" && type.is_active);
     if (!productionMovementType) {
       setError("Configura el tipo de movimiento PRODUCTION en catálogos");
@@ -619,6 +626,7 @@ export function ProductionPage() {
         expiry_date: "",
         reference: "",
       });
+      setProductionExpiryError(null);
       setProductionQuantityInput("");
       setProductionQuantityCommitted("");
       setProductionDate(new Date().toISOString().split("T")[0]);
@@ -819,8 +827,24 @@ export function ProductionPage() {
                     label="Fecha de vencimiento"
                     type="date"
                     value={productionForm.expiry_date}
-                    onChange={(e) => setProductionForm((prev) => ({ ...prev, expiry_date: e.target.value }))}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+                      setProductionForm((prev) => ({ ...prev, expiry_date: nextValue }));
+                      if (!nextValue || nextValue >= productionDate) {
+                        setProductionExpiryError(null);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const nextValue = e.target.value;
+                      if (nextValue && nextValue < productionDate) {
+                        setProductionExpiryError("La fecha de vencimiento no puede ser anterior a la fecha de producción");
+                        return;
+                      }
+                      setProductionExpiryError(null);
+                    }}
                     InputLabelProps={{ shrink: true }}
+                    error={Boolean(productionExpiryError)}
+                    helperText={productionExpiryError ?? undefined}
                   />
                   <TextField
                     required

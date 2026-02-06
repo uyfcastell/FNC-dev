@@ -5240,17 +5240,23 @@ def create_purchase_receipt(
     if len(skus) != len(sku_ids):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Algún SKU no existe")
 
+    receipt_date = payload.received_at or date.today()
     audit_context = _build_audit_context(request)
     for item in payload.items:
         if item.quantity <= 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad debe ser mayor a cero")
         if deposit.controls_lot and not item.lot_code:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote es obligatorio para el depósito seleccionado")
+        if item.expiry_date and item.expiry_date < receipt_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La fecha de vencimiento no puede ser anterior a la fecha de recepción",
+            )
 
     receipt = PurchaseReceipt(
         supplier_id=supplier.id,
         deposit_id=deposit.id,
-        received_at=payload.received_at or date.today(),
+        received_at=receipt_date,
         document_number=payload.document_number,
         notes=payload.notes,
         created_by_user_id=current_user.id,
@@ -5383,6 +5389,16 @@ def _apply_stock_movement(
     delta = -base_quantity if is_outgoing else base_quantity
 
     produced_at = payload.movement_date or date.today()
+    if movement_code == "PURCHASE" and payload.expiry_date and payload.expiry_date < produced_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha de vencimiento no puede ser anterior a la fecha de recepción",
+        )
+    if movement_code == "PRODUCTION" and payload.expiry_date and payload.expiry_date < produced_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La fecha de vencimiento no puede ser anterior a la fecha de producción",
+        )
     if movement_code == "PRODUCTION":
         _validate_sku_type_allowed(sku, ALLOWED_PRODUCTION_PRODUCT_TYPES, "Tipo de producto")
     if movement_code == "PRODUCTION" and not production_line:

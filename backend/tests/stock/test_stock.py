@@ -180,6 +180,42 @@ def test_production_rejects_inactive_line(client):
     assert res.status_code == 400
 
 
+def test_production_rejects_expiry_date_before_produced_at(client):
+    sku_id = _get_sku_id(client, "CUC-PT-24")
+    movement_type_id = _get_movement_type_id(client, "PRODUCTION")
+    line_id = _get_production_line_id(client)
+
+    payload = {
+        "sku_id": sku_id,
+        "deposit_id": 1,
+        "quantity": 1,
+        "movement_type_id": movement_type_id,
+        "production_line_id": line_id,
+        "movement_date": "2025-05-10",
+        "expiry_date": "2025-05-09",
+    }
+    res = client.post("/api/stock/movements", json=payload)
+    assert res.status_code == 400
+    assert "fecha de producción" in res.json().get("detail", "")
+
+
+def test_purchase_rejects_expiry_date_before_reception_date(client):
+    sku_id = _get_sku_id(client, "MP-HARINA")
+    movement_type_id = _get_movement_type_id(client, "PURCHASE")
+
+    payload = {
+        "sku_id": sku_id,
+        "deposit_id": 1,
+        "quantity": 1,
+        "movement_type_id": movement_type_id,
+        "movement_date": "2025-05-10",
+        "expiry_date": "2025-05-09",
+    }
+    res = client.post("/api/stock/movements", json=payload)
+    assert res.status_code == 400
+    assert "fecha de recepción" in res.json().get("detail", "")
+
+
 def test_consumption_reduces_stock(client):
     sku_id = _get_sku_id(client, "MP-HARINA")
     movement_type_id = _get_movement_type_id(client, "CONSUMPTION")
