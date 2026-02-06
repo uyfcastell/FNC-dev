@@ -33,6 +33,8 @@ import {
 } from "../lib/api";
 import { useSearchParams } from "react-router-dom";
 
+import { getOperationalDeposits } from "../lib/deposits";
+
 const PAGE_SIZE = 50;
 
 const formatDateTime = (value: string) =>
@@ -146,7 +148,7 @@ export function StockMovementsPage() {
 
   const depositOptions = useMemo(
     () =>
-      [...deposits]
+      [...getOperationalDeposits(deposits)]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((deposit) => ({ value: deposit.id, label: deposit.name, description: deposit.location || undefined })),
     [deposits]

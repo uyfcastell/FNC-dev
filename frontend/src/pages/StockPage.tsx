@@ -43,6 +43,7 @@ import {
   UnitOption,
   UnitOfMeasure,
 } from "../lib/api";
+import { getOperationalDeposits } from "../lib/deposits";
 import { useNavigate } from "react-router-dom";
 
 export function StockPage() {
@@ -97,7 +98,10 @@ export function StockPage() {
   });
 
   const sortedSkus = useMemo(() => (skus ? [...skus].sort((a, b) => a.name.localeCompare(b.name)) : []), [skus]);
-  const sortedDeposits = useMemo(() => (deposits ? [...deposits].sort((a, b) => a.name.localeCompare(b.name)) : []), [deposits]);
+  const sortedDeposits = useMemo(
+    () => (deposits ? [...getOperationalDeposits(deposits)].sort((a, b) => a.name.localeCompare(b.name)) : []),
+    [deposits]
+  );
   const unitLabel = (unitCode?: UnitOfMeasure) => units.find((u) => u.code === unitCode)?.label ?? unitCode ?? "";
   const movementSkuOptions = useMemo(
     () =>
@@ -296,7 +300,7 @@ export function StockPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <InventoryIcon color="primary" />
-          Stock y kardex
+          Stock
         </Typography>
         <Button variant="outlined" onClick={() => navigate("/stock/movimientos")}>
           Ver movimientos
