@@ -89,10 +89,9 @@ const MERMA_STAGE_OPTIONS: { value: MermaStage; label: string }[] = [
 ];
 
 const MERMA_ACTION_OPTIONS: { value: MermaAction; label: string }[] = [
-  { value: "none", label: "Sin acción" },
-  { value: "discarded", label: "Descartado" },
-  { value: "reprocessed", label: "Reprocesado" },
-  { value: "admin_adjustment", label: "Ajuste administrativo" },
+  { value: "NONE", label: "Sin acción" },
+  { value: "DISCOUNT", label: "Descartado" },
+  { value: "ADJUST", label: "Ajuste administrativo" },
 ];
 
 const stageLabel = (stage?: MermaStage) => MERMA_STAGE_OPTIONS.find((s) => s.value === stage)?.label ?? stage ?? "-";
@@ -130,7 +129,7 @@ export function MermasPage() {
     notes: null,
     detected_at: null,
     affects_stock: true,
-    action: "none",
+    action: "NONE",
     lot_code: "",
   });
 
@@ -574,7 +573,7 @@ export function MermasPage() {
                     select
                     fullWidth
                     label="Acción"
-                    value={eventForm.action ?? "none"}
+                    value={eventForm.action ?? "NONE"}
                     onChange={(e) => setEventForm((prev) => ({ ...prev, action: e.target.value as MermaAction }))}
                   >
                     {MERMA_ACTION_OPTIONS.map((option) => (

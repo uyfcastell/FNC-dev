@@ -31,10 +31,10 @@ class MermaStage(str, Enum):
     ADMINISTRATIVA = "ADMINISTRATIVA"
 
 class MermaAction(str, Enum):
-    DISCARDED = "discarded"
-    REPROCESSED = "reprocessed"
-    ADMIN_ADJUSTMENT = "admin_adjustment"
-    NONE = "none"
+    NONE = "NONE"
+    DISCOUNT = "DISCOUNT"
+    ADD = "ADD"
+    ADJUST = "ADJUST"
 
 
 class OrderStatus(str, Enum):

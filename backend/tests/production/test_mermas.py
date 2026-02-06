@@ -105,3 +105,26 @@ def test_production_merma_rejects_inactive_line(client):
     }
     res = client.post("/api/mermas", json=payload)
     assert res.status_code == 400
+
+
+def test_production_merma_rejects_invalid_action(client):
+    sku_id = _get_sku_id(client, "CUC-PT-24")
+    type_id = _get_type_id(client)
+    cause_id = _get_cause_id(client)
+    line_id = _get_production_line_id(client)
+
+    payload = {
+        "stage": "PRODUCTION",
+        "sku_id": sku_id,
+        "deposit_id": 1,
+        "production_line_id": line_id,
+        "quantity": 1,
+        "type_id": type_id,
+        "cause_id": cause_id,
+        "affects_stock": True,
+        "action": "reprocessed",
+    }
+
+    res = client.post("/api/mermas", json=payload)
+    assert res.status_code == 400
+    assert "Acción inválida" in res.json()["detail"]
