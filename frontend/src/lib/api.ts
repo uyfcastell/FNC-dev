@@ -874,6 +874,15 @@ export async function fetchOrderEntrySkus(params?: { include_inactive?: boolean;
   return apiRequest(`/orders/catalog${queryString ? `?${queryString}` : ""}`, {}, "No se pudo obtener los SKUs de pedidos");
 }
 
+export async function fetchOrderStores(params?: { include_inactive?: boolean }): Promise<Deposit[]> {
+  const query = new URLSearchParams();
+  if (params?.include_inactive) {
+    query.append("include_inactive", "true");
+  }
+  const queryString = query.toString();
+  return apiRequest(`/orders/stores${queryString ? `?${queryString}` : ""}`, {}, "No pudimos cargar los locales destino");
+}
+
 export async function fetchDailyOverheads(params?: { date_from?: string; date_to?: string }): Promise<DailyOverhead[]> {
   const query = new URLSearchParams();
   if (params?.date_from) {
