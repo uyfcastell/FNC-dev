@@ -26,6 +26,23 @@ export type NavItem = {
   state?: Record<string, unknown>;
 };
 
+const NAV_PERMISSION_RULES: Record<string, string[]> = {
+  "/": ["dashboard.view"],
+  "/produccion": ["production.view"],
+  "/stock": ["stock.view"],
+  "/stock/movimientos": ["stock.view"],
+  "/stock/inventarios": ["inventory.view"],
+  "/mermas": ["mermas.view"],
+  "/pedidos": ["orders.view"],
+  "/envios": ["remitos.view", "remitos.create", "remitos.edit"],
+  "/remitos": ["remitos.view"],
+  "/compras": ["purchases.view"],
+  "/pedidos/ingreso": ["orders.create"],
+  "/administracion": ["roles.view"],
+  "/auditoria": ["audit.view"],
+  "/reportes": ["reports.view"],
+};
+
 const defaultNavItems: NavItem[] = [
   { label: "Inicio", icon: <DashboardIcon />, to: "/" },
   { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion" },
@@ -47,6 +64,12 @@ export function AppShell({ children, navItems = defaultNavItems }: PropsWithChil
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
+  const userPermissions = new Set((user?.permissions ?? []).map((permission) => permission.toLowerCase()));
+  const visibleNavItems = navItems.filter((item) => {
+    const requiredPermissions = NAV_PERMISSION_RULES[item.to];
+    if (!requiredPermissions || requiredPermissions.length === 0) return true;
+    return requiredPermissions.some((permission) => userPermissions.has(permission.toLowerCase()));
+  });
 
   const drawer = (
     <div>
@@ -57,7 +80,7 @@ export function AppShell({ children, navItems = defaultNavItems }: PropsWithChil
       </Toolbar>
       <Divider />
       <List>
-        {navItems.map((item) => (
+        {visibleNavItems.map((item) => (
           <ListItemButton
             key={item.to}
             component={RouterLink}

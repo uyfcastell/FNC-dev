@@ -35,6 +35,7 @@ def override_current_user():
     """
     class FakeUser:
         id = 1
+        email = "test-admin@example.com"
         username = "test-admin"
         full_name = "Test Admin"
         is_active = True

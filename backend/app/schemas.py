@@ -544,6 +544,7 @@ class UserRead(SQLModel):
     role_id: int | None = None
     role_name: str | None = None
     is_active: bool
+    permissions: list[str] = Field(default_factory=list)
 
 
 class PermissionRead(SQLModel):

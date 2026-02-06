@@ -359,9 +359,17 @@ def _log_audit(
 
 def _map_user(user: User, session: Session) -> UserRead:
     role_name = None
+    permissions: list[str] = []
     if user.role_id:
         role = session.get(Role, user.role_id)
         role_name = role.name if role else None
+        permissions = sorted(
+            session.exec(
+                select(Permission.key)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .where(RolePermission.role_id == user.role_id)
+            ).all()
+        )
     return UserRead(
         id=user.id,
         email=user.email,
@@ -369,6 +377,7 @@ def _map_user(user: User, session: Session) -> UserRead:
         role_id=user.role_id,
         role_name=role_name,
         is_active=user.is_active,
+        permissions=permissions,
     )
 
 
@@ -3695,12 +3704,12 @@ def update_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    if _is_local_account(current_user, session) and order.status != OrderStatus.DRAFT:
+    is_admin = _is_admin_account(current_user, session)
+    if order.status != OrderStatus.DRAFT and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="El pedido ya fue enviado. El local no puede modificarlo.",
+            detail="El pedido ya fue enviado. No puede modificarse.",
         )
-    is_admin = _is_admin_account(current_user, session)
     allowed_statuses = {OrderStatus.DRAFT} if not is_admin else {
         OrderStatus.DRAFT,
         OrderStatus.SUBMITTED,
@@ -3841,7 +3850,7 @@ def update_order(
     "/orders/{order_id}/status",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_permissions("orders.edit"))],
+    dependencies=[Depends(require_permissions("orders.submit"))],
 )
 def update_order_status(
     order_id: int,
@@ -3853,6 +3862,13 @@ def update_order_status(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
+    if payload.status != OrderStatus.SUBMITTED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se permite enviar pedidos a planta")
+    if order.status != OrderStatus.DRAFT and not _is_admin_account(current_user, session):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El pedido ya fue enviado. No puede modificarse.",
+        )
     if payload.status == OrderStatus.SUBMITTED:
         items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
         if not items:
@@ -3913,10 +3929,10 @@ def delete_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    if _is_local_account(current_user, session) and order.status != OrderStatus.DRAFT:
+    if order.status != OrderStatus.DRAFT and not _is_admin_account(current_user, session):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="El pedido ya fue enviado. El local no puede modificarlo.",
+            detail="El pedido ya fue enviado. No puede cancelarse.",
         )
     _ensure_order_transition(order, OrderStatus.CANCELLED)
     _ensure_order_cancel_allowed(session, order)
