@@ -705,10 +705,10 @@ export type User = {
   id: number;
   email: string;
   full_name: string;
-  role_id?: number | null;
-  role_name?: string | null;
+  role_id?: number;
+  role_name?: string;
   is_active: boolean;
-  permissions: string[];
+  permissions?: string[];
 };
 
 export type UnitOption = {

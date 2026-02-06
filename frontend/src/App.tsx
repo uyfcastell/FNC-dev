@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { getDeviceProfile, listenDeviceProfile } from "./lib/device";
@@ -15,7 +15,6 @@ import { ReportsPage } from "./pages/ReportsPage";
 import { PurchasesPage } from "./pages/PurchasesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MobilePinLoginPage } from "./pages/MobilePinLoginPage";
-import { NotFoundPage } from "./pages/NotFoundPage";
 import { MobileShell } from "./shell/MobileShell";
 import { MobileHomePage } from "./pages/MobileHomePage";
 import { MobileProductionPage } from "./pages/MobileProductionPage";
@@ -27,8 +26,16 @@ import { MermasPage } from "./pages/MermasPage";
 import { StockMovementsPage } from "./pages/StockMovementsPage";
 import { InventoryCountsPage } from "./pages/InventoryCountsPage";
 import { AuditPage } from "./pages/AuditPage";
-import { RequireAuth, useAuth } from "./lib/auth";
+import { RequireAuth, RequirePermission, useAuth } from "./lib/auth";
 import { isLocalUser } from "./lib/roles";
+import { ROUTE_PERMISSION_RULES } from "./lib/permissions";
+import { ForbiddenPage } from "./pages/ForbiddenPage";
+
+
+function GuardedRoute({ path, element }: { path: string; element: ReactNode }) {
+  const requiredPermissions = ROUTE_PERMISSION_RULES[path] ?? [];
+  return <RequirePermission anyOf={requiredPermissions}>{element}</RequirePermission>;
+}
 
 function MobileRoutes() {
   const { user } = useAuth();
@@ -51,17 +58,17 @@ function MobileRoutes() {
         {localUser ? (
           <>
             <Route path="/" element={<Navigate to="/mobile/pedidos" replace />} />
-            <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
+            <Route path="/mobile/pedidos" element={<GuardedRoute path="/mobile/pedidos" element={<MobileOrdersPage />} />} />
             <Route path="*" element={<Navigate to="/mobile/pedidos" replace />} />
           </>
         ) : (
           <>
-            <Route path="/" element={<MobileHomePage />} />
-            <Route path="/mobile/produccion" element={<MobileProductionPage />} />
-            <Route path="/mobile/pedidos" element={<MobileOrdersPage />} />
-            <Route path="/mobile/envios" element={<MobileShipmentsPage />} />
-            <Route path="/mobile/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />
-            <Route path="*" element={<MobileHomePage />} />
+            <Route path="/" element={<GuardedRoute path="/" element={<MobileHomePage />} />} />
+            <Route path="/mobile/produccion" element={<GuardedRoute path="/mobile/produccion" element={<MobileProductionPage />} />} />
+            <Route path="/mobile/pedidos" element={<GuardedRoute path="/mobile/pedidos" element={<MobileOrdersPage />} />} />
+            <Route path="/mobile/envios" element={<GuardedRoute path="/mobile/envios" element={<MobileShipmentsPage />} />} />
+            <Route path="/mobile/envios/:shipmentId/preparar" element={<GuardedRoute path="/mobile/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />} />
+            <Route path="*" element={<ForbiddenPage />} />
           </>
         )}
       </Routes>
@@ -73,23 +80,23 @@ function DesktopRoutes() {
   return (
     <AppShell>
       <Routes>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/produccion" element={<ProductionPage />} />
-        <Route path="/stock" element={<StockPage />} />
-        <Route path="/stock/movimientos" element={<StockMovementsPage />} />
-        <Route path="/stock/inventarios" element={<InventoryCountsPage />} />
-        <Route path="/mermas" element={<MermasPage />} />
-        <Route path="/pedidos" element={<OrdersPage />} />
-        <Route path="/envios" element={<ShipmentsPage />} />
-        <Route path="/envios/:shipmentId" element={<ShipmentDetailPage />} />
-        <Route path="/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />
-        <Route path="/remitos" element={<RemitosPage />} />
-        <Route path="/compras" element={<PurchasesPage />} />
-        <Route path="/pedidos/ingreso" element={<OrderEntryPage />} />
-        <Route path="/administracion" element={<AdminPage />} />
-        <Route path="/auditoria" element={<AuditPage />} />
-        <Route path="/reportes" element={<ReportsPage />} />
-        <Route path="*" element={<NotFoundPage />} />
+        <Route path="/" element={<GuardedRoute path="/" element={<DashboardPage />} />} />
+        <Route path="/produccion" element={<GuardedRoute path="/produccion" element={<ProductionPage />} />} />
+        <Route path="/stock" element={<GuardedRoute path="/stock" element={<StockPage />} />} />
+        <Route path="/stock/movimientos" element={<GuardedRoute path="/stock/movimientos" element={<StockMovementsPage />} />} />
+        <Route path="/stock/inventarios" element={<GuardedRoute path="/stock/inventarios" element={<InventoryCountsPage />} />} />
+        <Route path="/mermas" element={<GuardedRoute path="/mermas" element={<MermasPage />} />} />
+        <Route path="/pedidos" element={<GuardedRoute path="/pedidos" element={<OrdersPage />} />} />
+        <Route path="/envios" element={<GuardedRoute path="/envios" element={<ShipmentsPage />} />} />
+        <Route path="/envios/:shipmentId" element={<GuardedRoute path="/envios/:shipmentId" element={<ShipmentDetailPage />} />} />
+        <Route path="/envios/:shipmentId/preparar" element={<GuardedRoute path="/envios/:shipmentId/preparar" element={<ShipmentPrepPage />} />} />
+        <Route path="/remitos" element={<GuardedRoute path="/remitos" element={<RemitosPage />} />} />
+        <Route path="/compras" element={<GuardedRoute path="/compras" element={<PurchasesPage />} />} />
+        <Route path="/pedidos/ingreso" element={<GuardedRoute path="/pedidos/ingreso" element={<OrderEntryPage />} />} />
+        <Route path="/administracion" element={<GuardedRoute path="/administracion" element={<AdminPage />} />} />
+        <Route path="/auditoria" element={<GuardedRoute path="/auditoria" element={<AuditPage />} />} />
+        <Route path="/reportes" element={<GuardedRoute path="/reportes" element={<ReportsPage />} />} />
+        <Route path="*" element={<ForbiddenPage />} />
       </Routes>
     </AppShell>
   );

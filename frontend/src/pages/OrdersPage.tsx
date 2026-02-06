@@ -114,9 +114,12 @@ export function OrdersPage() {
     papeleria: [initialLine],
     limpieza: [initialLine],
   });
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const localUser = isLocalUser(user);
-  const canSubmitOrders = (user?.permissions ?? []).includes("orders.submit");
+  const canSubmitOrders = can("orders.submit");
+  const canCreateOrders = can("orders.create");
+  const canEditOrders = can("orders.edit");
+  const canCancelOrders = can("orders.cancel");
 
   useEffect(() => {
     void loadData();
@@ -538,7 +541,7 @@ export function OrdersPage() {
       </Typography>
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Tab value="bandeja" label="Bandeja de pedidos" />
-        <Tab value="ingreso" label="Ingreso de pedidos" />
+        {canCreateOrders && <Tab value="ingreso" label="Ingreso de pedidos" />}
       </Tabs>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
@@ -546,7 +549,7 @@ export function OrdersPage() {
           {success}
         </Alert>
       )}
-      {tab === "ingreso" && (
+      {tab === "ingreso" && canCreateOrders && (
         <Card>
           <CardHeader
             title={editingId ? "Editar pedido" : "Nuevo pedido"}
@@ -718,8 +721,9 @@ export function OrdersPage() {
                 const isEditable = localUser
                   ? order.status === "draft"
                   : ["draft", "submitted", "partially_prepared"].includes(order.status);
-                const canCancel = localUser ? order.status === "draft" : ["draft", "submitted"].includes(order.status);
+                const canCancel = (localUser ? order.status === "draft" : ["draft", "submitted"].includes(order.status)) && canCancelOrders;
                 const canSubmit = order.status === "draft" && canSubmitOrders;
+                const canEdit = !isCancelled && isEditable && canEditOrders;
                 const isShipmentDisabled = ["draft", "dispatched", "cancelled"].includes(order.status);
                 return (
                   <Card key={order.id} variant="outlined">
@@ -795,17 +799,21 @@ export function OrdersPage() {
                               Enviar a planta
                             </Button>
                           )}
-                          <Button variant="outlined" size="small" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
-                            Editar
-                          </Button>
-                          <Button
-                            color="error"
-                            size="small"
-                            onClick={() => handleCancelOrder(order.id)}
-                            disabled={isCancelled || !canCancel}
-                          >
-                            Cancelar
-                          </Button>
+                          {canEditOrders && (
+                            <Button variant="outlined" size="small" onClick={() => startEdit(order)} disabled={!canEdit}>
+                              Editar
+                            </Button>
+                          )}
+                          {canCancelOrders && (
+                            <Button
+                              color="error"
+                              size="small"
+                              onClick={() => handleCancelOrder(order.id)}
+                              disabled={isCancelled || !canCancel}
+                            >
+                              Cancelar
+                            </Button>
+                          )}
                         </Stack>
                       </Stack>
                     </CardContent>

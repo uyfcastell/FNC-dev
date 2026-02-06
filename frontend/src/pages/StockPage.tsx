@@ -48,8 +48,14 @@ import {
 } from "../lib/api";
 import { getOperationalDeposits } from "../lib/deposits";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 
 export function StockPage() {
+  const { can } = useAuth();
+  const canAdjustStock = can("stock.adjust");
+  const canRegisterStock = can("stock.register");
+  const canTransferStock = can("stock.transfer");
+
   const [stock, setStock] = useState<StockLevel[] | null>(null);
   const [skus, setSkus] = useState<SKU[] | null>(null);
   const [deposits, setDeposits] = useState<Deposit[] | null>(null);
@@ -348,9 +354,10 @@ export function StockPage() {
         </Alert>
       )}
       <Grid container spacing={2}>
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardHeader title="Alta rápida de SKU" subheader="Código, categoría y unidad de medida" />
+        {canAdjustStock && (
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardHeader title="Alta rápida de SKU" subheader="Código, categoría y unidad de medida" />
             <Divider />
             <CardContent>
               <Stack component="form" spacing={2} onSubmit={handleCreateSku}>
@@ -407,9 +414,11 @@ export function StockPage() {
                 </Button>
               </Stack>
             </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={4}>
+            </Card>
+          </Grid>
+        )}
+        {canAdjustStock && (
+          <Grid item xs={12} md={4}>
           <Card>
             <CardHeader title="Alta de depósito" subheader="Ubicación y control de lotes" />
             <Divider />
@@ -444,9 +453,11 @@ export function StockPage() {
                 </Button>
               </Stack>
             </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={4}>
+            </Card>
+          </Grid>
+        )}
+        {(canRegisterStock || canAdjustStock || canTransferStock) && (
+          <Grid item xs={12} md={4}>
             <Card>
               <CardHeader title="Movimiento de stock" subheader="Ingresos, consumos, ajustes y remitos" />
               <Divider />
@@ -552,6 +563,7 @@ export function StockPage() {
             </CardContent>
           </Card>
         </Grid>
+        )}
       </Grid>
       <Card>
         <CardHeader

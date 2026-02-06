@@ -45,6 +45,7 @@ import {
   submitInventoryCount,
 } from "../lib/api";
 import { getOperationalDeposits } from "../lib/deposits";
+import { useAuth } from "../lib/auth";
 
 const statusLabels: Record<InventoryCountStatus, string> = {
   draft: "Borrador",
@@ -64,6 +65,11 @@ type CountLine = {
 const emptyLine: CountLine = { sku_id: "", counted_quantity: "", production_lot_id: "", lot_code: "" };
 
 export function InventoryCountsPage() {
+  const { can } = useAuth();
+  const canCreateInventory = can("inventory.create");
+  const canEditInventory = can("inventory.edit");
+  const canCloseInventory = can("inventory.close");
+
   const [counts, setCounts] = useState<InventoryCount[]>([]);
   const [selectedCount, setSelectedCount] = useState<InventoryCount | null>(null);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -354,9 +360,11 @@ export function InventoryCountsPage() {
           </Box>
 
           <Stack direction="row" spacing={2} mt={3}>
-            <Button type="submit" variant="contained">
-              Crear conteo
-            </Button>
+            {canCreateInventory && (
+              <Button type="submit" variant="contained">
+                Crear conteo
+              </Button>
+            )}
             <Button variant="outlined" startIcon={<Refresh />} onClick={loadAll}>
               Recargar
             </Button>
@@ -409,54 +417,58 @@ export function InventoryCountsPage() {
                     <TableCell>{count.items.length}</TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={1} flexWrap="wrap">
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAction("submit", count.id);
-                          }}
-                          disabled={count.status !== "draft"}
-                        >
-                          Enviar
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="success"
-                          startIcon={<CheckCircleOutline />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAction("approve", count.id);
-                          }}
-                          disabled={count.status !== "submitted"}
-                        >
-                          Aprobar
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<Close />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAction("close", count.id);
-                          }}
-                          disabled={count.status !== "approved"}
-                        >
-                          Cerrar
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAction("cancel", count.id);
-                          }}
-                          disabled={!(["draft", "submitted"].includes(count.status))}
-                        >
-                          Cancelar
-                        </Button>
+                        {canEditInventory && count.status === "draft" && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAction("submit", count.id);
+                            }}
+                          >
+                            Enviar
+                          </Button>
+                        )}
+                        {canEditInventory && count.status === "submitted" && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            startIcon={<CheckCircleOutline />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAction("approve", count.id);
+                            }}
+                          >
+                            Aprobar
+                          </Button>
+                        )}
+                        {canCloseInventory && count.status === "approved" && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<Close />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAction("close", count.id);
+                            }}
+                          >
+                            Cerrar
+                          </Button>
+                        )}
+                        {canEditInventory && ["draft", "submitted"].includes(count.status) && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAction("cancel", count.id);
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                        )}
                       </Stack>
                     </TableCell>
                   </TableRow>
