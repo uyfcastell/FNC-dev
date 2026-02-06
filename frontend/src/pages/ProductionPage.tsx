@@ -62,6 +62,8 @@ import {
 import { getOperationalDeposits } from "../lib/deposits";
 
 const PRODUCTION_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
+const SHOW_INDIRECT_LABOR_SECTION = false;
+const SHOW_PIECEWORK_SECTION = false;
 type RecipeFormItem = { component_id: number | null; quantity: string };
 type OverheadItemDraft = {
   tempId: string;
@@ -235,7 +237,9 @@ export function ProductionPage() {
 
   useEffect(() => {
     void loadDailyOverhead(overheadDate);
-    void loadPiecework(overheadDate);
+    if (SHOW_PIECEWORK_SECTION) {
+      void loadPiecework(overheadDate);
+    }
   }, [overheadDate]);
 
   const loadData = async () => {
@@ -273,7 +277,12 @@ export function ProductionPage() {
           allocation_method: record.allocation_method,
           notes: record.notes ?? "",
         });
-        await loadOverheadItems(record.id);
+        if (SHOW_INDIRECT_LABOR_SECTION) {
+          await loadOverheadItems(record.id);
+        } else {
+          setOverheadItems([]);
+          setOverheadItemsError(null);
+        }
         await loadAllocations(record.id);
       } else {
         setDailyOverhead(null);
@@ -911,6 +920,7 @@ export function ProductionPage() {
               </Stack>
             </CardContent>
           </Card>
+          {SHOW_INDIRECT_LABOR_SECTION && (
           <Card>
             <CardHeader title="Mano de obra indirecta (jornales)" subheader="Carga manual de jornales diarios" />
             <Divider />
@@ -1016,6 +1026,8 @@ export function ProductionPage() {
               </Stack>
             </CardContent>
           </Card>
+          )}
+          {SHOW_PIECEWORK_SECTION && (
           <Card>
             <CardHeader title="Destajo por línea (calculado)" subheader="Tarifa por unidad y cálculo automático" />
             <Divider />
@@ -1084,6 +1096,7 @@ export function ProductionPage() {
               )}
             </CardContent>
           </Card>
+          )}
           <Card variant="outlined">
             <CardHeader title="Asignación por producto" subheader="Prorrateo según producción del día" />
             <Divider />
