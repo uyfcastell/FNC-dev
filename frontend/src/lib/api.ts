@@ -41,7 +41,13 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
 }
 
 async function apiRequest<T>(path: string, options: RequestInit, defaultError: string): Promise<T> {
-  const response = await apiFetch(path, options);
+  let response: Response;
+  try {
+    response = await apiFetch(path, options);
+  } catch (error) {
+    const message = error instanceof Error && error.message ? error.message : defaultError;
+    throw new ApiError(0, message);
+  }
   if (!response.ok) {
     const rawDetail = await response.text();
     let errorMessage = defaultError;
@@ -1091,6 +1097,18 @@ export async function fetchProductionLots(params?: {
   if (params?.include_blocked) query.set("include_blocked", "true");
   const path = query.toString() ? `/production/lots?${query.toString()}` : "/production/lots";
   return apiRequest<ProductionLot[]>(path, {}, "No pudimos obtener los lotes");
+}
+
+export async function fetchMermaLots(params: {
+  sku_id: number;
+  deposit_id?: number;
+  available_only?: boolean;
+}): Promise<ProductionLot[]> {
+  const query = new URLSearchParams();
+  query.set("sku_id", String(params.sku_id));
+  if (params.deposit_id) query.set("deposit_id", String(params.deposit_id));
+  if (params.available_only !== undefined) query.set("available_only", params.available_only ? "true" : "false");
+  return apiRequest(`/mermas/lots?${query.toString()}`, {}, "No pudimos obtener los lotes para la merma");
 }
 
 export async function fetchInventoryCounts(params?: {

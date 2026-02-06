@@ -6889,6 +6889,27 @@ def export_audit_logs(
 
 
 @router.get(
+    "/mermas/lots",
+    tags=["mermas"],
+    response_model=list[ProductionLotRead],
+    dependencies=[Depends(require_permissions("mermas.view"))],
+)
+def list_merma_lots(
+    sku_id: int,
+    deposit_id: int | None = None,
+    available_only: bool = True,
+    session: Session = Depends(get_session),
+) -> list[ProductionLotRead]:
+    statement = select(ProductionLot).where(ProductionLot.sku_id == sku_id, ProductionLot.is_blocked.is_(False))
+    if deposit_id:
+        statement = statement.where(ProductionLot.deposit_id == deposit_id)
+    if available_only:
+        statement = statement.where(ProductionLot.remaining_quantity > 0)
+    lots = session.exec(statement.order_by(ProductionLot.produced_at.desc(), ProductionLot.id.desc())).all()
+    return [_map_production_lot(lot, session) for lot in lots]
+
+
+@router.get(
     "/production/lots",
     tags=["production"],
     response_model=list[ProductionLotRead],
