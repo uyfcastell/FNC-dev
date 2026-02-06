@@ -629,6 +629,7 @@ export type InventoryCountItemPayload = {
   sku_id: number;
   counted_quantity: number;
   production_lot_id?: number | null;
+  lot_code?: string | null;
 };
 
 export type InventoryCountPayload = {
