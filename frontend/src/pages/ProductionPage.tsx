@@ -130,6 +130,7 @@ export function ProductionPage() {
     deposit_id: null as number | null,
     production_line_id: null as number | null,
     lot_code: "",
+    expiry_date: "",
     quantity: "",
     reference: "",
   });
@@ -575,11 +576,20 @@ export function ProductionPage() {
         movement_type_id: productionMovementType.id,
         unit: unit,
         lot_code: productionForm.lot_code.trim() || undefined,
+        expiry_date: productionForm.expiry_date || null,
         movement_date: productionDate || undefined,
         reference: productionForm.reference || "Orden de producción",
       });
       setSuccess("Producción registrada en stock");
-      setProductionForm({ product_sku_id: null, deposit_id: null, production_line_id: null, lot_code: "", quantity: "", reference: "" });
+      setProductionForm({
+        product_sku_id: null,
+        deposit_id: null,
+        production_line_id: null,
+        lot_code: "",
+        expiry_date: "",
+        quantity: "",
+        reference: "",
+      });
       setProductionDate(new Date().toISOString().split("T")[0]);
       await loadData();
     } catch (err) {
@@ -773,6 +783,13 @@ export function ProductionPage() {
                     placeholder="YYMMDD-Lx-SKU-###"
                     value={productionForm.lot_code}
                     InputProps={{ readOnly: true }}
+                  />
+                  <TextField
+                    label="Fecha de vencimiento"
+                    type="date"
+                    value={productionForm.expiry_date}
+                    onChange={(e) => setProductionForm((prev) => ({ ...prev, expiry_date: e.target.value }))}
+                    InputLabelProps={{ shrink: true }}
                   />
                   <TextField
                     required

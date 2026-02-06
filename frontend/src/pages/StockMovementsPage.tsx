@@ -304,6 +304,7 @@ export function StockMovementsPage() {
                     <TableCell align="right">Cantidad</TableCell>
                     <TableCell align="right">Saldo actual</TableCell>
                     <TableCell>Lote</TableCell>
+                    <TableCell>Vencimiento</TableCell>
                     <TableCell>Línea</TableCell>
                     <TableCell>Referencia</TableCell>
                   </TableRow>
@@ -336,13 +337,14 @@ export function StockMovementsPage() {
                         </Typography>
                       </TableCell>
                       <TableCell>{movement.lot_code || "—"}</TableCell>
+                      <TableCell>{movement.expiry_date || "—"}</TableCell>
                       <TableCell>{movement.production_line_name || "—"}</TableCell>
                       <TableCell>{movement.reference || "—"}</TableCell>
                     </TableRow>
                   ))}
                   {!movements.length && (
                     <TableRow>
-                      <TableCell colSpan={10} align="center">
+                      <TableCell colSpan={11} align="center">
                         <Typography variant="body2" color="text.secondary">
                           {hasReferenceFilter ? "No hay movimientos asociados" : "No hay movimientos que coincidan con los filtros"}
                         </Typography>

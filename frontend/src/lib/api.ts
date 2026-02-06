@@ -619,6 +619,7 @@ export type ProductionLot = {
   remaining_quantity: number;
   lot_code: string;
   produced_at: string;
+  expiry_date?: string | null;
   is_blocked: boolean;
   notes?: string | null;
 };
