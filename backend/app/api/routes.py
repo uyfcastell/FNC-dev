@@ -5977,6 +5977,8 @@ def _replace_inventory_count_items(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
         system_quantity, lot = _resolve_system_quantity(session, deposit, sku, payload.get("production_lot_id"))
         counted = float(payload["counted_quantity"])
+        if counted < 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad contada no puede ser negativa")
         difference = counted - system_quantity
         session.add(
             InventoryCountItem(
@@ -6506,6 +6508,8 @@ def update_inventory_count(
     items_payload = None
     if items is not None:
         items_payload = [item.model_dump() if hasattr(item, "model_dump") else item for item in items]
+        if not items_payload:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Debes cargar al menos un ítem")
     diff = _build_diff_from_payload(count, update_data)
     if items_payload is not None and before_items != items_payload:
         diff["items"] = {"before": before_items, "after": items_payload}
