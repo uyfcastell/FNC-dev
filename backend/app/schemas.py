@@ -829,7 +829,7 @@ class MermaEventCreate(SQLModel):
     notes: str | None = None
     detected_at: datetime | None = None
     affects_stock: bool = True
-    action: MermaAction = MermaAction.NONE
+    action: str = "NONE"
 
 
 class MermaEventRead(SQLModel):

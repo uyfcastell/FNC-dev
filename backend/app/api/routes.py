@@ -51,6 +51,7 @@ from ..models import (
     ShipmentItem,
     MermaCause,
     MermaEvent,
+    MermaAction,
     MermaStage,
     MermaType,
     ProductionLine,
@@ -168,6 +169,12 @@ from ..schemas import (
 public_router = APIRouter()
 router = APIRouter(dependencies=[Depends(require_active_user)])
 api_router = APIRouter()
+
+MERMA_ACTION_MAPPING: dict[str, MermaAction] = {
+    "NONE": MermaAction.NONE,
+    "DISCOUNT": MermaAction.DISCOUNT,
+    "ADJUST": MermaAction.ADJUST,
+}
 
 AUDIT_EXPORT_LIMIT = 10000
 
@@ -6967,6 +6974,9 @@ def create_merma_event(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> MermaEventRead:
+    mapped_action = MERMA_ACTION_MAPPING.get(payload.action)
+    if mapped_action is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Acción inválida")
     merma_type = session.get(MermaType, payload.type_id)
     cause = session.get(MermaCause, payload.cause_id)
     sku = session.get(SKU, payload.sku_id)
@@ -7092,7 +7102,7 @@ def create_merma_event(
         notes=payload.notes,
         detected_at=detected_at,
         affects_stock=payload.affects_stock,
-        action=payload.action,
+        action=mapped_action,
         stock_movement_id=stock_movement_id,
     )
 

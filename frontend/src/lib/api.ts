@@ -94,7 +94,7 @@ async function fetchFile(path: string, defaultFilename: string): Promise<FileDow
 export type UnitOfMeasure = "unit" | "kg" | "g" | "l" | "ml" | "pack" | "box" | "m" | "cm";
 
 export type MermaStage = "PRODUCTION" | "EMPAQUE" | "STOCK" | "TRANSITO_POST_REMITO" | "ADMINISTRATIVA";
-export type MermaAction = "discarded" | "reprocessed" | "admin_adjustment" | "none";
+export type MermaAction = "NONE" | "DISCOUNT" | "ADD" | "ADJUST";
 
 export type SKUType = {
   id: number;
