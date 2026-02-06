@@ -2,13 +2,24 @@ import { Box, CircularProgress } from "@mui/material";
 import { PropsWithChildren, ReactNode, createContext, useContext, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
-import { User, fetchCurrentUser, loginWithCredentials, loginWithPin as loginWithPinRequest, setStoredToken, getStoredToken } from "./api";
+import {
+  User,
+  fetchCurrentUser,
+  fetchRolePermissions,
+  loginWithCredentials,
+  loginWithPin as loginWithPinRequest,
+  setStoredToken,
+  getStoredToken,
+} from "./api";
 import { getDeviceProfile } from "./device";
+import { ForbiddenPage } from "../pages/ForbiddenPage";
 
 type AuthContextValue = {
   user: User | null;
   token: string | null;
   loading: boolean;
+  can: (perm: string) => boolean;
+  canAny: (perms: string[]) => boolean;
   login: (username: string, password: string) => Promise<void>;
   loginWithPin: (pin: string) => Promise<void>;
   logout: () => void;
@@ -31,10 +42,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void loadProfile();
   }, []);
 
+  const enrichUserPermissions = async (profile: User): Promise<User> => {
+    const currentPermissions = profile.permissions ?? [];
+    if (currentPermissions.length > 0 || !profile.role_id) {
+      return { ...profile, permissions: currentPermissions };
+    }
+    const rolePermissions = await fetchRolePermissions(profile.role_id);
+    return { ...profile, permissions: rolePermissions };
+  };
+
   const loadProfile = async () => {
     try {
       const profile = await fetchCurrentUser();
-      setUser(profile);
+      const profileWithPermissions = await enrichUserPermissions(profile);
+      setUser(profileWithPermissions);
     } catch {
       logout();
     } finally {
@@ -49,7 +70,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setStoredToken(response.access_token);
       setToken(response.access_token);
       if (response.user) {
-        setUser(response.user);
+        const userWithPermissions = await enrichUserPermissions(response.user);
+        setUser(userWithPermissions);
       } else {
         await loadProfile();
       }
@@ -65,7 +87,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setStoredToken(response.access_token);
       setToken(response.access_token);
       if (response.user) {
-        setUser(response.user);
+        const userWithPermissions = await enrichUserPermissions(response.user);
+        setUser(userWithPermissions);
       } else {
         await loadProfile();
       }
@@ -80,12 +103,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setToken(null);
   };
 
+  const userPermissionSet = new Set((user?.permissions ?? []).map((permission) => permission.toLowerCase()));
+  const can = (perm: string) => userPermissionSet.has(perm.toLowerCase());
+  const canAny = (perms: string[]) => perms.some((perm) => userPermissionSet.has(perm.toLowerCase()));
+
   return (
     <AuthContext.Provider
       value={{
         user,
         token,
         loading,
+        can,
+        canAny,
         login,
         loginWithPin,
         logout,
@@ -120,6 +149,31 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (!user) {
     const redirectPath = deviceProfile.mode === "mobile" ? "/mobile/login-pin" : "/login";
     return <Navigate to={redirectPath} state={{ from: location }} replace />;
+  }
+
+  return <>{children}</>;
+}
+
+export function RequirePermission({ anyOf, children }: { anyOf: string[]; children: ReactNode }) {
+  const { user, loading, canAny } = useAuth();
+  const location = useLocation();
+  const deviceProfile = getDeviceProfile();
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!user) {
+    const redirectPath = deviceProfile.mode === "mobile" ? "/mobile/login-pin" : "/login";
+    return <Navigate to={redirectPath} state={{ from: location }} replace />;
+  }
+
+  if (!anyOf.length || !canAny(anyOf)) {
+    return <ForbiddenPage />;
   }
 
   return <>{children}</>;

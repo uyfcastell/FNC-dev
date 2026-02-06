@@ -31,6 +31,7 @@ import {
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 
 import {
   ApiError,
@@ -63,6 +64,9 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 export function RemitosPage() {
+  const { can } = useAuth();
+  const canEditRemitos = can("remitos.edit");
+
   const [remitos, setRemitos] = useState<Remito[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [statusFilter, setStatusFilter] = useState<RemitoStatus | "all">("all");
@@ -495,13 +499,14 @@ export function RemitosPage() {
                               <span>
                                 <Button
                                   variant="outlined"
-                                  disabled={!supportsRegeneratePdf}
+                                  disabled={!canEditRemitos || !supportsRegeneratePdf}
                                   onClick={handleRegeneratePdf}
                                 >
                                   Re-generar PDF
                                 </Button>
                               </span>
                             </Tooltip>
+                            {canEditRemitos && (
                             <Button
                               variant="text"
                               endIcon={<OpenInNewIcon />}
@@ -509,18 +514,21 @@ export function RemitosPage() {
                             >
                               Ver movimientos de stock asociados
                             </Button>
+                            )}
                           </Stack>
-                          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                            Los movimientos se visualizan en la bandeja general.{" "}
-                            <Link
-                              component="button"
-                              underline="hover"
-                              onClick={() => handleViewStockMovements(remito)}
-                            >
-                              Abrir movimientos de stock
-                            </Link>
-                            .
-                          </Typography>
+                          {canEditRemitos && (
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                              Los movimientos se visualizan en la bandeja general.{" "}
+                              <Link
+                                component="button"
+                                underline="hover"
+                                onClick={() => handleViewStockMovements(remito)}
+                              >
+                                Abrir movimientos de stock
+                              </Link>
+                              .
+                            </Typography>
+                          )}
                         </Grid>
                       </Grid>
                     </Collapse>

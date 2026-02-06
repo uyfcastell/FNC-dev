@@ -60,6 +60,7 @@ import {
 } from "../lib/api";
 import { getOperationalDeposits } from "../lib/deposits";
 import { normalizeQuantity, parseQuantityInput } from "../lib/quantity";
+import { useAuth } from "../lib/auth";
 
 const PRODUCTION_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 const SHOW_INDIRECT_LABOR_SECTION = false;
@@ -79,6 +80,9 @@ type OverheadItemDraft = {
 };
 
 export function ProductionPage() {
+  const { can } = useAuth();
+  const canCreateLot = can("production.create_lot");
+
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -917,9 +921,11 @@ export function ProductionPage() {
                     value={productionForm.reference}
                     onChange={(e) => setProductionForm((prev) => ({ ...prev, reference: e.target.value }))}
                   />
-                  <Button type="submit" variant="contained">
-                    Registrar producción
-                  </Button>
+                  {canCreateLot && (
+                    <Button type="submit" variant="contained">
+                      Registrar producción
+                    </Button>
+                  )}
                 </Stack>
               </CardContent>
             </Card>
