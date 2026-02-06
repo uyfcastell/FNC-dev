@@ -9,7 +9,6 @@ import {
   Chip,
   Divider,
   IconButton,
-  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -64,6 +63,7 @@ import { getOperationalDeposits } from "../lib/deposits";
 const PRODUCTION_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 const SHOW_INDIRECT_LABOR_SECTION = false;
 const SHOW_PIECEWORK_SECTION = false;
+const OVERHEAD_ALLOCATION_METHOD: DailyOverheadAllocationMethod = "units";
 type RecipeFormItem = { component_id: number | null; quantity: string };
 type OverheadItemDraft = {
   tempId: string;
@@ -93,7 +93,6 @@ export function ProductionPage() {
   const [overheadForm, setOverheadForm] = useState({
     energy_cost: "0",
     gas_cost: "0",
-    allocation_method: "units" as DailyOverheadAllocationMethod,
     notes: "",
   });
   const [overheadLoading, setOverheadLoading] = useState(false);
@@ -274,7 +273,6 @@ export function ProductionPage() {
         setOverheadForm({
           energy_cost: record.energy_cost.toString(),
           gas_cost: record.gas_cost.toString(),
-          allocation_method: record.allocation_method,
           notes: record.notes ?? "",
         });
         if (SHOW_INDIRECT_LABOR_SECTION) {
@@ -286,7 +284,7 @@ export function ProductionPage() {
         await loadAllocations(record.id);
       } else {
         setDailyOverhead(null);
-        setOverheadForm({ energy_cost: "0", gas_cost: "0", allocation_method: "units", notes: "" });
+        setOverheadForm({ energy_cost: "0", gas_cost: "0", notes: "" });
         setAllocations([]);
         setAllocationMessage(null);
         setOverheadItems([]);
@@ -611,7 +609,7 @@ export function ProductionPage() {
       date: overheadDate,
       energy_cost: energyCost,
       gas_cost: gasCost,
-      allocation_method: overheadForm.allocation_method,
+      allocation_method: OVERHEAD_ALLOCATION_METHOD,
       notes: overheadForm.notes.trim() || null,
     };
 
@@ -629,7 +627,6 @@ export function ProductionPage() {
       setOverheadForm({
         energy_cost: saved.energy_cost.toString(),
         gas_cost: saved.gas_cost.toString(),
-        allocation_method: saved.allocation_method,
         notes: saved.notes ?? "",
       });
       await loadOverheadItems(saved.id);
@@ -684,7 +681,7 @@ export function ProductionPage() {
       overheadItemsTotal
     );
   }, [overheadForm.energy_cost, overheadForm.gas_cost, overheadItemsTotal]);
-  const allocationMethod = dailyOverhead?.allocation_method ?? overheadForm.allocation_method;
+  const allocationMethod = dailyOverhead?.allocation_method ?? OVERHEAD_ALLOCATION_METHOD;
   const isWeightedAllocation = allocationMethod === "weighted_units";
 
   const computedComponents = useMemo(() => {
@@ -891,17 +888,9 @@ export function ProductionPage() {
                     InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
                   />
                 </Stack>
-                <TextField
-                  select
-                  label="Método de prorrateo"
-                  value={overheadForm.allocation_method}
-                  onChange={(e) =>
-                    setOverheadForm((prev) => ({ ...prev, allocation_method: e.target.value as DailyOverheadAllocationMethod }))
-                  }
-                >
-                  <MenuItem value="units">Por unidades</MenuItem>
-                  <MenuItem value="weighted_units">Por unidades ponderadas</MenuItem>
-                </TextField>
+                <Typography variant="body2" color="text.secondary">
+                  Método de prorrateo: Por unidades
+                </Typography>
                 <TextField
                   label="Notas (opcional)"
                   multiline
