@@ -116,6 +116,7 @@ export function OrdersPage() {
   });
   const { user } = useAuth();
   const localUser = isLocalUser(user);
+  const canSubmitOrders = (user?.permissions ?? []).includes("orders.submit");
 
   useEffect(() => {
     void loadData();
@@ -360,6 +361,18 @@ export function OrdersPage() {
     } catch (err) {
       console.error(err);
       setError("No pudimos cancelar el pedido");
+    }
+  };
+
+  const handleSubmitOrder = async (orderId: number) => {
+    if (!window.confirm("¿Enviar el pedido a planta?")) return;
+    try {
+      await updateOrderStatus(orderId, "submitted");
+      await loadData();
+      setSuccess("Pedido enviado a planta");
+    } catch (err) {
+      console.error(err);
+      setError("No pudimos enviar el pedido a planta");
     }
   };
 
@@ -706,6 +719,7 @@ export function OrdersPage() {
                   ? order.status === "draft"
                   : ["draft", "submitted", "partially_prepared"].includes(order.status);
                 const canCancel = localUser ? order.status === "draft" : ["draft", "submitted"].includes(order.status);
+                const canSubmit = order.status === "draft" && canSubmitOrders;
                 const isShipmentDisabled = ["draft", "dispatched", "cancelled"].includes(order.status);
                 return (
                   <Card key={order.id} variant="outlined">
@@ -776,6 +790,11 @@ export function OrdersPage() {
                             Envío
                           </Button>
                           <Chip size="small" variant="outlined" label={ORDER_STATUS_LABELS[order.status]} />
+                          {canSubmit && (
+                            <Button variant="contained" size="small" onClick={() => handleSubmitOrder(order.id)}>
+                              Enviar a planta
+                            </Button>
+                          )}
                           <Button variant="outlined" size="small" onClick={() => startEdit(order)} disabled={isCancelled || !isEditable}>
                             Editar
                           </Button>

@@ -101,6 +101,7 @@ export function MobileOrdersPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const { user } = useAuth();
   const localUser = isLocalUser(user);
+  const canSubmitOrders = (user?.permissions ?? []).includes("orders.submit");
 
   useEffect(() => {
     void loadCatalog();
@@ -327,6 +328,10 @@ export function MobileOrdersPage() {
   };
 
   const sendOrder = async () => {
+    if (!canSubmitOrders) {
+      setError("No tenés permiso para enviar pedidos a planta.");
+      return;
+    }
     if (!window.confirm("¿Enviar el pedido a planta?")) return;
     if (!selectedDepositId) return;
     const orderId = await persistDraft();
@@ -686,9 +691,11 @@ export function MobileOrdersPage() {
                 <Button variant="contained" startIcon={<SaveIcon />} onClick={saveDraft}>
                   Guardar borrador
                 </Button>
-                <Button variant="contained" color="secondary" startIcon={<SendIcon />} onClick={sendOrder}>
-                  Enviar pedido
-                </Button>
+                {canSubmitOrders && (
+                  <Button variant="contained" color="secondary" startIcon={<SendIcon />} onClick={sendOrder}>
+                    Enviar pedido
+                  </Button>
+                )}
                 {editingOrderId !== null && editingOrderId > 0 && (
                   <Button variant="outlined" color="error" startIcon={<CancelIcon />} onClick={() => cancelOrder(editingOrderId)}>
                     Cancelar pedido
