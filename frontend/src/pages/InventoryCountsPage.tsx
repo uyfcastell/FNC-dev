@@ -325,7 +325,7 @@ export function InventoryCountsPage() {
                         options={skuLots.map((lot) => ({
                           value: lot.id,
                           label: `${lot.lot_code} · ${lot.sku_name}`,
-                          description: `Disponible: ${lot.remaining_quantity.toFixed(2)}`,
+                          description: `Disponible: ${lot.remaining_quantity.toFixed(2)} · Vence: ${lot.expiry_date ?? "Sin fecha"}`,
                         }))}
                         onChange={(value) => {
                           handleLineChange(idx, "production_lot_id", value ? String(value) : "");
