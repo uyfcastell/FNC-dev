@@ -65,3 +65,42 @@ def test_inventory_count_flow(client):
     approved = approve_res.json()
     assert approved["status"] == "approved"
     assert approved["items"][0]["stock_movement_id"]
+
+
+def test_inventory_count_allows_null_lot_when_deposit_controls_lot(client):
+    sku_id = _get_sku_id(client, "CUC-PT-24")
+
+    count_payload = {
+        "deposit_id": 1,
+        "count_date": date.today().isoformat(),
+        "items": [
+            {
+                "sku_id": sku_id,
+                "counted_quantity": 2,
+            }
+        ],
+    }
+    create_res = client.post("/api/inventory-counts", json=count_payload)
+    assert create_res.status_code == 201
+    item = create_res.json()["items"][0]
+    assert item["production_lot_id"] is None
+    assert item["lot_code"] is None
+
+
+def test_inventory_count_rejects_invalid_manual_lot(client):
+    sku_id = _get_sku_id(client, "CUC-PT-24")
+
+    count_payload = {
+        "deposit_id": 1,
+        "count_date": date.today().isoformat(),
+        "items": [
+            {
+                "sku_id": sku_id,
+                "counted_quantity": 2,
+                "lot_code": "LOT-INEXISTENTE",
+            }
+        ],
+    }
+    create_res = client.post("/api/inventory-counts", json=count_payload)
+    assert create_res.status_code == 400
+    assert "no existe para el SKU y depósito" in create_res.json()["detail"]

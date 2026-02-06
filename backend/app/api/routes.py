@@ -5941,10 +5941,13 @@ def _resolve_system_quantity(
     deposit: Deposit,
     sku: SKU,
     production_lot_id: int | None,
-) -> tuple[float, ProductionLot | None]:
-    if deposit.controls_lot:
-        if not production_lot_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El depósito requiere lote")
+    lot_code: str | None = None,
+) -> tuple[float, ProductionLot | None, str | None]:
+    normalized_lot_code = lot_code.strip() if isinstance(lot_code, str) else None
+    if normalized_lot_code == "":
+        normalized_lot_code = None
+
+    if production_lot_id:
         lot = session.get(ProductionLot, production_lot_id)
         if not lot:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lote no encontrado")
@@ -5952,12 +5955,25 @@ def _resolve_system_quantity(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote pertenece a otro depósito")
         if lot.sku_id != sku.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote no corresponde al SKU indicado")
-        return float(lot.remaining_quantity), lot
+        if normalized_lot_code and normalized_lot_code != lot.lot_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote manual no coincide con el lote seleccionado")
+        return float(lot.remaining_quantity), lot, lot.lot_code
+
+    if normalized_lot_code:
+        lot = session.exec(select(ProductionLot).where(ProductionLot.lot_code == normalized_lot_code)).first()
+        if not lot:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote ingresado no existe para el SKU y depósito seleccionados")
+        if lot.deposit_id != deposit.id or lot.sku_id != sku.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El lote ingresado no existe para el SKU y depósito seleccionados")
+        return float(lot.remaining_quantity), lot, lot.lot_code
+
+    if deposit.controls_lot:
+        return 0.0, None, None
 
     stock_level = session.exec(
         select(StockLevel).where(StockLevel.deposit_id == deposit.id, StockLevel.sku_id == sku.id)
     ).first()
-    return float(stock_level.quantity) if stock_level else 0.0, None
+    return float(stock_level.quantity) if stock_level else 0.0, None, None
 
 
 def _replace_inventory_count_items(
@@ -5975,7 +5991,13 @@ def _replace_inventory_count_items(
         sku = session.get(SKU, payload["sku_id"])
         if not sku:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU no encontrado")
-        system_quantity, lot = _resolve_system_quantity(session, deposit, sku, payload.get("production_lot_id"))
+        system_quantity, lot, resolved_lot_code = _resolve_system_quantity(
+            session,
+            deposit,
+            sku,
+            payload.get("production_lot_id"),
+            payload.get("lot_code"),
+        )
         counted = float(payload["counted_quantity"])
         if counted < 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La cantidad contada no puede ser negativa")
@@ -5985,7 +6007,7 @@ def _replace_inventory_count_items(
                 inventory_count_id=count.id,
                 sku_id=sku.id,
                 production_lot_id=payload.get("production_lot_id"),
-                lot_code=lot.lot_code if lot else None,
+                lot_code=resolved_lot_code,
                 counted_quantity=counted,
                 system_quantity=system_quantity,
                 difference=difference,
@@ -5999,6 +6021,7 @@ def _serialize_inventory_count_items(items: list[InventoryCountItem]) -> list[di
         {
             "sku_id": item.sku_id,
             "production_lot_id": item.production_lot_id,
+            "lot_code": item.lot_code,
             "counted_quantity": item.counted_quantity,
             "system_quantity": item.system_quantity,
             "difference": item.difference,
@@ -6499,6 +6522,7 @@ def update_inventory_count(
         {
             "sku_id": item.sku_id,
             "production_lot_id": item.production_lot_id,
+            "lot_code": item.lot_code,
             "counted_quantity": item.counted_quantity,
         }
         for item in count.items
@@ -6603,7 +6627,7 @@ def approve_inventory_count(
     for item in count.items:
         if item.difference == 0:
             continue
-        if deposit.controls_lot and not item.production_lot_id:
+        if deposit.controls_lot and not (item.production_lot_id or item.lot_code):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Falta lote en depósito con control de lotes")
 
         lot_code = item.lot_code

@@ -868,6 +868,7 @@ class InventoryCountItemCreate(SQLModel):
     sku_id: int
     counted_quantity: float = Field(ge=0)
     production_lot_id: int | None = None
+    lot_code: str | None = None
 
 
 class InventoryCountCreate(SQLModel):

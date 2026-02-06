@@ -58,16 +58,17 @@ type CountLine = {
   sku_id: string;
   counted_quantity: string;
   production_lot_id: string;
+  lot_code: string;
 };
 
-const emptyLine: CountLine = { sku_id: "", counted_quantity: "", production_lot_id: "" };
+const emptyLine: CountLine = { sku_id: "", counted_quantity: "", production_lot_id: "", lot_code: "" };
 
 export function InventoryCountsPage() {
   const [counts, setCounts] = useState<InventoryCount[]>([]);
   const [selectedCount, setSelectedCount] = useState<InventoryCount | null>(null);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [skus, setSkus] = useState<SKU[]>([]);
-  const [lots, setLots] = useState<ProductionLot[]>([]);
+  const [lotsBySku, setLotsBySku] = useState<Record<number, ProductionLot[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -109,14 +110,6 @@ export function InventoryCountsPage() {
     [skus]
   );
 
-  const lotOptions = useMemo(() => {
-    if (!selectedDeposit?.controls_lot) return [];
-    return lots.map((lot) => ({
-      value: lot.id,
-      label: `${lot.lot_code} · ${lot.sku_name}`,
-      description: `Disponible: ${lot.remaining_quantity.toFixed(2)}`,
-    }));
-  }, [lots, selectedDeposit]);
 
   const handleLineChange = (index: number, field: keyof CountLine, value: string) => {
     setLines((prev) => {
@@ -130,21 +123,23 @@ export function InventoryCountsPage() {
   const removeLine = (index: number) => setLines((prev) => prev.filter((_, idx) => idx !== index));
 
   const handleSkuChange = async (index: number, skuId: string) => {
-    handleLineChange(index, "sku_id", skuId);
+    setLines((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], sku_id: skuId, production_lot_id: "", lot_code: "" };
+      return next;
+    });
     if (!selectedDeposit?.controls_lot || !skuId) return;
+
+    const parsedSkuId = Number(skuId);
+    if (lotsBySku[parsedSkuId]) return;
+
     try {
       const lotList = await fetchProductionLots({
         deposit_id: selectedDeposit.id,
-        sku_id: Number(skuId),
+        sku_id: parsedSkuId,
         available_only: true,
       });
-      setLots((prev) => {
-        const existing = new Map(prev.map((lot) => [lot.id, lot]));
-        for (const lot of lotList) {
-          existing.set(lot.id, lot);
-        }
-        return Array.from(existing.values());
-      });
+      setLotsBySku((prev) => ({ ...prev, [parsedSkuId]: lotList }));
     } catch (err) {
       console.error(err);
       setError(err instanceof ApiError ? err.message : "No pudimos cargar los lotes disponibles.");
@@ -165,6 +160,7 @@ export function InventoryCountsPage() {
         sku_id: Number(line.sku_id),
         counted_quantity: Number(line.counted_quantity),
         production_lot_id: line.production_lot_id ? Number(line.production_lot_id) : undefined,
+        lot_code: line.lot_code.trim() || undefined,
       }));
     if (!payloadItems.length) {
       setError("Agrega al menos un SKU con cantidad válida.");
@@ -183,6 +179,7 @@ export function InventoryCountsPage() {
       setSelectedCount(created);
       setForm({ deposit_id: "", count_date: "", notes: "" });
       setLines([emptyLine]);
+      setLotsBySku({});
     } catch (err) {
       console.error(err);
       setError(err instanceof ApiError ? err.message : "No pudimos crear el conteo. Verifica lotes y cantidades.");
@@ -245,7 +242,11 @@ export function InventoryCountsPage() {
                 fullWidth
                 label="Depósito"
                 value={form.deposit_id}
-                onChange={(e) => setForm((prev) => ({ ...prev, deposit_id: e.target.value }))}
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, deposit_id: e.target.value }));
+                  setLotsBySku({});
+                  setLines([emptyLine]);
+                }}
               >
                 {deposits.map((deposit) => (
                   <MenuItem key={deposit.id} value={deposit.id}>
@@ -303,14 +304,40 @@ export function InventoryCountsPage() {
                     <SearchableSelect
                       label={selectedDeposit?.controls_lot ? "Lote" : "Lote (opcional)"}
                       value={line.production_lot_id ? Number(line.production_lot_id) : null}
-                      options={lotOptions.filter((lot) => {
-                        if (!line.sku_id) return true;
-                        const lotData = lots.find((l) => l.id === lot.value);
-                        return lotData?.sku_id === Number(line.sku_id);
-                      })}
-                      onChange={(value) => handleLineChange(idx, "production_lot_id", value ? String(value) : "")}
-                      disabled={!selectedDeposit?.controls_lot}
+                      options={(line.sku_id ? lotsBySku[Number(line.sku_id)] ?? [] : []).map((lot) => ({
+                        value: lot.id,
+                        label: `${lot.lot_code} · ${lot.sku_name}`,
+                        description: `Disponible: ${lot.remaining_quantity.toFixed(2)}`,
+                      }))}
+                      onChange={(value) => {
+                        handleLineChange(idx, "production_lot_id", value ? String(value) : "");
+                        if (value) {
+                          const selectedLot = (line.sku_id ? lotsBySku[Number(line.sku_id)] ?? [] : []).find((lot) => lot.id === value);
+                          handleLineChange(idx, "lot_code", selectedLot?.lot_code ?? "");
+                        }
+                      }}
+                      noOptionsText={line.sku_id ? "No hay lotes disponibles para este producto" : "Selecciona un SKU"}
+                      disabled={!selectedDeposit?.controls_lot || !line.sku_id}
                     />
+                    {selectedDeposit?.controls_lot && line.sku_id && ((lotsBySku[Number(line.sku_id)] ?? []).length === 0) && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                        No hay lotes disponibles para este producto.
+                      </Typography>
+                    )}
+                    {selectedDeposit?.controls_lot && (
+                      <TextField
+                        label="Lote manual (opcional)"
+                        fullWidth
+                        sx={{ mt: 1 }}
+                        value={line.lot_code}
+                        onChange={(e) => {
+                          handleLineChange(idx, "lot_code", e.target.value);
+                          if (line.production_lot_id) {
+                            handleLineChange(idx, "production_lot_id", "");
+                          }
+                        }}
+                      />
+                    )}
                   </Grid>
                   <Grid item xs={12} md={1}>
                     <IconButton color="error" onClick={() => removeLine(idx)} disabled={lines.length === 1}>
