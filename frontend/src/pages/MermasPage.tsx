@@ -58,6 +58,7 @@ import {
   updateMermaCause,
   updateMermaType,
 } from "../lib/api";
+import { getOperationalDeposits } from "../lib/deposits";
 
 type TabKey = "registro" | "listado" | "catalogos";
 
@@ -309,7 +310,7 @@ export function MermasPage() {
 
   const depositOptions = useMemo(
     () =>
-      deposits.map((deposit) => ({
+      getOperationalDeposits(deposits).map((deposit) => ({
         value: deposit.id,
         label: deposit.name,
         description: deposit.location || undefined,

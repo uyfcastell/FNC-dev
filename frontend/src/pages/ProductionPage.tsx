@@ -59,6 +59,7 @@ import {
   updateDailyOverhead,
   updateDailyOverheadItem,
 } from "../lib/api";
+import { getOperationalDeposits } from "../lib/deposits";
 
 const PRODUCTION_TYPE_CODES: string[] = ["MA", "PI", "PT", "PACK"];
 type RecipeFormItem = { component_id: number | null; quantity: string };
@@ -133,7 +134,10 @@ export function ProductionPage() {
   });
 
   const sortedSkus = useMemo(() => [...skus].sort((a, b) => a.name.localeCompare(b.name)), [skus]);
-  const sortedDeposits = useMemo(() => [...deposits].sort((a, b) => a.name.localeCompare(b.name)), [deposits]);
+  const sortedDeposits = useMemo(
+    () => [...getOperationalDeposits(deposits)].sort((a, b) => a.name.localeCompare(b.name)),
+    [deposits]
+  );
   const productionSkus = useMemo(
     () => sortedSkus.filter((sku) => PRODUCTION_TYPE_CODES.includes(sku.sku_type_code)),
     [sortedSkus]

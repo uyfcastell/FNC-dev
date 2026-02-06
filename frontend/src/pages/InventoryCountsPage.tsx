@@ -43,6 +43,7 @@ import {
   SKU,
   submitInventoryCount,
 } from "../lib/api";
+import { getOperationalDeposits } from "../lib/deposits";
 
 const statusLabels: Record<InventoryCountStatus, string> = {
   draft: "Borrador",
@@ -82,7 +83,7 @@ export function InventoryCountsPage() {
       setLoading(true);
       const [countList, depositList, skuList] = await Promise.all([fetchInventoryCounts(), fetchDeposits(), fetchSkus()]);
       setCounts(countList);
-      setDeposits(depositList);
+      setDeposits(getOperationalDeposits(depositList));
       setSkus(skuList);
       setError(null);
       if (countList.length > 0 && !selectedCount) {
