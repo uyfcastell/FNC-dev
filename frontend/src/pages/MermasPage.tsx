@@ -34,10 +34,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { SearchableSelect } from "../components/SearchableSelect";
 import {
-  createMermaCause,
   createMermaEvent,
-  createMermaType,
-  createProductionLine,
   deleteMermaCause,
   deleteMermaType,
   Deposit,
@@ -51,7 +48,6 @@ import {
   MermaAction,
   MermaCause,
   MermaEvent,
-  MermaEventPayload,
   MermaStage,
   MermaType,
   ProductionLine,
@@ -60,7 +56,6 @@ import {
   UnitOfMeasure,
   updateMermaCause,
   updateMermaType,
-  updateProductionLine,
 } from "../lib/api";
 
 type TabKey = "registro" | "listado" | "catalogos";
@@ -77,7 +72,6 @@ type MermaEventFormState = {
   remito_id?: number | null;
   order_id?: number | null;
   production_line_id?: number | null;
-  reported_by_user_id?: number | null;
   reported_by_role?: string | null;
   notes?: string | null;
   detected_at?: string | null;
@@ -129,7 +123,6 @@ export function MermasPage() {
     remito_id: null,
     order_id: null,
     production_line_id: null,
-    reported_by_user_id: null,
     reported_by_role: "",
     notes: null,
     detected_at: null,
@@ -150,13 +143,6 @@ export function MermasPage() {
     date_to?: string;
   }>({});
 
-  const [typeForm, setTypeForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>(
-    { stage: "PRODUCTION", code: "", label: "", is_active: true }
-  );
-  const [causeForm, setCauseForm] = useState<{ id?: number; stage: MermaStage; code: string; label: string; is_active: boolean }>(
-    { stage: "PRODUCTION", code: "", label: "", is_active: true }
-  );
-  const [lineForm, setLineForm] = useState<{ id?: number; name: string; is_active: boolean }>({ name: "", is_active: true });
 
   useEffect(() => {
     void loadReferenceData();
@@ -344,7 +330,6 @@ export function MermasPage() {
         unit: eventForm.unit,
         notes: eventForm.notes || undefined,
         reported_by_role: eventForm.reported_by_role || undefined,
-        reported_by_user_id: eventForm.reported_by_user_id ? Number(eventForm.reported_by_user_id) : undefined,
         quantity: Number(eventForm.quantity),
         deposit_id: eventForm.deposit_id ? Number(eventForm.deposit_id) : undefined,
         remito_id: eventForm.remito_id ? Number(eventForm.remito_id) : undefined,
@@ -367,61 +352,14 @@ export function MermasPage() {
       }));
       await loadEvents();
     } catch (err) {
-      console.error(err);
-      setError("No pudimos registrar la merma. Revisa los datos.");
+      console.error("Error al registrar merma", err);
+      const detail = err instanceof Error ? err.message : "";
+      setError(detail ? `No pudimos registrar la merma: ${detail}` : "No pudimos registrar la merma. Revisa los datos.");
     }
   };
 
-  const handleTypeSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    try {
-      if (typeForm.id) {
-        await updateMermaType(typeForm.id, { label: typeForm.label, is_active: typeForm.is_active, stage: typeForm.stage });
-      } else {
-        await createMermaType({ stage: typeForm.stage, code: typeForm.code, label: typeForm.label, is_active: typeForm.is_active });
-      }
-      setTypeForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true });
-      await loadReferenceData();
-      setSuccess("Catálogo de tipos actualizado");
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos guardar el tipo de merma");
-    }
-  };
 
-  const handleCauseSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    try {
-      if (causeForm.id) {
-        await updateMermaCause(causeForm.id, { label: causeForm.label, is_active: causeForm.is_active, stage: causeForm.stage });
-      } else {
-        await createMermaCause({ stage: causeForm.stage, code: causeForm.code, label: causeForm.label, is_active: causeForm.is_active });
-      }
-      setCauseForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true });
-      await loadReferenceData();
-      setSuccess("Catálogo de causas actualizado");
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos guardar la causa de merma");
-    }
-  };
 
-  const handleLineSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    try {
-      if (lineForm.id) {
-        await updateProductionLine(lineForm.id, { name: lineForm.name, is_active: lineForm.is_active });
-      } else {
-        await createProductionLine({ name: lineForm.name, is_active: lineForm.is_active });
-      }
-      setLineForm({ id: undefined, name: "", is_active: true });
-      await loadReferenceData();
-      setSuccess("Líneas de producción actualizadas");
-    } catch (err) {
-      console.error(err);
-      setError("No pudimos guardar la línea de producción");
-    }
-  };
 
   const availableTypesForFilters = useMemo(() => types.filter((t) => !filters.stage || t.stage === filters.stage), [types, filters.stage]);
   const availableCausesForFilters = useMemo(() => causes.filter((c) => !filters.stage || c.stage === filters.stage), [causes, filters.stage]);
@@ -603,15 +541,6 @@ export function MermasPage() {
                     label="Rol / responsable"
                     value={eventForm.reported_by_role || ""}
                     onChange={(e) => setEventForm((prev) => ({ ...prev, reported_by_role: e.target.value }))}
-                  />
-                </Grid>
-                <Grid item xs={12} md={3}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Usuario informante (ID)"
-                    value={eventForm.reported_by_user_id || ""}
-                    onChange={(e) => setEventForm((prev) => ({ ...prev, reported_by_user_id: Number(e.target.value) }))}
                   />
                 </Grid>
                 <Grid item xs={12}>
@@ -917,57 +846,11 @@ export function MermasPage() {
 
       {tab === "catalogos" && (
         <Grid container spacing={2}>
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={6}>
             <Card>
               <CardHeader title="Tipos de merma" />
               <Divider />
               <CardContent>
-                <Stack component="form" spacing={2} onSubmit={handleTypeSubmit}>
-                  <TextField
-                    select
-                    fullWidth
-                    label="Etapa"
-                    value={typeForm.stage}
-                    onChange={(e) => setTypeForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
-                  >
-                    {MERMA_STAGE_OPTIONS.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField
-                    label="Código"
-                    required
-                    disabled={Boolean(typeForm.id)}
-                    value={typeForm.code}
-                    onChange={(e) => setTypeForm((prev) => ({ ...prev, code: e.target.value }))}
-                  />
-                  <TextField
-                    label="Nombre visible"
-                    required
-                    value={typeForm.label}
-                    onChange={(e) => setTypeForm((prev) => ({ ...prev, label: e.target.value }))}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={typeForm.is_active}
-                        onChange={(e) => setTypeForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                      />
-                    }
-                    label="Activo"
-                  />
-                  <Stack direction="row" spacing={1}>
-                    <Button type="submit" variant="contained" startIcon={<AddIcon />}>
-                      {typeForm.id ? "Actualizar" : "Crear"}
-                    </Button>
-                    {typeForm.id && (
-                      <Button onClick={() => setTypeForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true })}>Cancelar</Button>
-                    )}
-                  </Stack>
-                </Stack>
-                <Divider sx={{ my: 2 }} />
                 <Stack spacing={1}>
                   {types.map((type) => (
                     <Stack key={type.id} direction="row" spacing={1} alignItems="center" justifyContent="space-between">
@@ -988,7 +871,6 @@ export function MermasPage() {
                             }
                           }}
                         />
-                        <Button size="small" onClick={() => setTypeForm({ ...type, id: type.id })}>Editar</Button>
                         <IconButton
                           size="small"
                           color="error"
@@ -1013,57 +895,11 @@ export function MermasPage() {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={6}>
             <Card>
               <CardHeader title="Causas de merma" />
               <Divider />
               <CardContent>
-                <Stack component="form" spacing={2} onSubmit={handleCauseSubmit}>
-                  <TextField
-                    select
-                    fullWidth
-                    label="Etapa"
-                    value={causeForm.stage}
-                    onChange={(e) => setCauseForm((prev) => ({ ...prev, stage: e.target.value as MermaStage }))}
-                  >
-                    {MERMA_STAGE_OPTIONS.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField
-                    label="Código"
-                    required
-                    disabled={Boolean(causeForm.id)}
-                    value={causeForm.code}
-                    onChange={(e) => setCauseForm((prev) => ({ ...prev, code: e.target.value }))}
-                  />
-                  <TextField
-                    label="Nombre visible"
-                    required
-                    value={causeForm.label}
-                    onChange={(e) => setCauseForm((prev) => ({ ...prev, label: e.target.value }))}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={causeForm.is_active}
-                        onChange={(e) => setCauseForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                      />
-                    }
-                    label="Activo"
-                  />
-                  <Stack direction="row" spacing={1}>
-                    <Button type="submit" variant="contained" startIcon={<AddIcon />}>
-                      {causeForm.id ? "Actualizar" : "Crear"}
-                    </Button>
-                    {causeForm.id && (
-                      <Button onClick={() => setCauseForm({ id: undefined, stage: "PRODUCTION", code: "", label: "", is_active: true })}>Cancelar</Button>
-                    )}
-                  </Stack>
-                </Stack>
-                <Divider sx={{ my: 2 }} />
                 <Stack spacing={1}>
                   {causes.map((cause) => (
                     <Stack key={cause.id} direction="row" spacing={1} alignItems="center" justifyContent="space-between">
@@ -1084,7 +920,6 @@ export function MermasPage() {
                             }
                           }}
                         />
-                        <Button size="small" onClick={() => setCauseForm({ ...cause, id: cause.id })}>Editar</Button>
                         <IconButton
                           size="small"
                           color="error"
@@ -1101,66 +936,6 @@ export function MermasPage() {
                         >
                           <PlaylistAddCheckIcon fontSize="small" />
                         </IconButton>
-                      </Stack>
-                    </Stack>
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={4}>
-            <Card>
-              <CardHeader title="Líneas de producción" />
-              <Divider />
-              <CardContent>
-                <Stack component="form" spacing={2} onSubmit={handleLineSubmit}>
-                  <TextField
-                    label="Nombre"
-                    required
-                    value={lineForm.name}
-                    onChange={(e) => setLineForm((prev) => ({ ...prev, name: e.target.value }))}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={lineForm.is_active}
-                        onChange={(e) => setLineForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                      />
-                    }
-                    label="Activa"
-                  />
-                  <Stack direction="row" spacing={1}>
-                    <Button type="submit" variant="contained" startIcon={<AddIcon />}>
-                      {lineForm.id ? "Actualizar" : "Crear"}
-                    </Button>
-                    {lineForm.id && (
-                      <Button onClick={() => setLineForm({ id: undefined, name: "", is_active: true })}>Cancelar</Button>
-                    )}
-                  </Stack>
-                </Stack>
-                <Divider sx={{ my: 2 }} />
-                <Stack spacing={1}>
-                  {productionLines.map((line) => (
-                    <Stack key={line.id} direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                      <Box>
-                        <Typography fontWeight={600}>{line.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">{line.is_active ? "Activa" : "Inactiva"}</Typography>
-                      </Box>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Switch
-                          checked={line.is_active}
-                          onChange={async (e) => {
-                            try {
-                              await updateProductionLine(line.id, { is_active: e.target.checked });
-                              await loadReferenceData();
-                            } catch (err) {
-                              console.error(err);
-                              setError("No pudimos actualizar la línea");
-                            }
-                          }}
-                        />
-                        <Button size="small" onClick={() => setLineForm({ ...line })}>Editar</Button>
                       </Stack>
                     </Stack>
                   ))}

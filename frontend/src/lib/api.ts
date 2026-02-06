@@ -43,8 +43,17 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
 async function apiRequest<T>(path: string, options: RequestInit, defaultError: string): Promise<T> {
   const response = await apiFetch(path, options);
   if (!response.ok) {
-    const detail = await response.text();
-    throw new ApiError(response.status, detail || defaultError);
+    const rawDetail = await response.text();
+    let errorMessage = defaultError;
+    if (rawDetail) {
+      try {
+        const parsed = JSON.parse(rawDetail) as { detail?: string };
+        errorMessage = parsed.detail ?? rawDetail;
+      } catch {
+        errorMessage = rawDetail;
+      }
+    }
+    throw new ApiError(response.status, errorMessage);
   }
   return response.json() as Promise<T>;
 }
