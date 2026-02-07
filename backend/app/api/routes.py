@@ -15,6 +15,12 @@ from sqlalchemy.sql import Select
 from sqlmodel import Session, select
 
 from ..core.config import get_settings
+from ..core.policies import (
+    assert_inventory_count_transition_allowed,
+    assert_order_owner_draft_or_override,
+    assert_order_status_transition_allowed,
+    has_permission,
+)
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..db import get_session
 from ..core.security import (
@@ -3721,19 +3727,7 @@ def update_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    is_admin = _is_admin_account(current_user, session)
-    if order.status != OrderStatus.DRAFT and not is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El pedido ya fue enviado. No puede modificarse.",
-        )
-    allowed_statuses = {OrderStatus.DRAFT} if not is_admin else {
-        OrderStatus.DRAFT,
-        OrderStatus.SUBMITTED,
-        OrderStatus.PARTIALLY_PREPARED,
-    }
-    if order.status not in allowed_statuses:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede editar el pedido en este estado")
+    assert_order_owner_draft_or_override(order, current_user, "ops.orders.update_any_draft", session)
     if payload.items is not None and not payload.items:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El pedido debe tener al menos un ítem")
     if payload.requested_by is not None and not payload.requested_by.strip():
@@ -3867,7 +3861,7 @@ def update_order(
     "/orders/{order_id}/status",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_permissions("orders.submit"))],
+    dependencies=[Depends(require_permissions("orders.submit", "orders.cancel"))],
 )
 def update_order_status(
     order_id: int,
@@ -3879,13 +3873,16 @@ def update_order_status(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    if payload.status != OrderStatus.SUBMITTED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se permite enviar pedidos a planta")
-    if order.status != OrderStatus.DRAFT and not _is_admin_account(current_user, session):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El pedido ya fue enviado. No puede modificarse.",
-        )
+    transition_permission_by_status = {
+        OrderStatus.SUBMITTED: "ops.orders.submit",
+        OrderStatus.CANCELLED: "ops.orders.cancel",
+    }
+    transition_permission = transition_permission_by_status.get(payload.status)
+    if transition_permission and not has_permission(session, current_user, transition_permission):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+
+    assert_order_status_transition_allowed(order, payload.status)
+
     if payload.status == OrderStatus.SUBMITTED:
         items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
         if not items:
@@ -3903,7 +3900,6 @@ def update_order_status(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="El stock actual debe ser un número entero",
                 )
-    _ensure_order_transition(order, payload.status)
     if payload.status == OrderStatus.CANCELLED:
         _ensure_order_cancel_allowed(session, order)
         if order.status == OrderStatus.SUBMITTED:
@@ -3946,15 +3942,8 @@ def delete_order(
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
-    if order.status != OrderStatus.DRAFT and not _is_admin_account(current_user, session):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El pedido ya fue enviado. No puede cancelarse.",
-        )
-    _ensure_order_transition(order, OrderStatus.CANCELLED)
+    assert_order_owner_draft_or_override(order, current_user, "ops.orders.delete_any_draft", session)
     _ensure_order_cancel_allowed(session, order)
-    if order.status == OrderStatus.SUBMITTED:
-        _remove_order_from_draft_shipments(session, order.id)
     items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id)).all()
     for item in items:
         session.delete(item)
@@ -6563,8 +6552,7 @@ def update_inventory_count(
     count = session.get(InventoryCount, count_id)
     if not count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
-    if count.status != InventoryCountStatus.DRAFT:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden editar conteos en borrador")
+    assert_inventory_count_transition_allowed(count, "update")
 
     session.refresh(count, attribute_names=["items"])
     before_items = [
@@ -6627,8 +6615,7 @@ def submit_inventory_count(
     count = session.get(InventoryCount, count_id)
     if not count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
-    if count.status != InventoryCountStatus.DRAFT:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El conteo ya fue enviado")
+    assert_inventory_count_transition_allowed(count, "submit")
 
     count.status = InventoryCountStatus.SUBMITTED
     count.submitted_at = datetime.utcnow()
@@ -6664,8 +6651,7 @@ def approve_inventory_count(
     count = session.get(InventoryCount, count_id)
     if not count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
-    if count.status != InventoryCountStatus.SUBMITTED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El conteo debe estar enviado para aprobarse")
+    assert_inventory_count_transition_allowed(count, "approve")
 
     session.refresh(count, attribute_names=["items"])
     deposit = _get_deposit_or_404(session, count.deposit_id)
@@ -6744,8 +6730,7 @@ def close_inventory_count(
     count = session.get(InventoryCount, count_id)
     if not count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
-    if count.status != InventoryCountStatus.APPROVED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Solo se pueden cerrar conteos aprobados")
+    assert_inventory_count_transition_allowed(count, "close")
 
     count.status = InventoryCountStatus.CLOSED
     count.closed_at = datetime.utcnow()
@@ -6781,8 +6766,7 @@ def cancel_inventory_count(
     count = session.get(InventoryCount, count_id)
     if not count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conteo no encontrado")
-    if count.status not in {InventoryCountStatus.DRAFT, InventoryCountStatus.SUBMITTED}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se puede cancelar el conteo")
+    assert_inventory_count_transition_allowed(count, "cancel")
 
     before_status = count.status
     count.status = InventoryCountStatus.CANCELLED
