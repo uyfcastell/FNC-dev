@@ -1,0 +1,457 @@
+permissions:
+  - key: admin.audit.logs.export
+    category: admin
+    action: export
+    label: "Admin audit logs export"
+  - key: admin.audit.logs.meta
+    category: admin
+    action: meta
+    label: "Admin audit logs meta"
+  - key: admin.audit.logs.read
+    category: admin
+    action: read
+    label: "Admin audit logs read"
+  - key: admin.rbac.permissions.list
+    category: admin
+    action: list
+    label: "Admin rbac permissions list"
+  - key: admin.rbac.roles.list
+    category: admin
+    action: list
+    label: "Admin rbac roles list"
+  - key: admin.rbac.roles.permissions.read
+    category: admin
+    action: read
+    label: "Admin rbac roles permissions read"
+  - key: admin.rbac.roles.permissions.update
+    category: admin
+    action: update
+    label: "Admin rbac roles permissions update"
+  - key: admin.users.create
+    category: admin
+    action: create
+    label: "Admin users create"
+  - key: admin.users.delete
+    category: admin
+    action: delete
+    label: "Admin users delete"
+  - key: admin.users.list
+    category: admin
+    action: list
+    label: "Admin users list"
+  - key: admin.users.update
+    category: admin
+    action: update
+    label: "Admin users update"
+  - key: admin.users.update_pin
+    category: admin
+    action: update_pin
+    label: "Admin users update pin"
+  - key: master.deposits.create
+    category: master
+    action: create
+    label: "Master deposits create"
+  - key: master.deposits.delete
+    category: master
+    action: delete
+    label: "Master deposits delete"
+  - key: master.deposits.update
+    category: master
+    action: update
+    label: "Master deposits update"
+  - key: master.deposits.update_status
+    category: master
+    action: update_status
+    label: "Master deposits update status"
+  - key: master.mermas.causes.create
+    category: master
+    action: create
+    label: "Master mermas causes create"
+  - key: master.mermas.causes.delete
+    category: master
+    action: delete
+    label: "Master mermas causes delete"
+  - key: master.mermas.causes.update
+    category: master
+    action: update
+    label: "Master mermas causes update"
+  - key: master.mermas.types.create
+    category: master
+    action: create
+    label: "Master mermas types create"
+  - key: master.mermas.types.delete
+    category: master
+    action: delete
+    label: "Master mermas types delete"
+  - key: master.mermas.types.update
+    category: master
+    action: update
+    label: "Master mermas types update"
+  - key: master.production_lines.create
+    category: master
+    action: create
+    label: "Master production lines create"
+  - key: master.production_lines.piece_rates.set
+    category: master
+    action: set
+    label: "Master production lines piece rates set"
+  - key: master.production_lines.update
+    category: master
+    action: update
+    label: "Master production lines update"
+  - key: master.recipes.create
+    category: master
+    action: create
+    label: "Master recipes create"
+  - key: master.recipes.delete
+    category: master
+    action: delete
+    label: "Master recipes delete"
+  - key: master.recipes.list
+    category: master
+    action: list
+    label: "Master recipes list"
+  - key: master.recipes.update
+    category: master
+    action: update
+    label: "Master recipes update"
+  - key: master.recipes.update_status
+    category: master
+    action: update_status
+    label: "Master recipes update status"
+  - key: master.sku_types.create
+    category: master
+    action: create
+    label: "Master sku types create"
+  - key: master.sku_types.delete
+    category: master
+    action: delete
+    label: "Master sku types delete"
+  - key: master.sku_types.list
+    category: master
+    action: list
+    label: "Master sku types list"
+  - key: master.sku_types.update
+    category: master
+    action: update
+    label: "Master sku types update"
+  - key: master.skus.create
+    category: master
+    action: create
+    label: "Master skus create"
+  - key: master.skus.delete
+    category: master
+    action: delete
+    label: "Master skus delete"
+  - key: master.skus.update
+    category: master
+    action: update
+    label: "Master skus update"
+  - key: master.skus.update_status
+    category: master
+    action: update_status
+    label: "Master skus update status"
+  - key: master.stock_movement_types.create
+    category: master
+    action: create
+    label: "Master stock movement types create"
+  - key: master.stock_movement_types.delete
+    category: master
+    action: delete
+    label: "Master stock movement types delete"
+  - key: master.stock_movement_types.update
+    category: master
+    action: update
+    label: "Master stock movement types update"
+  - key: master.suppliers.create
+    category: master
+    action: create
+    label: "Master suppliers create"
+  - key: master.suppliers.update
+    category: master
+    action: update
+    label: "Master suppliers update"
+  - key: ops.inventory.lots.update_expiry
+    category: operations
+    action: update_expiry
+    label: "Ops inventory lots update expiry"
+  - key: ops.inventory_counts.approve
+    category: operations
+    action: approve
+    label: "Ops inventory counts approve"
+  - key: ops.inventory_counts.cancel
+    category: operations
+    action: cancel
+    label: "Ops inventory counts cancel"
+  - key: ops.inventory_counts.close
+    category: operations
+    action: close
+    label: "Ops inventory counts close"
+  - key: ops.inventory_counts.create
+    category: operations
+    action: create
+    label: "Ops inventory counts create"
+  - key: ops.inventory_counts.list
+    category: operations
+    action: list
+    label: "Ops inventory counts list"
+  - key: ops.inventory_counts.read
+    category: operations
+    action: read
+    label: "Ops inventory counts read"
+  - key: ops.inventory_counts.submit
+    category: operations
+    action: submit
+    label: "Ops inventory counts submit"
+  - key: ops.inventory_counts.update_draft
+    category: operations
+    action: update_draft
+    label: "Ops inventory counts update draft"
+  - key: ops.lookups.deposits.list
+    category: operations
+    action: list
+    label: "Ops lookups deposits list"
+  - key: ops.lookups.merma_causes.list
+    category: operations
+    action: list
+    label: "Ops lookups merma causes list"
+  - key: ops.lookups.merma_lots.list
+    category: operations
+    action: list
+    label: "Ops lookups merma lots list"
+  - key: ops.lookups.merma_types.list
+    category: operations
+    action: list
+    label: "Ops lookups merma types list"
+  - key: ops.lookups.order_entry_skus.list
+    category: operations
+    action: list
+    label: "Ops lookups order entry skus list"
+  - key: ops.lookups.order_stores.list
+    category: operations
+    action: list
+    label: "Ops lookups order stores list"
+  - key: ops.lookups.production_lines.list
+    category: operations
+    action: list
+    label: "Ops lookups production lines list"
+  - key: ops.lookups.skus.list
+    category: operations
+    action: list
+    label: "Ops lookups skus list"
+  - key: ops.lookups.stock_movement_types.list
+    category: operations
+    action: list
+    label: "Ops lookups stock movement types list"
+  - key: ops.lookups.suppliers.list
+    category: operations
+    action: list
+    label: "Ops lookups suppliers list"
+  - key: ops.lookups.units.list
+    category: operations
+    action: list
+    label: "Ops lookups units list"
+  - key: ops.mermas.create
+    category: operations
+    action: create
+    label: "Ops mermas create"
+  - key: ops.mermas.list
+    category: operations
+    action: list
+    label: "Ops mermas list"
+  - key: ops.mermas.read
+    category: operations
+    action: read
+    label: "Ops mermas read"
+  - key: ops.orders.change_status
+    category: operations
+    action: change_status
+    label: "Ops orders change status"
+  - key: ops.orders.create
+    category: operations
+    action: create
+    label: "Ops orders create"
+  - key: ops.orders.delete_draft
+    category: operations
+    action: delete_draft
+    label: "Ops orders delete draft"
+  - key: ops.orders.list
+    category: operations
+    action: list
+    label: "Ops orders list"
+  - key: ops.orders.read
+    category: operations
+    action: read
+    label: "Ops orders read"
+  - key: ops.orders.update_draft
+    category: operations
+    action: update_draft
+    label: "Ops orders update draft"
+  - key: ops.production.lots.list
+    category: operations
+    action: list
+    label: "Ops production lots list"
+  - key: ops.production.lots.read
+    category: operations
+    action: read
+    label: "Ops production lots read"
+  - key: ops.production.overheads_daily.allocations.read
+    category: operations
+    action: read
+    label: "Ops production overheads daily allocations read"
+  - key: ops.production.overheads_daily.create
+    category: operations
+    action: create
+    label: "Ops production overheads daily create"
+  - key: ops.production.overheads_daily.items.create
+    category: operations
+    action: create
+    label: "Ops production overheads daily items create"
+  - key: ops.production.overheads_daily.items.delete
+    category: operations
+    action: delete
+    label: "Ops production overheads daily items delete"
+  - key: ops.production.overheads_daily.items.list
+    category: operations
+    action: list
+    label: "Ops production overheads daily items list"
+  - key: ops.production.overheads_daily.items.update
+    category: operations
+    action: update
+    label: "Ops production overheads daily items update"
+  - key: ops.production.overheads_daily.list
+    category: operations
+    action: list
+    label: "Ops production overheads daily list"
+  - key: ops.production.overheads_daily.read
+    category: operations
+    action: read
+    label: "Ops production overheads daily read"
+  - key: ops.production.overheads_daily.update
+    category: operations
+    action: update
+    label: "Ops production overheads daily update"
+  - key: ops.production.piece_rates.list
+    category: operations
+    action: list
+    label: "Ops production piece rates list"
+  - key: ops.production.piecework.read_daily
+    category: operations
+    action: read_daily
+    label: "Ops production piecework read daily"
+  - key: ops.purchases.receipts.create
+    category: operations
+    action: create
+    label: "Ops purchases receipts create"
+  - key: ops.purchases.receipts.list
+    category: operations
+    action: list
+    label: "Ops purchases receipts list"
+  - key: ops.purchases.receipts.read
+    category: operations
+    action: read
+    label: "Ops purchases receipts read"
+  - key: ops.remitos.cancel
+    category: operations
+    action: cancel
+    label: "Ops remitos cancel"
+  - key: ops.remitos.create_from_order
+    category: operations
+    action: create_from_order
+    label: "Ops remitos create from order"
+  - key: ops.remitos.dispatch
+    category: operations
+    action: dispatch
+    label: "Ops remitos dispatch"
+  - key: ops.remitos.list
+    category: operations
+    action: list
+    label: "Ops remitos list"
+  - key: ops.remitos.print
+    category: operations
+    action: print
+    label: "Ops remitos print"
+  - key: ops.remitos.read
+    category: operations
+    action: read
+    label: "Ops remitos read"
+  - key: ops.remitos.receive
+    category: operations
+    action: receive
+    label: "Ops remitos receive"
+  - key: ops.shipments.add_orders
+    category: operations
+    action: add_orders
+    label: "Ops shipments add orders"
+  - key: ops.shipments.cancel
+    category: operations
+    action: cancel
+    label: "Ops shipments cancel"
+  - key: ops.shipments.confirm
+    category: operations
+    action: confirm
+    label: "Ops shipments confirm"
+  - key: ops.shipments.create
+    category: operations
+    action: create
+    label: "Ops shipments create"
+  - key: ops.shipments.dispatch
+    category: operations
+    action: dispatch
+    label: "Ops shipments dispatch"
+  - key: ops.shipments.list
+    category: operations
+    action: list
+    label: "Ops shipments list"
+  - key: ops.shipments.pick_list.print
+    category: operations
+    action: print
+    label: "Ops shipments pick list print"
+  - key: ops.shipments.prep_items
+    category: operations
+    action: prep_items
+    label: "Ops shipments prep items"
+  - key: ops.shipments.read
+    category: operations
+    action: read
+    label: "Ops shipments read"
+  - key: ops.shipments.set_items
+    category: operations
+    action: set_items
+    label: "Ops shipments set items"
+  - key: ops.shipments.update_draft
+    category: operations
+    action: update_draft
+    label: "Ops shipments update draft"
+  - key: ops.stock_levels.list
+    category: operations
+    action: list
+    label: "Ops stock levels list"
+  - key: ops.stock_movements.create
+    category: operations
+    action: create
+    label: "Ops stock movements create"
+  - key: ops.stock_movements.list
+    category: operations
+    action: list
+    label: "Ops stock movements list"
+  - key: report.master.skus.export
+    category: reports
+    action: export
+    label: "Report master skus export"
+  - key: report.stock.alerts.read
+    category: reports
+    action: read
+    label: "Report stock alerts read"
+  - key: report.stock.alerts.set_threshold
+    category: reports
+    action: set_threshold
+    label: "Report stock alerts set threshold"
+  - key: report.stock.expirations.read
+    category: reports
+    action: read
+    label: "Report stock expirations read"
+  - key: report.stock.summary.read
+    category: reports
+    action: read
+    label: "Report stock summary read"
