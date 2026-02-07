@@ -267,6 +267,14 @@ permissions:
     category: operations
     action: change_status
     label: "Ops orders change status"
+  - key: ops.orders.cancel
+    category: operations
+    action: cancel
+    label: "Ops orders cancel"
+  - key: ops.orders.submit
+    category: operations
+    action: submit
+    label: "Ops orders submit"
   - key: ops.orders.create
     category: operations
     action: create
@@ -287,6 +295,14 @@ permissions:
     category: operations
     action: update_draft
     label: "Ops orders update draft"
+  - key: ops.orders.update_any_draft
+    category: operations
+    action: update_any_draft
+    label: "Ops orders update any draft"
+  - key: ops.orders.delete_any_draft
+    category: operations
+    action: delete_any_draft
+    label: "Ops orders delete any draft"
   - key: ops.production.lots.list
     category: operations
     action: list
