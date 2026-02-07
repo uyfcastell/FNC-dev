@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.routing import APIRoute
 from sqlalchemy import select
 from sqlmodel import Session
+from starlette.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..api.deps import SUPERADMIN_EMAIL, get_current_user
@@ -124,16 +125,11 @@ class RBACMiddleware(BaseHTTPMiddleware):
         if path in DOC_PATHS or (method, path) in PUBLIC_WHITELIST:
             return await call_next(request)
 
-        with Session(engine) as session:
-            _get_user_from_request(request, session) if (method, path) in AUTH_ONLY else None
-            if (method, path) in AUTH_ONLY:
-                return await call_next(request)
-            permission_key = getattr(route.endpoint, "__permission_key__", None)
-            if not permission_key:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
-            user = _get_user_from_request(request, session)
-            permissions = get_user_permission_keys(user.id, session, request)
-            if "*" not in permissions and permission_key.strip().lower() not in permissions:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+        if (method, path) in AUTH_ONLY:
+            return await call_next(request)
+
+        permission_key = getattr(route.endpoint, "__permission_key__", None) or ROUTE_PERMISSION_MAP.get((method, path))
+        if not permission_key:
+            return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "forbidden"})
 
         return await call_next(request)
