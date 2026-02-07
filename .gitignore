@@ -27,3 +27,6 @@ frontend/.env.local
 backend/app/storage/
 backend/app/storage/**
 
+
+# Generated RBAC artifacts
+backend/.rbac/
