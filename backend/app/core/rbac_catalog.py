@@ -125,6 +125,7 @@ PUBLIC_WHITELIST = {
 
 AUTH_ONLY = {
     ("GET", "/api/auth/me"),
+    ("POST", "/api/auth/verify-pin"),
 }
 
 DOC_PATHS = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}

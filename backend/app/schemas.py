@@ -569,6 +569,14 @@ class LoginPinRequest(SQLModel):
     pin: str
 
 
+class VerifyPinRequest(SQLModel):
+    pin: str
+
+
+class VerifyPinResponse(SQLModel):
+    ok: bool
+
+
 class UserPinUpdate(SQLModel):
     pin: str | None = None
 

@@ -7,6 +7,10 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Grid,
   IconButton,
@@ -16,13 +20,10 @@ import {
   Typography,
 } from "@mui/material";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
 
-import { createOrder, fetchOrderEntrySkus, fetchOrderStores, Deposit, SKU } from "../lib/api";
+import { ApiError, createOrder, fetchOrderEntrySkus, fetchOrderStores, Deposit, SKU } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { ORDER_SECTIONS, OrderSectionKey } from "../lib/orderSections";
-
-const ORDER_PIN = "1959";
-const MAX_PIN_ATTEMPTS = 3;
 
 type OrderLine = { sku_id: string; quantity: string; current_stock: string };
 
@@ -36,17 +37,15 @@ type SectionConfig = {
 const initialLine: OrderLine = { sku_id: "", quantity: "", current_stock: "" };
 
 export function OrderEntryPage() {
-  const location = useLocation();
-  const fromMenu = (location.state as { fromMenu?: boolean } | null)?.fromMenu === true;
+  const { pinVerified, verifySessionPin } = useAuth();
 
   const [skus, setSkus] = useState<SKU[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [pin, setPin] = useState("");
-  const [pinAttempts, setPinAttempts] = useState(0);
-  const [pinValidated, setPinValidated] = useState<boolean>(fromMenu);
-  const [blocked, setBlocked] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [verifyingPin, setVerifyingPin] = useState(false);
 
   const [header, setHeader] = useState<{
     destination_deposit_id: string;
@@ -70,11 +69,6 @@ export function OrderEntryPage() {
     void loadCatalog();
   }, []);
 
-  useEffect(() => {
-    if (fromMenu) {
-      setPinValidated(true);
-    }
-  }, [fromMenu]);
 
   const loadCatalog = async () => {
     try {
@@ -185,21 +179,22 @@ export function OrderEntryPage() {
     setLines((prev) => ({ ...prev, [section]: prev[section].filter((_, idx) => idx !== index) }));
   };
 
-  const handlePinSubmit = (event: FormEvent) => {
+  const handlePinSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (blocked) return;
-    if (pin === ORDER_PIN) {
-      setPinValidated(true);
-      setError(null);
-      return;
-    }
-    const attempts = pinAttempts + 1;
-    setPinAttempts(attempts);
-    if (attempts >= MAX_PIN_ATTEMPTS) {
-      setBlocked(true);
-      setError("PIN incorrecto. Intentos agotados. Recarga la página para reintentar.");
-    } else {
-      setError(`PIN incorrecto. Intento ${attempts} de ${MAX_PIN_ATTEMPTS}.`);
+    setPinError(null);
+    setError(null);
+    setVerifyingPin(true);
+    try {
+      await verifySessionPin(pin);
+      setPin("");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setPinError("PIN incorrecto. Intenta nuevamente.");
+      } else {
+        setPinError("No pudimos verificar el PIN. Intenta otra vez.");
+      }
+    } finally {
+      setVerifyingPin(false);
     }
   };
 
@@ -266,43 +261,38 @@ export function OrderEntryPage() {
     }
   };
 
-  if (!pinValidated) {
-    return (
-      <Stack spacing={2} sx={{ maxWidth: 520, mx: "auto", mt: 4 }}>
-        <Card>
-          <CardHeader title="Acceso a ingreso de pedidos" />
-          <Divider />
-          <CardContent>
-            {error && <Alert severity="warning">{error}</Alert>}
-            <Stack component="form" spacing={2} onSubmit={handlePinSubmit}>
-              <Typography>Ingresa el PIN de 4 dígitos para continuar.</Typography>
-              <TextField
-                label="PIN"
-                type="password"
-                value={pin}
-                inputProps={{ maxLength: 4, inputMode: "numeric" }}
-                onChange={(e) => setPin(e.target.value)}
-                required
-                disabled={blocked}
-              />
-              <Button type="submit" variant="contained" disabled={blocked}>
-                Validar
-              </Button>
-              <Typography variant="body2" color="text.secondary">
-                Tienes hasta {MAX_PIN_ATTEMPTS} intentos. El PIN es de 4 dígitos.
-              </Typography>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Stack>
-    );
-  }
 
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <PlaylistAddIcon color="primary" /> Ingreso de pedidos
       </Typography>
+      <Dialog open={!pinVerified} fullWidth maxWidth="xs">
+        <Box component="form" onSubmit={handlePinSubmit}>
+          <DialogTitle>Verificación de PIN</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} mt={0.5}>
+              <Typography variant="body2">Ingresa tu PIN personal para acceder a Ingreso de pedidos.</Typography>
+              {pinError && <Alert severity="error">{pinError}</Alert>}
+              <TextField
+                label="PIN"
+                type="password"
+                value={pin}
+                inputProps={{ inputMode: "numeric", maxLength: 6 }}
+                onChange={(e) => setPin(e.target.value)}
+                required
+                autoFocus
+                disabled={verifyingPin}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button type="submit" variant="contained" disabled={verifyingPin}>
+              Validar
+            </Button>
+          </DialogActions>
+        </Box>
+      </Dialog>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
         <Alert severity="success" onClose={() => setSuccess(null)}>
@@ -373,7 +363,7 @@ export function OrderEntryPage() {
 
       <Card>
         <CardContent>
-          <Button type="submit" variant="contained" size="large" onClick={handleSubmit}>
+          <Button type="submit" variant="contained" size="large" onClick={handleSubmit} disabled={!pinVerified}>
             Enviar pedido
           </Button>
         </CardContent>

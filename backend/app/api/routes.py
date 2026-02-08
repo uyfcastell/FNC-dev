@@ -129,6 +129,8 @@ from ..schemas import (
     LotExpiryUpdateResponse,
     LoginRequest,
     LoginPinRequest,
+    VerifyPinRequest,
+    VerifyPinResponse,
     TokenResponse,
     UserCreate,
     UserPinUpdate,
@@ -1721,6 +1723,21 @@ def login_pin(
         expires_in=settings.jwt_expires_minutes * 60,
         user=_map_user(user, session),
     )
+
+
+
+@router.post("/auth/verify-pin", tags=["auth"], response_model=VerifyPinResponse)
+def verify_current_user_pin(
+    payload: VerifyPinRequest,
+    current_user: User = Depends(get_current_user),
+) -> VerifyPinResponse:
+    if not PIN_REGEX.fullmatch(payload.pin):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="PIN inválido")
+
+    if not current_user.pin_hash or not verify_pin(payload.pin, current_user.pin_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="PIN inválido")
+
+    return VerifyPinResponse(ok=True)
 
 @router.get("/auth/me", tags=["auth"], response_model=UserRead)
 def auth_me(
