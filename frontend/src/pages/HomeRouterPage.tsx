@@ -3,13 +3,13 @@ import { Alert, Grid, Stack, Typography } from "@mui/material";
 import { useAuth } from "../lib/auth";
 import { QuickLinkCard } from "../shell/QuickLinkCard";
 
-function LocalCapabilityHome() {
+function LocalHome() {
   return (
     <Stack spacing={3}>
       <Typography variant="h4">Portal de Locales</Typography>
       <Grid container spacing={2}>
         <Grid item xs={12} md={6}>
-          <QuickLinkCard title="Ingresar pedido" description="Carga rápida de pedidos para locales." to="/pedidos/ingreso" />
+          <QuickLinkCard title="Ingreso de pedidos" description="Carga rápida de pedidos para locales." to="/pedidos/ingreso" />
         </Grid>
         <Grid item xs={12} md={6}>
           <QuickLinkCard title="Mis pedidos" description="Seguimiento del estado de tus pedidos." to="/pedidos?mine=true" />
@@ -19,28 +19,32 @@ function LocalCapabilityHome() {
   );
 }
 
-function DepositoCapabilityHome() {
+function DepositoHome() {
   return (
     <Stack spacing={3}>
       <Typography variant="h4">Portal de Depósito</Typography>
       <Grid container spacing={2}>
-        <Grid item xs={12} md={6}><QuickLinkCard title="Stock" description="Ver stock actual y niveles." to="/stock" /></Grid>
-        <Grid item xs={12} md={6}><QuickLinkCard title="Movimientos" description="Registrar y consultar movimientos." to="/stock/movimientos" /></Grid>
+        <Grid item xs={12} md={6}>
+          <QuickLinkCard title="Stock" description="Ver stock actual y niveles." to="/stock" />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <QuickLinkCard title="Movimientos" description="Registrar y consultar movimientos." to="/stock/movimientos" />
+        </Grid>
       </Grid>
     </Stack>
   );
 }
 
-function ProduccionCapabilityHome() {
+function PlantaHome() {
   return (
     <Stack spacing={3}>
-      <Typography variant="h4">Portal de Producción</Typography>
-      <QuickLinkCard title="Producción" description="Gestión de lotes y tareas de producción." to="/produccion" />
+      <Typography variant="h4">Portal de Planta</Typography>
+      <QuickLinkCard title="Producción" description="Gestión de lotes y tareas de planta." to="/produccion" />
     </Stack>
   );
 }
 
-function AdminCapabilityHome() {
+function AdminHome() {
   return (
     <Stack spacing={3}>
       <Typography variant="h4">Portal de Administración</Typography>
@@ -54,12 +58,12 @@ function MinimalHome() {
 }
 
 export function HomeRouterPage() {
-  const { hasAny } = useAuth();
+  const { hasAny, isSuperuser } = useAuth();
 
-  if (hasAny(["ops.orders.create", "ops.orders.list"])) return <LocalCapabilityHome />;
-  if (hasAny(["ops.stock_movements.create", "ops.stock_levels.list"])) return <DepositoCapabilityHome />;
-  if (hasAny(["ops.production.lots.list", "ops.production.lots.create"])) return <ProduccionCapabilityHome />;
-  if (hasAny(["admin.users.list", "admin.rbac.roles.list"])) return <AdminCapabilityHome />;
+  if (hasAny(["ops.orders.create", "orders.create", "ops.orders.list", "orders.view"])) return <LocalHome />;
+  if (hasAny(["ops.stock.movements.create", "stock.register", "stock.adjust", "stock.transfer"])) return <DepositoHome />;
+  if (hasAny(["ops.production.lots.view", "production.view", "ops.shipments.create", "shipments.create"])) return <PlantaHome />;
+  if (isSuperuser) return <AdminHome />;
 
   return <MinimalHome />;
 }

@@ -11,7 +11,7 @@ import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MenuIcon from "@mui/icons-material/Menu";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import HistoryIcon from "@mui/icons-material/History";
-import { AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Toolbar, Typography } from "@mui/material";
+import { Alert, AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Toolbar, Typography } from "@mui/material";
 import { PropsWithChildren, ReactNode, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
@@ -47,15 +47,12 @@ const NAV_CONFIG: NavItem[] = [
 export function AppShell({ children, navItems = NAV_CONFIG }: PropsWithChildren<{ navItems?: NavItem[] }>) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const { user, logout, hasAny } = useAuth();
+  const { user, logout, hasAny, isSuperuser } = useAuth();
 
-  const visibleNavItems = useMemo(() => {
-    const filtered = navItems.filter((item) => !item.requiredAnyPerms || item.requiredAnyPerms.length === 0 || hasAny(item.requiredAnyPerms));
-    if (filtered.length === 0) {
-      return navItems.filter((item) => item.to === "/");
-    }
-    return filtered;
-  }, [hasAny, navItems]);
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => !item.requiredAnyPerms || item.requiredAnyPerms.length === 0 || hasAny(item.requiredAnyPerms)),
+    [hasAny, navItems],
+  );
 
   const drawer = (
     <div>
@@ -80,6 +77,11 @@ export function AppShell({ children, navItems = NAV_CONFIG }: PropsWithChildren<
           </ListItemButton>
         ))}
       </List>
+      {!isSuperuser && visibleNavItems.length === 0 && (
+        <Box px={2} py={1}>
+          <Alert severity="info">No tenés módulos habilitados todavía. Contactá a un administrador.</Alert>
+        </Box>
+      )}
     </div>
   );
 
