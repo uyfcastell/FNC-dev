@@ -40,12 +40,13 @@ def get_user_permission_keys(user_id: int, session: Session, request: Request | 
     elif user.role_id is None:
         permissions = set()
     else:
-        rows = session.exec(
+        stmt = (
             select(Permission.key)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
             .where(RolePermission.role_id == user.role_id)
-        ).all()
-        permissions = {row.strip().lower() for row in rows}
+        )
+        rows = session.execute(stmt).scalars().all()
+        permissions = {permission.strip().lower() for permission in rows if permission}
 
     if cache is not None:
         cache[user_id] = permissions
