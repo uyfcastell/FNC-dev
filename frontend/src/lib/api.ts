@@ -49,6 +49,12 @@ async function apiRequest<T>(path: string, options: RequestInit, defaultError: s
     throw new ApiError(0, message);
   }
   if (!response.ok) {
+    if (response.status === 401 && path !== "/auth/login" && path !== "/auth/login-pin") {
+      setStoredToken(null);
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
     const rawDetail = await response.text();
     let errorMessage = defaultError;
     if (rawDetail) {
@@ -83,6 +89,12 @@ function formatExportTimestamp(): string {
 async function fetchFile(path: string, defaultFilename: string): Promise<FileDownload> {
   const response = await apiFetch(path);
   if (!response.ok) {
+    if (response.status === 401) {
+      setStoredToken(null);
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
     const detail = await response.text();
     throw new ApiError(response.status, detail || "No pudimos descargar el archivo.");
   }
