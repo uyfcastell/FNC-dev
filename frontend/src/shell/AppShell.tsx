@@ -12,11 +12,10 @@ import MenuIcon from "@mui/icons-material/Menu";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import HistoryIcon from "@mui/icons-material/History";
 import { AppBar, Box, Button, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Toolbar, Typography } from "@mui/material";
-import { PropsWithChildren, ReactNode, useState } from "react";
+import { PropsWithChildren, ReactNode, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
-import { ROUTE_PERMISSION_RULES } from "../lib/permissions";
 
 const drawerWidth = 240;
 
@@ -24,37 +23,39 @@ export type NavItem = {
   label: string;
   to: string;
   icon: ReactNode;
+  requiredAnyPerms?: string[];
   state?: Record<string, unknown>;
 };
 
-
-const defaultNavItems: NavItem[] = [
-  { label: "Inicio", icon: <DashboardIcon />, to: "/" },
-  { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion" },
-  { label: "Stock", icon: <InventoryIcon />, to: "/stock" },
-  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos" },
-  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios" },
-  { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas" },
-  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos" },
-  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios" },
-  { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos" },
-  { label: "Compras", icon: <LocalMallIcon />, to: "/compras" },
-  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true } },
-  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion" },
-  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria" },
-  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes" },
+const NAV_CONFIG: NavItem[] = [
+  { label: "Inicio", icon: <DashboardIcon />, to: "/", requiredAnyPerms: [] },
+  { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion", requiredAnyPerms: ["ops.production.lots.list", "ops.production.lots.read"] },
+  { label: "Stock", icon: <InventoryIcon />, to: "/stock", requiredAnyPerms: ["ops.stock_levels.list", "ops.stock_movements.list"] },
+  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos", requiredAnyPerms: ["ops.stock_movements.list", "ops.stock_movements.create"] },
+  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios", requiredAnyPerms: ["ops.inventory_counts.list", "ops.inventory_counts.create", "ops.inventory_counts.read"] },
+  { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas", requiredAnyPerms: ["ops.mermas.list", "ops.mermas.create"] },
+  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos", requiredAnyPerms: ["ops.orders.list", "ops.orders.create", "ops.orders.read"] },
+  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios", requiredAnyPerms: ["ops.shipments.list", "ops.shipments.create", "ops.shipments.read"] },
+  { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos", requiredAnyPerms: ["ops.remitos.list", "ops.remitos.read"] },
+  { label: "Compras", icon: <LocalMallIcon />, to: "/compras", requiredAnyPerms: ["ops.purchases.receipts.list", "ops.purchases.receipts.create"] },
+  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true }, requiredAnyPerms: ["ops.orders.create", "ops.lookups.order_entry_skus.list"] },
+  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion", requiredAnyPerms: ["admin.users.list", "admin.rbac.roles.list", "admin.rbac.permissions.list"] },
+  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria", requiredAnyPerms: ["admin.audit.logs.read", "admin.audit.logs.meta"] },
+  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes", requiredAnyPerms: ["report.stock.alerts.read", "report.stock.expirations.read", "report.stock.summary.read"] },
 ];
 
-export function AppShell({ children, navItems = defaultNavItems }: PropsWithChildren<{ navItems?: NavItem[] }>) {
+export function AppShell({ children, navItems = NAV_CONFIG }: PropsWithChildren<{ navItems?: NavItem[] }>) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const { user, logout } = useAuth();
-  const userPermissions = new Set((user?.permissions ?? []).map((permission) => permission.toLowerCase()));
-  const visibleNavItems = navItems.filter((item) => {
-    const requiredPermissions = ROUTE_PERMISSION_RULES[item.to];
-    if (!requiredPermissions || requiredPermissions.length === 0) return true;
-    return requiredPermissions.some((permission) => userPermissions.has(permission.toLowerCase()));
-  });
+  const { user, logout, hasAny } = useAuth();
+
+  const visibleNavItems = useMemo(() => {
+    const filtered = navItems.filter((item) => !item.requiredAnyPerms || item.requiredAnyPerms.length === 0 || hasAny(item.requiredAnyPerms));
+    if (filtered.length === 0) {
+      return navItems.filter((item) => item.to === "/");
+    }
+    return filtered;
+  }, [hasAny, navItems]);
 
   const drawer = (
     <div>

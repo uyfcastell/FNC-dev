@@ -22,6 +22,7 @@ from ..core.policies import (
     has_permission,
 )
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
+from ..core.rbac import get_user_permission_keys
 from ..db import get_session
 from ..core.security import (
     create_access_token,
@@ -363,7 +364,7 @@ def _log_audit(
     )
 
 
-def _map_user(user: User, session: Session) -> UserRead:
+def _map_user(user: User, session: Session, request: Request | None = None) -> UserRead:
     role_name = None
     permissions: list[str] = []
     if user.role_id:
@@ -376,6 +377,7 @@ def _map_user(user: User, session: Session) -> UserRead:
                 .where(RolePermission.role_id == user.role_id)
             ).all()
         )
+    permission_keys_v2 = sorted(get_user_permission_keys(user.id, session, request))
     return UserRead(
         id=user.id,
         email=user.email,
@@ -384,6 +386,7 @@ def _map_user(user: User, session: Session) -> UserRead:
         role_name=role_name,
         is_active=user.is_active,
         permissions=permissions,
+        permission_keys_v2=permission_keys_v2,
     )
 
 
@@ -1720,8 +1723,12 @@ def login_pin(
     )
 
 @router.get("/auth/me", tags=["auth"], response_model=UserRead)
-def auth_me(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> UserRead:
-    return _map_user(current_user, session)
+def auth_me(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> UserRead:
+    return _map_user(current_user, session, request)
 
 
 @public_router.get("/health", tags=["health"])
