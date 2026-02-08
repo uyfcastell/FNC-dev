@@ -1,5 +1,5 @@
 import { Box, CircularProgress } from "@mui/material";
-import { PropsWithChildren, ReactNode, createContext, useContext, useEffect, useState } from "react";
+import { PropsWithChildren, ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import {
@@ -12,12 +12,19 @@ import {
   getStoredToken,
 } from "./api";
 import { getDeviceProfile } from "./device";
-import { ForbiddenPage } from "../pages/ForbiddenPage";
+
+export type SessionUser = User & {
+  legacyPermissions: string[];
+  permissionKeysV2: string[];
+};
 
 type AuthContextValue = {
-  user: User | null;
+  user: SessionUser | null;
   token: string | null;
   loading: boolean;
+  hasPerm: (perm: string) => boolean;
+  hasAny: (perms: string[]) => boolean;
+  hasAll: (perms: string[]) => boolean;
   can: (perm: string) => boolean;
   canAny: (perms: string[]) => boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -27,8 +34,22 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const normalizePermissions = (permissions?: string[]) =>
+  Array.from(new Set((permissions ?? []).map((permission) => permission.toLowerCase())));
+
+const toSessionUser = (profile: User): SessionUser => {
+  const legacyPermissions = normalizePermissions(profile.permissions);
+  const permissionKeysV2 = normalizePermissions(profile.permission_keys_v2);
+  return {
+    ...profile,
+    permissions: legacyPermissions,
+    legacyPermissions,
+    permissionKeysV2,
+  };
+};
+
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [loading, setLoading] = useState(true);
 
@@ -42,13 +63,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void loadProfile();
   }, []);
 
-  const enrichUserPermissions = async (profile: User): Promise<User> => {
-    const currentPermissions = profile.permissions ?? [];
-    if (currentPermissions.length > 0 || !profile.role_id) {
-      return { ...profile, permissions: currentPermissions };
+  const enrichUserPermissions = async (profile: User): Promise<SessionUser> => {
+    const sessionProfile = toSessionUser(profile);
+    if (sessionProfile.legacyPermissions.length > 0 || !sessionProfile.role_id) {
+      return sessionProfile;
     }
-    const rolePermissions = await fetchRolePermissions(profile.role_id);
-    return { ...profile, permissions: rolePermissions };
+    const rolePermissions = await fetchRolePermissions(sessionProfile.role_id);
+    return {
+      ...sessionProfile,
+      legacyPermissions: normalizePermissions(rolePermissions),
+      permissions: normalizePermissions(rolePermissions),
+    };
   };
 
   const loadProfile = async () => {
@@ -103,9 +128,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setToken(null);
   };
 
-  const userPermissionSet = new Set((user?.permissions ?? []).map((permission) => permission.toLowerCase()));
-  const can = (perm: string) => userPermissionSet.has(perm.toLowerCase());
-  const canAny = (perms: string[]) => perms.some((perm) => userPermissionSet.has(perm.toLowerCase()));
+  const { primaryPermissionSet, fallbackPermissionSet } = useMemo(() => {
+    const hasV2 = (user?.permissionKeysV2 ?? []).length > 0;
+    const primary = hasV2 ? user?.permissionKeysV2 ?? [] : user?.legacyPermissions ?? [];
+    const fallback = hasV2 ? [] : user?.legacyPermissions ?? [];
+    return {
+      primaryPermissionSet: new Set(primary.map((permission) => permission.toLowerCase())),
+      fallbackPermissionSet: new Set(fallback.map((permission) => permission.toLowerCase())),
+    };
+  }, [user]);
+
+  const hasPerm = (perm: string) => primaryPermissionSet.has(perm.toLowerCase()) || fallbackPermissionSet.has(perm.toLowerCase());
+  const hasAny = (perms: string[]) => perms.some((perm) => hasPerm(perm));
+  const hasAll = (perms: string[]) => perms.every((perm) => hasPerm(perm));
 
   return (
     <AuthContext.Provider
@@ -113,8 +148,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         user,
         token,
         loading,
-        can,
-        canAny,
+        hasPerm,
+        hasAny,
+        hasAll,
+        can: hasPerm,
+        canAny: hasAny,
         login,
         loginWithPin,
         logout,
@@ -155,7 +193,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 export function RequirePermission({ anyOf, children }: { anyOf: string[]; children: ReactNode }) {
-  const { user, loading, canAny } = useAuth();
+  const { user, loading, hasAny } = useAuth();
   const location = useLocation();
   const deviceProfile = getDeviceProfile();
 
@@ -172,8 +210,8 @@ export function RequirePermission({ anyOf, children }: { anyOf: string[]; childr
     return <Navigate to={redirectPath} state={{ from: location }} replace />;
   }
 
-  if (!anyOf.length || !canAny(anyOf)) {
-    return <ForbiddenPage />;
+  if (anyOf.length > 0 && !hasAny(anyOf)) {
+    return <Navigate to="/forbidden" replace />;
   }
 
   return <>{children}</>;

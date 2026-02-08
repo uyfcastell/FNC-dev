@@ -3,8 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { getDeviceProfile, listenDeviceProfile } from "./lib/device";
 import { AppShell } from "./shell/AppShell";
-import { DashboardPage } from "./pages/DashboardPage";
-import { LocalHomePage } from "./pages/LocalHomePage";
+import { HomeRouterPage } from "./pages/HomeRouterPage";
 import { ProductionPage } from "./pages/ProductionPage";
 import { StockPage } from "./pages/StockPage";
 import { OrdersPage } from "./pages/OrdersPage";
@@ -86,7 +85,7 @@ function DesktopRoutes() {
   return (
     <ShellComponent>
       <Routes>
-        <Route path="/" element={<GuardedRoute path="/" element={localUser ? <LocalHomePage /> : <DashboardPage />} />} />
+        <Route path="/" element={<GuardedRoute path="/" element={<HomeRouterPage />} />} />
         <Route path="/produccion" element={<GuardedRoute path="/produccion" element={<ProductionPage />} />} />
         <Route path="/stock" element={<GuardedRoute path="/stock" element={<StockPage />} />} />
         <Route path="/stock/movimientos" element={<GuardedRoute path="/stock/movimientos" element={<StockMovementsPage />} />} />
@@ -102,7 +101,8 @@ function DesktopRoutes() {
         <Route path="/administracion" element={<GuardedRoute path="/administracion" element={<AdminPage />} />} />
         <Route path="/auditoria" element={<GuardedRoute path="/auditoria" element={<AuditPage />} />} />
         <Route path="/reportes" element={<GuardedRoute path="/reportes" element={<ReportsPage />} />} />
-        <Route path="*" element={<ForbiddenPage />} />
+        <Route path="/forbidden" element={<ForbiddenPage />} />
+        <Route path="*" element={<Navigate to="/forbidden" replace />} />
       </Routes>
     </ShellComponent>
   );

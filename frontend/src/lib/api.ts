@@ -709,6 +709,7 @@ export type User = {
   role_name?: string;
   is_active: boolean;
   permissions?: string[];
+  permission_keys_v2?: string[];
 };
 
 export type UnitOption = {
