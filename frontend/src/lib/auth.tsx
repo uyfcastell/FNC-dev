@@ -16,12 +16,14 @@ import { getDeviceProfile } from "./device";
 export type SessionUser = User & {
   legacyPermissions: string[];
   permissionKeysV2: string[];
+  hasPermissionKeysV2: boolean;
 };
 
 type AuthContextValue = {
   user: SessionUser | null;
   token: string | null;
   loading: boolean;
+  isSuperuser: boolean;
   hasPerm: (perm: string) => boolean;
   hasAny: (perms: string[]) => boolean;
   hasAll: (perms: string[]) => boolean;
@@ -40,11 +42,13 @@ const normalizePermissions = (permissions?: string[]) =>
 const toSessionUser = (profile: User): SessionUser => {
   const legacyPermissions = normalizePermissions(profile.permissions);
   const permissionKeysV2 = normalizePermissions(profile.permission_keys_v2);
+  const hasPermissionKeysV2 = Array.isArray(profile.permission_keys_v2);
   return {
     ...profile,
     permissions: legacyPermissions,
     legacyPermissions,
     permissionKeysV2,
+    hasPermissionKeysV2,
   };
 };
 
@@ -128,19 +132,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setToken(null);
   };
 
-  const { primaryPermissionSet, fallbackPermissionSet } = useMemo(() => {
-    const hasV2 = (user?.permissionKeysV2 ?? []).length > 0;
-    const primary = hasV2 ? user?.permissionKeysV2 ?? [] : user?.legacyPermissions ?? [];
-    const fallback = hasV2 ? [] : user?.legacyPermissions ?? [];
+  const { permissionSet, isSuperuser } = useMemo(() => {
+    const hasV2 = user?.hasPermissionKeysV2 ?? false;
+    const sourcePermissions = hasV2 ? user?.permissionKeysV2 ?? [] : user?.legacyPermissions ?? [];
+    const normalizedPermissions = sourcePermissions.map((permission) => permission.toLowerCase());
     return {
-      primaryPermissionSet: new Set(primary.map((permission) => permission.toLowerCase())),
-      fallbackPermissionSet: new Set(fallback.map((permission) => permission.toLowerCase())),
+      permissionSet: new Set(normalizedPermissions),
+      isSuperuser: normalizedPermissions.includes("*"),
     };
   }, [user]);
 
-  const hasPerm = (perm: string) => primaryPermissionSet.has(perm.toLowerCase()) || fallbackPermissionSet.has(perm.toLowerCase());
-  const hasAny = (perms: string[]) => perms.some((perm) => hasPerm(perm));
-  const hasAll = (perms: string[]) => perms.every((perm) => hasPerm(perm));
+  const hasPerm = (perm: string) => isSuperuser || permissionSet.has(perm.toLowerCase());
+  const hasAny = (perms: string[]) => isSuperuser || perms.some((perm) => hasPerm(perm));
+  const hasAll = (perms: string[]) => isSuperuser || perms.every((perm) => hasPerm(perm));
 
   return (
     <AuthContext.Provider
@@ -148,6 +152,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         user,
         token,
         loading,
+        isSuperuser,
         hasPerm,
         hasAny,
         hasAll,
