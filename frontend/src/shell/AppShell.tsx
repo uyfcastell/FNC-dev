@@ -16,6 +16,7 @@ import { PropsWithChildren, ReactNode, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
+import { ROUTE_PERMISSION_RULES } from "../lib/permissions";
 
 const drawerWidth = 240;
 
@@ -29,19 +30,19 @@ export type NavItem = {
 
 const NAV_CONFIG: NavItem[] = [
   { label: "Inicio", icon: <DashboardIcon />, to: "/", requiredAnyPerms: [] },
-  { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion", requiredAnyPerms: ["ops.production.lots.list", "ops.production.lots.read"] },
-  { label: "Stock", icon: <InventoryIcon />, to: "/stock", requiredAnyPerms: ["ops.stock_levels.list", "ops.stock_movements.list"] },
-  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos", requiredAnyPerms: ["ops.stock_movements.list", "ops.stock_movements.create"] },
-  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios", requiredAnyPerms: ["ops.inventory_counts.list", "ops.inventory_counts.create", "ops.inventory_counts.read"] },
-  { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas", requiredAnyPerms: ["ops.mermas.list", "ops.mermas.create"] },
-  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos", requiredAnyPerms: ["ops.orders.list", "ops.orders.create", "ops.orders.read"] },
-  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios", requiredAnyPerms: ["ops.shipments.list", "ops.shipments.create", "ops.shipments.read"] },
-  { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos", requiredAnyPerms: ["ops.remitos.list", "ops.remitos.read"] },
-  { label: "Compras", icon: <LocalMallIcon />, to: "/compras", requiredAnyPerms: ["ops.purchases.receipts.list", "ops.purchases.receipts.create"] },
-  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true }, requiredAnyPerms: ["ops.orders.create", "ops.lookups.order_entry_skus.list"] },
-  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion", requiredAnyPerms: ["admin.users.list", "admin.rbac.roles.list", "admin.rbac.permissions.list"] },
-  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria", requiredAnyPerms: ["admin.audit.logs.read", "admin.audit.logs.meta"] },
-  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes", requiredAnyPerms: ["report.stock.alerts.read", "report.stock.expirations.read", "report.stock.summary.read"] },
+  { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion", requiredAnyPerms: ROUTE_PERMISSION_RULES["/produccion"] },
+  { label: "Stock", icon: <InventoryIcon />, to: "/stock", requiredAnyPerms: ROUTE_PERMISSION_RULES["/stock"] },
+  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos", requiredAnyPerms: ROUTE_PERMISSION_RULES["/stock/movimientos"] },
+  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios", requiredAnyPerms: ROUTE_PERMISSION_RULES["/stock/inventarios"] },
+  { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas", requiredAnyPerms: ROUTE_PERMISSION_RULES["/mermas"] },
+  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos", requiredAnyPerms: ROUTE_PERMISSION_RULES["/pedidos"] },
+  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios", requiredAnyPerms: ROUTE_PERMISSION_RULES["/envios"] },
+  { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos", requiredAnyPerms: ROUTE_PERMISSION_RULES["/remitos"] },
+  { label: "Compras", icon: <LocalMallIcon />, to: "/compras", requiredAnyPerms: ROUTE_PERMISSION_RULES["/compras"] },
+  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true }, requiredAnyPerms: ROUTE_PERMISSION_RULES["/pedidos/ingreso"] },
+  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion", requiredAnyPerms: ROUTE_PERMISSION_RULES["/administracion"] },
+  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria", requiredAnyPerms: ROUTE_PERMISSION_RULES["/auditoria"] },
+  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes", requiredAnyPerms: ROUTE_PERMISSION_RULES["/reportes"] },
 ];
 
 export function AppShell({ children, navItems = NAV_CONFIG }: PropsWithChildren<{ navItems?: NavItem[] }>) {
