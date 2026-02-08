@@ -64,10 +64,28 @@ function PlantaHome() {
 }
 
 function AdminHome() {
+  const cards = [
+    { key: "produccion", title: "Producción", description: "Planificación y ejecución de producción.", to: "/produccion" },
+    { key: "stock", title: "Stock", description: "Niveles de stock e inventario operativo.", to: "/stock" },
+    { key: "pedidos", title: "Pedidos", description: "Gestión y seguimiento de pedidos.", to: "/pedidos" },
+    { key: "envios", title: "Envíos", description: "Preparación y control de envíos.", to: "/envios" },
+    { key: "remitos", title: "Remitos", description: "Emisión y consulta de remitos.", to: "/remitos" },
+    { key: "compras", title: "Compras", description: "Recepción y control de compras.", to: "/compras" },
+    { key: "mermas", title: "Mermas", description: "Registro y análisis de mermas.", to: "/mermas" },
+    { key: "reportes", title: "Reportes", description: "Indicadores y reportes operativos.", to: "/reportes" },
+    { key: "administracion", title: "Administración", description: "Usuarios, roles y permisos del sistema.", to: "/administracion" },
+  ];
+
   return (
     <Stack spacing={3}>
       <Typography variant="h4">Portal de Administración</Typography>
-      <QuickLinkCard title="Administración" description="Usuarios, roles y permisos del sistema." to="/administracion" />
+      <Grid container spacing={2}>
+        {cards.map((card) => (
+          <Grid key={card.key} item xs={12} md={4}>
+            <QuickLinkCard title={card.title} description={card.description} to={card.to} />
+          </Grid>
+        ))}
+      </Grid>
     </Stack>
   );
 }

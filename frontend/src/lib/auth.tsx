@@ -10,6 +10,7 @@ import {
   loginWithPin as loginWithPinRequest,
   setStoredToken,
   getStoredToken,
+  verifyCurrentUserPin,
 } from "./api";
 import { getDeviceProfile } from "./device";
 
@@ -24,6 +25,7 @@ type AuthContextValue = {
   token: string | null;
   loading: boolean;
   isSuperuser: boolean;
+  pinVerified: boolean;
   hasPerm: (perm: string) => boolean;
   hasAny: (perms: string[]) => boolean;
   hasAll: (perms: string[]) => boolean;
@@ -31,10 +33,34 @@ type AuthContextValue = {
   canAny: (perms: string[]) => boolean;
   login: (username: string, password: string) => Promise<void>;
   loginWithPin: (pin: string) => Promise<void>;
+  verifySessionPin: (pin: string) => Promise<void>;
+  clearPinVerification: () => void;
   logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+const PIN_VERIFIED_KEY = "fnc_pin_verified_until";
+const PIN_VERIFIED_TTL_MS = 8 * 60 * 60 * 1000;
+
+const readPinVerified = (): boolean => {
+  const raw = localStorage.getItem(PIN_VERIFIED_KEY);
+  if (!raw) return false;
+  const expiresAt = Number(raw);
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+    localStorage.removeItem(PIN_VERIFIED_KEY);
+    return false;
+  }
+  return true;
+};
+
+const writePinVerified = (value: boolean): void => {
+  if (!value) {
+    localStorage.removeItem(PIN_VERIFIED_KEY);
+    return;
+  }
+  localStorage.setItem(PIN_VERIFIED_KEY, String(Date.now() + PIN_VERIFIED_TTL_MS));
+};
 
 const normalizePermissions = (permissions?: string[]) =>
   Array.from(new Set((permissions ?? []).map((permission) => permission.toLowerCase())));
@@ -56,6 +82,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [loading, setLoading] = useState(true);
+  const [pinVerified, setPinVerified] = useState<boolean>(() => readPinVerified());
 
   useEffect(() => {
     const existingToken = getStoredToken();
@@ -85,6 +112,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const profile = await fetchCurrentUser();
       const profileWithPermissions = await enrichUserPermissions(profile);
       setUser(profileWithPermissions);
+      setPinVerified(readPinVerified());
     } catch {
       logout();
     } finally {
@@ -98,6 +126,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const response = await loginWithCredentials(username, password);
       setStoredToken(response.access_token);
       setToken(response.access_token);
+      writePinVerified(false);
+      setPinVerified(false);
       if (response.user) {
         const userWithPermissions = await enrichUserPermissions(response.user);
         setUser(userWithPermissions);
@@ -115,6 +145,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const response = await loginWithPinRequest(pin);
       setStoredToken(response.access_token);
       setToken(response.access_token);
+      writePinVerified(true);
+      setPinVerified(true);
       if (response.user) {
         const userWithPermissions = await enrichUserPermissions(response.user);
         setUser(userWithPermissions);
@@ -126,10 +158,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   };
 
+  const verifySessionPin = async (pin: string) => {
+    await verifyCurrentUserPin(pin);
+    writePinVerified(true);
+    setPinVerified(true);
+  };
+
+  const clearPinVerification = () => {
+    writePinVerified(false);
+    setPinVerified(false);
+  };
+
   const logout = () => {
     setStoredToken(null);
     setUser(null);
     setToken(null);
+    writePinVerified(false);
+    setPinVerified(false);
   };
 
   const { permissionSet, isSuperuser } = useMemo(() => {
@@ -153,6 +198,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         token,
         loading,
         isSuperuser,
+        pinVerified,
         hasPerm,
         hasAny,
         hasAll,
@@ -160,6 +206,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
         canAny: hasAny,
         login,
         loginWithPin,
+        verifySessionPin,
+        clearPinVerification,
         logout,
       }}
     >
