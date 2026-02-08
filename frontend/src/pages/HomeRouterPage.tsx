@@ -1,19 +1,38 @@
 import { Alert, Grid, Stack, Typography } from "@mui/material";
 
 import { useAuth } from "../lib/auth";
+import { PERM_SETS, ROUTE_PERMISSION_RULES } from "../lib/permissions";
 import { QuickLinkCard } from "../shell/QuickLinkCard";
 
 function LocalHome() {
+  const { hasAny } = useAuth();
+
+  const cards = [
+    {
+      key: "order-entry",
+      title: "Ingreso de pedidos",
+      description: "Carga rápida de pedidos para locales.",
+      to: "/pedidos/ingreso",
+      requiredAnyPerms: ROUTE_PERMISSION_RULES["/pedidos/ingreso"] ?? [],
+    },
+    {
+      key: "my-orders",
+      title: "Mis pedidos",
+      description: "Seguimiento del estado de tus pedidos.",
+      to: "/pedidos?mine=true",
+      requiredAnyPerms: ROUTE_PERMISSION_RULES["/pedidos"] ?? [],
+    },
+  ].filter((card) => hasAny(card.requiredAnyPerms));
+
   return (
     <Stack spacing={3}>
       <Typography variant="h4">Portal de Locales</Typography>
       <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <QuickLinkCard title="Ingreso de pedidos" description="Carga rápida de pedidos para locales." to="/pedidos/ingreso" />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <QuickLinkCard title="Mis pedidos" description="Seguimiento del estado de tus pedidos." to="/pedidos?mine=true" />
-        </Grid>
+        {cards.map((card) => (
+          <Grid key={card.key} item xs={12} md={6}>
+            <QuickLinkCard title={card.title} description={card.description} to={card.to} />
+          </Grid>
+        ))}
       </Grid>
     </Stack>
   );
@@ -60,10 +79,10 @@ function MinimalHome() {
 export function HomeRouterPage() {
   const { hasAny, isSuperuser } = useAuth();
 
-  if (hasAny(["ops.orders.create", "orders.create", "ops.orders.list", "orders.view"])) return <LocalHome />;
-  if (hasAny(["ops.stock.movements.create", "stock.register", "stock.adjust", "stock.transfer"])) return <DepositoHome />;
-  if (hasAny(["ops.production.lots.view", "production.view", "ops.shipments.create", "shipments.create"])) return <PlantaHome />;
   if (isSuperuser) return <AdminHome />;
+  if (hasAny(PERM_SETS.homeLocalPortal)) return <LocalHome />;
+  if (hasAny(PERM_SETS.homeDepositoPortal)) return <DepositoHome />;
+  if (hasAny(PERM_SETS.homePlantaPortal)) return <PlantaHome />;
 
   return <MinimalHome />;
 }
