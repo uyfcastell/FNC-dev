@@ -11,8 +11,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..api.deps import SUPERADMIN_EMAIL, get_current_user
 from ..db import engine, get_session
-from ..models import Permission, RolePermission, User
+from ..models import Permission, Role, RolePermission, User
 from .rbac_catalog import AUTH_ONLY, DOC_PATHS, PUBLIC_WHITELIST, ROUTE_PERMISSION_MAP
+from .roles_catalog import normalize_role_name
 
 
 def permission_required(key: str) -> Callable:
@@ -40,13 +41,17 @@ def get_user_permission_keys(user_id: int, session: Session, request: Request | 
     elif user.role_id is None:
         permissions = set()
     else:
-        stmt = (
-            select(Permission.key)
-            .join(RolePermission, RolePermission.permission_id == Permission.id)
-            .where(RolePermission.role_id == user.role_id)
-        )
-        rows = session.execute(stmt).scalars().all()
-        permissions = {permission.strip().lower() for permission in rows if permission}
+        role = session.get(Role, user.role_id)
+        if role and normalize_role_name(role.name) == "ADMINISTRACION":
+            permissions = {"*"}
+        else:
+            stmt = (
+                select(Permission.key)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .where(RolePermission.role_id == user.role_id)
+            )
+            rows = session.execute(stmt).scalars().all()
+            permissions = {permission.strip().lower() for permission in rows if permission}
 
     if cache is not None:
         cache[user_id] = permissions

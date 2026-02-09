@@ -23,6 +23,7 @@ from ..core.policies import (
 )
 from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..core.rbac import get_user_permission_keys
+from ..core.roles_catalog import CANONICAL_ROLE_NAMES
 from ..db import get_session
 from ..core.security import (
     create_access_token,
@@ -1758,8 +1759,14 @@ def health() -> dict[str, str]:
     tags=["admin"],
     dependencies=[Depends(require_permissions("roles.view"))],
 )
-def list_roles(session: Session = Depends(get_session)) -> list[Role]:
-    return session.exec(select(Role)).all()
+def list_roles(
+    only_canonical: bool = Query(default=False),
+    session: Session = Depends(get_session),
+) -> list[Role]:
+    stmt = select(Role)
+    if only_canonical:
+        stmt = stmt.where(Role.name.in_(CANONICAL_ROLE_NAMES))
+    return session.exec(stmt).all()
 
 
 @router.get(

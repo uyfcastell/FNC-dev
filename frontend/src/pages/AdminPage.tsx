@@ -116,6 +116,7 @@ import {
   createProductionLine,
   updateProductionLine,
 } from "../lib/api";
+import { isCanonicalRoleName } from "../lib/roles";
 import { downloadBlob } from "../lib/download";
 
 const LAST_SKU_TYPE_STORAGE_KEY = "fnc.lastSkuTypeCode";
@@ -653,7 +654,7 @@ export function AdminPage() {
         fetchSkus({ include_inactive: true }),
         fetchDeposits({ include_inactive: true }),
         fetchRecipes({ include_inactive: true }),
-        fetchRoles(),
+        fetchRoles({ onlyCanonical: true }),
         fetchUsers(),
         fetchUnits(),
         fetchSkuTypes({ include_inactive: true }),
@@ -684,7 +685,7 @@ export function AdminPage() {
       if (skuList.status === "fulfilled") setSkus(skuList.value);
       if (depositList.status === "fulfilled") setDeposits(depositList.value);
       if (recipeList.status === "fulfilled") setRecipes(recipeList.value);
-      if (roleList.status === "fulfilled") setRoles(roleList.value);
+      if (roleList.status === "fulfilled") setRoles(roleList.value.filter((role) => isCanonicalRoleName(role.name)));
       if (userList.status === "fulfilled") setUsers(userList.value);
       if (unitList.status === "fulfilled") setUnits(unitList.value);
       if (skuTypeList.status === "fulfilled") setSkuTypes(skuTypeList.value);
