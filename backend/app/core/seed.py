@@ -24,7 +24,7 @@ DEFAULT_ROLES = [
     {"name": "Encargado de Planta", "description": "Supervisión operativa de planta"},
     {"name": "Encargado de Depósito", "description": "Gestión de stock y depósitos"},
     {"name": "Operario de Producción", "description": "Operación de producción"},
-    {"name": "Operario de Empaque", "description": "Operación de empaque"},
+    {"name": "Encargado de Empaque", "description": "Operación de empaque"},
     {"name": "Encargado de Reparto", "description": "Gestión de remitos y entregas"},
     {"name": "Encargado de Locales", "description": "Pedidos y remitos de locales"},
     {"name": "Auditoría", "description": "Acceso de lectura y auditoría"},
@@ -196,7 +196,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "mermas.report",
         "reports.view",
     ],
-    "Operario de Empaque": [
+    "Encargado de Empaque": [
         "dashboard.view",
         "deposits.view",
         "skus.view",

@@ -6,6 +6,7 @@ from ..core.config import get_settings
 from ..core.security import decode_access_token
 from ..db import get_session
 from ..models import Permission, Role, RolePermission, User
+from ..core.roles_catalog import normalize_role_name
 
 SUPERADMIN_EMAIL = "admin@local"
 
@@ -83,6 +84,9 @@ def require_permissions(*permissions: str):
             return current_user
         if current_user.role_id is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rol no asignado")
+        role = session.exec(select(Role).where(Role.id == current_user.role_id)).first()
+        if role and normalize_role_name(role.name) == "ADMINISTRACION":
+            return current_user
         result = session.exec(
             select(Permission.key)
             .join(RolePermission, RolePermission.permission_id == Permission.id)

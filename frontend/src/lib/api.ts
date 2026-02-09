@@ -805,8 +805,11 @@ export async function fetchHealth(): Promise<{ status: string; version?: string 
   return apiRequest("/health", {}, "No se pudo obtener el estado de la API");
 }
 
-export async function fetchRoles(): Promise<Role[]> {
-  return apiRequest("/roles", {}, "No se pudo obtener los roles");
+export async function fetchRoles(options?: { onlyCanonical?: boolean }): Promise<Role[]> {
+  const query = new URLSearchParams();
+  if (options?.onlyCanonical) query.append("only_canonical", "true");
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/roles${suffix}`, {}, "No se pudo obtener los roles");
 }
 
 export async function fetchPermissions(): Promise<Permission[]> {
