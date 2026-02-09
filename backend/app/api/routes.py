@@ -1,9 +1,11 @@
 import io
 import json
+import logging
 import re
+from html import escape
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
@@ -25,6 +27,7 @@ from ..core.storage import get_remitos_dir_new, resolve_remito_pdf_path
 from ..core.rbac import get_user_permission_keys
 from ..core.roles_catalog import CANONICAL_ROLE_NAMES
 from ..db import get_session
+from ..services import send_email
 from ..core.security import (
     create_access_token,
     hash_password,
@@ -204,6 +207,75 @@ MAX_PIN_ATTEMPTS = 5
 PIN_LOCKOUT_MINUTES = 15
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+def _dedupe_emails(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        email = value.strip()
+        if not email:
+            continue
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(email)
+    return deduped
+
+
+def _build_order_sent_email_html(order: Order, actor_name: str | None, item_rows: list[tuple[str, float]]) -> str:
+    items_html = "".join(
+        f"<li><strong>{escape(sku_code)}</strong>: {int(quantity) if float(quantity).is_integer() else quantity}</li>"
+        for sku_code, quantity in item_rows
+    )
+    return f"""
+    <h2>Pedido Enviado</h2>
+    <p><strong>ID pedido:</strong> {order.id}</p>
+    <p><strong>Fecha/hora:</strong> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
+    <p><strong>Usuario que ejecutó la acción:</strong> {escape(actor_name or 'N/A')}</p>
+    <p><strong>Local destino:</strong> {escape(order.destination)}</p>
+    <p><strong>Estado:</strong> Enviado</p>
+    <p><strong>Resumen items:</strong></p>
+    <ul>{items_html or '<li>Sin ítems</li>'}</ul>
+    """
+
+
+def _build_order_sent_email_payload(
+    session: Session,
+    order: Order,
+    current_user: User | None,
+) -> tuple[list[str], list[str], str, str]:
+    creator_email = None
+    if order.created_by_user_id:
+        creator = session.get(User, order.created_by_user_id)
+        creator_email = creator.email.strip() if creator and creator.email else None
+
+    to_list = _dedupe_emails([creator_email] if creator_email else [])
+    cc_list = [
+        email
+        for email in _dedupe_emails(settings.email_cc_always)
+        if email.lower() not in {recipient.lower() for recipient in to_list}
+    ]
+
+    item_rows = session.exec(
+        select(SKU.code, OrderItem.quantity)
+        .join(OrderItem, OrderItem.sku_id == SKU.id)
+        .where(OrderItem.order_id == order.id)
+        .order_by(SKU.code)
+    ).all()
+    actor_name = current_user.full_name if current_user else None
+    subject = f"{settings.email_subject_prefix} Pedido {order.id} enviado"
+    html_body = _build_order_sent_email_html(order, actor_name, item_rows)
+    return to_list, cc_list, subject, html_body
+
+
+def _enqueue_order_sent_email(background_tasks: BackgroundTasks, order_id: int, to_list: list[str], cc_list: list[str], subject: str, html_body: str) -> None:
+    background_tasks.add_task(send_email, to_list, subject, html_body, cc_list)
+    logger.info("order_sent_email_enqueued", extra={"order_id": order_id, "to": to_list, "cc": cc_list})
 
 
 def _encode_changes(payload: dict | list | None) -> dict | None:
@@ -3666,6 +3738,7 @@ def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderRe
 def create_order(
     payload: OrderCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> OrderRead:
@@ -3737,7 +3810,16 @@ def create_order(
         metadata=audit_context.get("metadata", {}),
     )
     _log_audit(session, "orders", order.id, AuditAction.CREATE, current_user.id, changes, audit_context=audit_context)
+    email_payload: tuple[list[str], list[str], str, str] | None = None
+    if order.status == OrderStatus.SUBMITTED and order.sent_email_at is None:
+        order.sent_email_at = datetime.utcnow()
+        session.add(order)
+        email_payload = _build_order_sent_email_payload(session, order, current_user)
+
     session.commit()
+    if email_payload:
+        to_list, cc_list, subject, html_body = email_payload
+        _enqueue_order_sent_email(background_tasks, order.id, to_list, cc_list, subject, html_body)
     session.refresh(order)
     return _map_order(order, session)
 
@@ -3752,6 +3834,7 @@ def update_order(
     order_id: int,
     payload: OrderUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> OrderRead:
@@ -3883,7 +3966,16 @@ def update_order(
             metadata=audit_context.get("metadata", {}),
         )
         _log_audit(session, "orders", order.id, AuditAction.UPDATE, current_user.id, changes, audit_context=audit_context)
+    email_payload: tuple[list[str], list[str], str, str] | None = None
+    if order.status == OrderStatus.SUBMITTED and order.sent_email_at is None:
+        order.sent_email_at = datetime.utcnow()
+        session.add(order)
+        email_payload = _build_order_sent_email_payload(session, order, current_user)
+
     session.commit()
+    if email_payload:
+        to_list, cc_list, subject, html_body = email_payload
+        _enqueue_order_sent_email(background_tasks, order.id, to_list, cc_list, subject, html_body)
     session.refresh(order)
     return _map_order(order, session)
 
@@ -3898,6 +3990,7 @@ def update_order_status(
     order_id: int,
     payload: OrderStatusUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> OrderRead:
@@ -3953,7 +4046,16 @@ def update_order_status(
         metadata=audit_context.get("metadata", {}),
     )
     _log_audit(session, "orders", order.id, AuditAction.STATUS, current_user.id, changes, audit_context=audit_context)
+    email_payload: tuple[list[str], list[str], str, str] | None = None
+    if order.status == OrderStatus.SUBMITTED and order.sent_email_at is None:
+        order.sent_email_at = datetime.utcnow()
+        session.add(order)
+        email_payload = _build_order_sent_email_payload(session, order, current_user)
+
     session.commit()
+    if email_payload:
+        to_list, cc_list, subject, html_body = email_payload
+        _enqueue_order_sent_email(background_tasks, order.id, to_list, cc_list, subject, html_body)
     session.refresh(order)
     return _map_order(order, session)
 
