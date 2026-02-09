@@ -20,42 +20,27 @@ def cleanup_test_roles(session: Session) -> dict[str, int]:
     test_roles = [role for role in roles if is_test_role_name(role.name)]
     test_role_ids = {role.id for role in test_roles if role.id is not None}
 
-    if not test_role_ids:
-        # igual podemos desactivar users "rbac-%@example.com" aunque no haya roles test
-        users = session.exec(
-            select(User).where(User.email.ilike("rbac-%@example.com"))
-        ).all()
-        users_disabled = 0
-        for user in users:
-            if is_test_user_email(user.email):
-                if user.is_active:
-                    user.is_active = False
-                    users_disabled += 1
-        if users_disabled:
-            session.commit()
-        return {
-            "roles_deleted": 0,
-            "role_permissions_deleted": 0,
-            "users_deleted": 0,
-            "users_disabled": users_disabled,
-        }
-
     # 1) borrar role_permissions de roles test
-    role_permissions = session.exec(
-        select(RolePermission).where(RolePermission.role_id.in_(test_role_ids))
-    ).all()
-    for rel in role_permissions:
-        session.delete(rel)
+    role_permissions: list[RolePermission] = []
+    if test_role_ids:
+        role_permissions = session.exec(
+            select(RolePermission).where(RolePermission.role_id.in_(test_role_ids))
+        ).all()
+        for rel in role_permissions:
+            session.delete(rel)
 
     # 2) desactivar users de test (NO borrar)
     #   - users que tengan role_id en roles test
     #   - users con email de test (rbac-%@example.com)
-    users = session.exec(
-        select(User).where(
+    users_query = select(User)
+    if test_role_ids:
+        users_query = users_query.where(
             (User.role_id.in_(test_role_ids))
             | (User.email.ilike("rbac-%@example.com"))
         )
-    ).all()
+    else:
+        users_query = users_query.where(User.email.ilike("rbac-%@example.com"))
+    users = session.exec(users_query).all()
 
     users_disabled = 0
     users_role_cleared = 0
@@ -85,7 +70,6 @@ def cleanup_test_roles(session: Session) -> dict[str, int]:
     return {
         "roles_deleted": len(test_roles),
         "role_permissions_deleted": len(role_permissions),
-        "users_deleted": 0,
         "users_disabled": users_disabled,
         "users_role_cleared": users_role_cleared,
     }
@@ -134,4 +118,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
