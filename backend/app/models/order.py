@@ -29,6 +29,7 @@ class Order(TimestampedModel, table=True):
     cancelled_by_name: str | None = Field(default=None, max_length=255)
     created_by_user_id: int | None = Field(default=None, foreign_key="users.id")
     updated_by_user_id: int | None = Field(default=None, foreign_key="users.id")
+    sent_email_at: datetime | None = Field(default=None)
 
     items: list["OrderItem"] = Relationship(back_populates="order")
     remitos: list["Remito"] = Relationship(back_populates="order")
