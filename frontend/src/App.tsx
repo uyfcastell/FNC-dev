@@ -31,10 +31,23 @@ import { RequireAuth, RequirePermission, useAuth } from "./lib/auth";
 import { isLocalUser } from "./lib/roles";
 import { ROUTE_PERMISSION_RULES } from "./lib/permissions";
 import { ForbiddenPage } from "./pages/ForbiddenPage";
+import { isRouteEnabled } from "./core/uiAccessCatalog";
+import { NoAccessPage } from "./pages/NoAccessPage";
 
 
 function RouteGuard({ requiredAnyPerms, element }: { requiredAnyPerms: string[]; element: ReactNode }) {
   return <RequirePermission anyOf={requiredAnyPerms}>{element}</RequirePermission>;
+}
+
+function WebRouteGuard({ path, element }: { path: string; element: ReactNode }) {
+  const { user } = useAuth();
+  const perms = user?.hasPermissionKeysV2 ? user.permissionKeysV2 : user?.legacyPermissions ?? [];
+
+  if (!isRouteEnabled(perms, path)) {
+    return <NoAccessPage />;
+  }
+
+  return <>{element}</>;
 }
 
 function MobileRoutes() {
@@ -84,22 +97,22 @@ function DesktopRoutes() {
   return (
     <ShellComponent>
       <Routes>
-        <Route path="/" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/"] ?? []} element={<HomeRouterPage />} />} />
-        <Route path="/produccion" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/produccion"] ?? []} element={<ProductionPage />} />} />
-        <Route path="/stock" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/stock"] ?? []} element={<StockPage />} />} />
-        <Route path="/stock/movimientos" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/stock/movimientos"] ?? []} element={<StockMovementsPage />} />} />
-        <Route path="/stock/inventarios" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/stock/inventarios"] ?? []} element={<InventoryCountsPage />} />} />
-        <Route path="/mermas" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/mermas"] ?? []} element={<MermasPage />} />} />
-        <Route path="/pedidos" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/pedidos"] ?? []} element={<OrdersPage />} />} />
-        <Route path="/envios" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/envios"] ?? []} element={<ShipmentsPage />} />} />
-        <Route path="/envios/:shipmentId" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/envios/:shipmentId"] ?? []} element={<ShipmentDetailPage />} />} />
-        <Route path="/envios/:shipmentId/preparar" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/envios/:shipmentId/preparar"] ?? []} element={<ShipmentPrepPage />} />} />
-        <Route path="/remitos" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/remitos"] ?? []} element={<RemitosPage />} />} />
-        <Route path="/compras" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/compras"] ?? []} element={<PurchasesPage />} />} />
-        <Route path="/pedidos/ingreso" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/pedidos/ingreso"] ?? []} element={<OrderEntryPage />} />} />
-        <Route path="/administracion" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/administracion"] ?? []} element={<AdminPage />} />} />
-        <Route path="/auditoria" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/auditoria"] ?? []} element={<AuditPage />} />} />
-        <Route path="/reportes" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/reportes"] ?? []} element={<ReportsPage />} />} />
+        <Route path="/" element={<WebRouteGuard path="/" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/"] ?? []} element={<HomeRouterPage />} />} />} />
+        <Route path="/produccion" element={<WebRouteGuard path="/produccion" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/produccion"] ?? []} element={<ProductionPage />} />} />} />
+        <Route path="/stock" element={<WebRouteGuard path="/stock" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/stock"] ?? []} element={<StockPage />} />} />} />
+        <Route path="/stock/movimientos" element={<WebRouteGuard path="/stock/movimientos" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/stock/movimientos"] ?? []} element={<StockMovementsPage />} />} />} />
+        <Route path="/stock/inventarios" element={<WebRouteGuard path="/stock/inventarios" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/stock/inventarios"] ?? []} element={<InventoryCountsPage />} />} />} />
+        <Route path="/mermas" element={<WebRouteGuard path="/mermas" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/mermas"] ?? []} element={<MermasPage />} />} />} />
+        <Route path="/pedidos" element={<WebRouteGuard path="/pedidos" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/pedidos"] ?? []} element={<OrdersPage />} />} />} />
+        <Route path="/envios" element={<WebRouteGuard path="/envios" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/envios"] ?? []} element={<ShipmentsPage />} />} />} />
+        <Route path="/envios/:shipmentId" element={<WebRouteGuard path="/envios/:shipmentId" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/envios/:shipmentId"] ?? []} element={<ShipmentDetailPage />} />} />} />
+        <Route path="/envios/:shipmentId/preparar" element={<WebRouteGuard path="/envios/:shipmentId/preparar" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/envios/:shipmentId/preparar"] ?? []} element={<ShipmentPrepPage />} />} />} />
+        <Route path="/remitos" element={<WebRouteGuard path="/remitos" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/remitos"] ?? []} element={<RemitosPage />} />} />} />
+        <Route path="/compras" element={<WebRouteGuard path="/compras" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/compras"] ?? []} element={<PurchasesPage />} />} />} />
+        <Route path="/pedidos/ingreso" element={<WebRouteGuard path="/pedidos/ingreso" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/pedidos/ingreso"] ?? []} element={<OrderEntryPage />} />} />} />
+        <Route path="/administracion" element={<WebRouteGuard path="/administracion" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/administracion"] ?? []} element={<AdminPage />} />} />} />
+        <Route path="/auditoria" element={<WebRouteGuard path="/auditoria" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/auditoria"] ?? []} element={<AuditPage />} />} />} />
+        <Route path="/reportes" element={<WebRouteGuard path="/reportes" element={<RouteGuard requiredAnyPerms={ROUTE_PERMISSION_RULES["/reportes"] ?? []} element={<ReportsPage />} />} />} />
         <Route path="/forbidden" element={<ForbiddenPage />} />
         <Route path="*" element={<Navigate to="/forbidden" replace />} />
       </Routes>
