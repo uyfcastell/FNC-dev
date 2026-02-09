@@ -16,7 +16,7 @@ import { PropsWithChildren, ReactNode, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
-import { ROUTE_PERMISSION_RULES } from "../lib/permissions";
+import { UIModule, isModuleEnabled } from "../core/uiAccessCatalog";
 
 const drawerWidth = 240;
 
@@ -24,35 +24,36 @@ export type NavItem = {
   label: string;
   to: string;
   icon: ReactNode;
-  requiredAnyPerms?: string[];
+  module: UIModule;
   state?: Record<string, unknown>;
 };
 
 const NAV_CONFIG: NavItem[] = [
-  { label: "Inicio", icon: <DashboardIcon />, to: "/", requiredAnyPerms: [] },
-  { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion", requiredAnyPerms: ROUTE_PERMISSION_RULES["/produccion"] },
-  { label: "Stock", icon: <InventoryIcon />, to: "/stock", requiredAnyPerms: ROUTE_PERMISSION_RULES["/stock"] },
-  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos", requiredAnyPerms: ROUTE_PERMISSION_RULES["/stock/movimientos"] },
-  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios", requiredAnyPerms: ROUTE_PERMISSION_RULES["/stock/inventarios"] },
-  { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas", requiredAnyPerms: ROUTE_PERMISSION_RULES["/mermas"] },
-  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos", requiredAnyPerms: ROUTE_PERMISSION_RULES["/pedidos"] },
-  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios", requiredAnyPerms: ROUTE_PERMISSION_RULES["/envios"] },
-  { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos", requiredAnyPerms: ROUTE_PERMISSION_RULES["/remitos"] },
-  { label: "Compras", icon: <LocalMallIcon />, to: "/compras", requiredAnyPerms: ROUTE_PERMISSION_RULES["/compras"] },
-  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true }, requiredAnyPerms: ROUTE_PERMISSION_RULES["/pedidos/ingreso"] },
-  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion", requiredAnyPerms: ROUTE_PERMISSION_RULES["/administracion"] },
-  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria", requiredAnyPerms: ROUTE_PERMISSION_RULES["/auditoria"] },
-  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes", requiredAnyPerms: ROUTE_PERMISSION_RULES["/reportes"] },
+  { label: "Inicio", icon: <DashboardIcon />, to: "/", module: "dashboard" },
+  { label: "Producción", icon: <ManufacturingIcon />, to: "/produccion", module: "production" },
+  { label: "Stock", icon: <InventoryIcon />, to: "/stock", module: "stock" },
+  { label: "Movimientos de stock", icon: <HistoryIcon />, to: "/stock/movimientos", module: "stock" },
+  { label: "Inventarios físicos", icon: <HistoryIcon />, to: "/stock/inventarios", module: "inventories" },
+  { label: "Mermas", icon: <ReportProblemIcon />, to: "/mermas", module: "waste" },
+  { label: "Pedidos", icon: <ListAltIcon />, to: "/pedidos", module: "orders" },
+  { label: "Envíos", icon: <LocalShippingIcon />, to: "/envios", module: "shipments" },
+  { label: "Remitos", icon: <ReceiptLongIcon />, to: "/remitos", module: "shipments" },
+  { label: "Compras", icon: <LocalMallIcon />, to: "/compras", module: "purchases" },
+  { label: "Ingreso de pedidos", icon: <PlaylistAddIcon />, to: "/pedidos/ingreso", state: { fromMenu: true }, module: "orders" },
+  { label: "Maestros", icon: <AdminPanelSettingsIcon />, to: "/administracion", module: "admin" },
+  { label: "Auditoría", icon: <HistoryIcon />, to: "/auditoria", module: "audit" },
+  { label: "Reportes", icon: <ListAltIcon />, to: "/reportes", module: "reports" },
 ];
 
 export function AppShell({ children, navItems = NAV_CONFIG }: PropsWithChildren<{ navItems?: NavItem[] }>) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const { user, logout, hasAny, isSuperuser } = useAuth();
+  const { user, logout, isSuperuser } = useAuth();
+  const userPerms = user?.hasPermissionKeysV2 ? user.permissionKeysV2 : user?.legacyPermissions ?? [];
 
   const visibleNavItems = useMemo(
-    () => navItems.filter((item) => !item.requiredAnyPerms || item.requiredAnyPerms.length === 0 || hasAny(item.requiredAnyPerms)),
-    [hasAny, navItems],
+    () => navItems.filter((item) => isModuleEnabled(userPerms, item.module)),
+    [navItems, userPerms],
   );
 
   const drawer = (
