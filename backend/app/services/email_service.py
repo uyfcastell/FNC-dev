@@ -24,18 +24,18 @@ def _dedupe_emails(values: list[str] | None) -> list[str]:
     return deduped
 
 
-def send_email(to: list[str], subject: str, html_body: str, cc: list[str] | None = None) -> None:
+def send_email(to: list[str], subject: str, html_body: str, cc: list[str] | None = None) -> bool:
     settings = get_settings()
     if not settings.email_enabled:
         logger.info("email_disabled", extra={"subject": subject})
-        return
+        return False
 
     to_list = _dedupe_emails(to)
     cc_list = _dedupe_emails(cc)
     recipients = _dedupe_emails([*to_list, *cc_list])
     if not recipients:
         logger.info("email_not_sent_no_recipients", extra={"subject": subject})
-        return
+        return False
 
     message = EmailMessage()
     message["From"] = settings.email_from
@@ -55,5 +55,7 @@ def send_email(to: list[str], subject: str, html_body: str, cc: list[str] | None
             if settings.email_username:
                 server.login(settings.email_username, settings.email_password)
             server.send_message(message, from_addr=settings.email_from, to_addrs=recipients)
+        return True
     except Exception:
         logger.exception("email_send_failed", extra={"subject": subject, "to": to_list, "cc": cc_list})
+        return False
