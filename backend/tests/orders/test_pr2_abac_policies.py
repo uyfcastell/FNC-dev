@@ -248,7 +248,7 @@ def test_inventory_count_invalid_state_transitions_return_409(client):
 
 
 def test_order_status_transition_permissions_and_invalid_transition(client):
-    _set_role_permissions("PR2 Status", ["orders.submit"])
+    _set_role_permissions("PR2 Status", ["orders.edit"])
 
     _set_user_override(7001, "PR2 Status")
     order = _create_order(client, status="draft")
@@ -256,7 +256,7 @@ def test_order_status_transition_permissions_and_invalid_transition(client):
     ok_res = client.post(f"/api/orders/{order['id']}/status", json={"status": "submitted"})
     assert ok_res.status_code == 403
 
-    _set_role_permissions("PR2 Status", ["orders.submit", "ops.orders.submit"])
+    _set_role_permissions("PR2 Status", ["orders.edit", "orders.submit"])
     _set_user_override(7001, "PR2 Status")
 
     with Session(engine) as session:
@@ -269,5 +269,18 @@ def test_order_status_transition_permissions_and_invalid_transition(client):
     ok_res = client.post(f"/api/orders/{order['id']}/status", json={"status": "submitted"})
     assert ok_res.status_code == 200, ok_res.text
 
+    _set_role_permissions("PR2 Status", ["orders.edit", "orders.cancel"])
+    _set_user_override(7001, "PR2 Status")
+
+    with Session(engine) as session:
+        db_order = session.get(Order, order["id"])
+        assert db_order is not None
+        db_order.status = "draft"
+        session.add(db_order)
+        session.commit()
+
+    cancel_res = client.post(f"/api/orders/{order['id']}/status", json={"status": "cancelled"})
+    assert cancel_res.status_code == 200, cancel_res.text
+
     invalid_res = client.post(f"/api/orders/{order['id']}/status", json={"status": "submitted"})
-    assert invalid_res.status_code == 409
+    assert invalid_res.status_code == 403
