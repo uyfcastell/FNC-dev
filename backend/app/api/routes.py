@@ -4069,7 +4069,7 @@ def update_order(
     "/orders/{order_id}/status",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_permissions("orders.submit", "orders.cancel"))],
+    dependencies=[Depends(require_permissions("orders.edit"))],
 )
 def update_order_status(
     order_id: int,
@@ -4082,11 +4082,22 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pedido no encontrado")
     transition_permission_by_status = {
-        OrderStatus.SUBMITTED: "ops.orders.submit",
-        OrderStatus.CANCELLED: "ops.orders.cancel",
+        OrderStatus.SUBMITTED: "orders.submit",
+        OrderStatus.CANCELLED: "orders.cancel",
     }
     transition_permission = transition_permission_by_status.get(payload.status)
-    if transition_permission and not has_permission(session, current_user, transition_permission):
+
+    privileged_transition = False
+    if current_user.role_id is not None:
+        role = session.get(Role, current_user.role_id)
+        if role:
+            normalized_role = _normalize_role_name(role.name)
+            privileged_transition = normalized_role in {"ADMINISTRACION", "ENCARGADO DE PLANTA"}
+
+    if transition_permission:
+        if not (privileged_transition or has_permission(session, current_user, transition_permission)):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    elif not privileged_transition:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
     assert_order_status_transition_allowed(order, payload.status)
