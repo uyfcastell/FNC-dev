@@ -34,7 +34,7 @@ ROUTE_PERMISSION_MAP: dict[tuple[str, str], str] = {
     ("GET", "/api/orders/{order_id}"): "ops.orders.read",
     ("PUT", "/api/orders/{order_id}"): "ops.orders.update_draft",
     ("DELETE", "/api/orders/{order_id}"): "ops.orders.delete_draft",
-    ("POST", "/api/orders/{order_id}/status"): "ops.orders.change_status",
+    ("POST", "/api/orders/{order_id}/status"): "orders.submit",
     ("GET", "/api/orders/catalog"): "ops.lookups.order_entry_skus.list",
     ("GET", "/api/orders/stores"): "ops.lookups.order_stores.list",
     ("GET", "/api/shipments"): "ops.shipments.list",
