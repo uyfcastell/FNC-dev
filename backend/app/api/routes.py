@@ -427,17 +427,7 @@ def _build_audit_context(request: Request | None) -> dict:
 
 
 def _user_has_permission(session: Session, user: User, permission_key: str) -> bool:
-    if user.email.strip().lower() == SUPERADMIN_EMAIL:
-        return True
-    if user.role_id is None:
-        return False
-    result = session.exec(
-        select(Permission.key)
-        .join(RolePermission, RolePermission.permission_id == Permission.id)
-        .where(RolePermission.role_id == user.role_id)
-    ).all()
-    assigned = {key.lower() for key in result}
-    return permission_key.strip().lower() in assigned
+    return has_permission(session, user, permission_key)
 
 
 def _build_audit_changes(
@@ -4069,7 +4059,7 @@ def update_order(
     "/orders/{order_id}/status",
     tags=["orders"],
     response_model=OrderRead,
-    dependencies=[Depends(require_permissions("orders.edit"))],
+    dependencies=[Depends(require_permissions("orders.edit", "orders.submit", "orders.cancel"))],
 )
 def update_order_status(
     order_id: int,
@@ -4365,7 +4355,7 @@ def update_shipment(
     "/shipments/{shipment_id}/add-orders",
     tags=["shipments"],
     response_model=ShipmentDetail,
-    dependencies=[Depends(require_permissions("remitos.edit"))],
+    dependencies=[Depends(require_permissions("shipments.add_orders", "remitos.edit"))],
 )
 def add_orders_to_shipment(
     shipment_id: int,

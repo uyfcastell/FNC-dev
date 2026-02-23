@@ -6,6 +6,7 @@ from ..core.config import get_settings
 from ..core.security import decode_access_token
 from ..db import get_session
 from ..models import Permission, Role, RolePermission, User
+from ..core.permission_aliases import has_any_permission
 from ..core.roles_catalog import normalize_role_name
 
 SUPERADMIN_EMAIL = "admin@local"
@@ -93,7 +94,7 @@ def require_permissions(*permissions: str):
             .where(RolePermission.role_id == current_user.role_id)
         ).all()
         assigned = {key.lower() for key in result}
-        if not normalized.intersection(assigned):
+        if not any(has_any_permission(assigned, permission) for permission in normalized):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permiso insuficiente")
         return current_user
 

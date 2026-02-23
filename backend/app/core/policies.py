@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 from sqlmodel import Session
 
+from ..core.permission_aliases import has_any_permission
 from ..core.rbac import get_user_permission_keys
 from ..models import InventoryCount, InventoryCountStatus, Order, OrderStatus, User
 
@@ -27,9 +28,8 @@ INVENTORY_ACTION_ALLOWED_STATUSES: dict[str, set[InventoryCountStatus]] = {
 
 
 def has_permission(session: Session, user: User, permission_key: str) -> bool:
-    normalized = permission_key.strip().lower()
     keys = get_user_permission_keys(user.id, session)
-    return "*" in keys or normalized in keys
+    return has_any_permission(keys, permission_key)
 
 
 def assert_order_owner_draft_or_override(

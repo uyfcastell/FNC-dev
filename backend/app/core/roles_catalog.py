@@ -6,9 +6,6 @@ CANONICAL_ROLES: tuple[str, ...] = (
     "Encargado de Depósito",
     "Encargado de Locales",
     "Encargado de Planta",
-    "Encargado de Reparto",
-    "Encargado de Empaque",
-    "Operario de Producción",
 )
 
 TEST_ROLE_PREFIXES: tuple[str, ...] = ("RBAC Role ", "PR2 ")
