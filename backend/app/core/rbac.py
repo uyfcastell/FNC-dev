@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from ..api.deps import SUPERADMIN_EMAIL, get_current_user
 from ..db import engine, get_session
 from ..models import Permission, Role, RolePermission, User
+from .permission_aliases import has_any_permission
 from .rbac_catalog import AUTH_ONLY, DOC_PATHS, PUBLIC_WHITELIST, ROUTE_PERMISSION_MAP
 from .roles_catalog import normalize_role_name
 
@@ -59,15 +60,13 @@ def get_user_permission_keys(user_id: int, session: Session, request: Request | 
 
 
 def require_perm(permission_key: str):
-    normalized = permission_key.strip().lower()
-
     def _checker(
         request: Request,
         current_user: User = Depends(get_current_user),
         session: Session = Depends(get_session),
     ) -> User:
         keys = get_user_permission_keys(current_user.id, session, request)
-        if "*" in keys or normalized in keys:
+        if has_any_permission(keys, permission_key):
             return current_user
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
