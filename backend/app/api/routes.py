@@ -2031,6 +2031,15 @@ def create_user(
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El email ya está registrado")
 
+    pin_hash: str | None = None
+    if payload.pin:
+        if not PIN_REGEX.fullmatch(payload.pin):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN inválido")
+        pin_hash = hash_pin(payload.pin)
+        duplicate_pin = session.exec(select(User).where(User.pin_hash == pin_hash)).first()
+        if duplicate_pin:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PIN ya asignado a otro usuario")
+
     if payload.role_id:
         role = session.get(Role, payload.role_id)
         if not role:
@@ -2040,6 +2049,7 @@ def create_user(
         email=payload.email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
+        pin_hash=pin_hash,
         role_id=payload.role_id,
         is_active=payload.is_active,
     )

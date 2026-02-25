@@ -1,5 +1,7 @@
 import LockIcon from "@mui/icons-material/Lock";
-import { Alert, Box, Button, Card, CardContent, CardHeader, Stack, TextField } from "@mui/material";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
+import { Alert, Box, Button, Card, CardContent, CardHeader, IconButton, InputAdornment, Stack, TextField } from "@mui/material";
 import { FormEvent, useEffect, useState } from "react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 
@@ -11,6 +13,7 @@ export function MobilePinLoginPage() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   useEffect(() => {
@@ -48,6 +51,7 @@ export function MobilePinLoginPage() {
             {error && <Alert severity="error">{error}</Alert>}
             <TextField
               label="PIN"
+              type={showPin ? "text" : "password"}
               fullWidth
               value={pin}
               inputMode="numeric"
@@ -55,6 +59,20 @@ export function MobilePinLoginPage() {
               inputProps={{ maxLength: 6 }}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
               disabled={submitting || loading}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      edge="end"
+                      aria-label={showPin ? "Ocultar PIN" : "Mostrar PIN"}
+                      onClick={() => setShowPin((prev) => !prev)}
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      {showPin ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
             <Button variant="contained" color="primary" fullWidth type="submit" disabled={submitting || loading || !pin}>
               {submitting || loading ? "Ingresando..." : "Ingresar"}
