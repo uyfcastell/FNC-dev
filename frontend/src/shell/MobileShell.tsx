@@ -1,6 +1,6 @@
 import MenuIcon from "@mui/icons-material/Menu";
-import { AppBar, Box, Button, Container, Divider, Drawer, IconButton, List, ListItemButton, ListItemText, Toolbar, Typography } from "@mui/material";
-import { PropsWithChildren, useState } from "react";
+import { AppBar, Avatar, Box, Container, Divider, Drawer, IconButton, List, ListItemButton, ListItemText, Menu, MenuItem, Toolbar, Typography } from "@mui/material";
+import { MouseEvent, PropsWithChildren, useMemo, useState } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
@@ -17,10 +17,37 @@ type Props = PropsWithChildren<{
 
 const drawerWidth = 260;
 
+function buildUserInitials(fullName?: string): string {
+  if (!fullName) return "?";
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+}
+
 export function MobileShell({ title, navItems, children }: Props) {
   const [open, setOpen] = useState(false);
+  const [accountMenuAnchor, setAccountMenuAnchor] = useState<null | HTMLElement>(null);
   const location = useLocation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const accountMenuOpen = Boolean(accountMenuAnchor);
+  const userInitials = useMemo(() => buildUserInitials(user?.full_name), [user?.full_name]);
+
+  const openAccountMenu = (event: MouseEvent<HTMLElement>) => {
+    setAccountMenuAnchor(event.currentTarget);
+  };
+
+  const closeAccountMenu = () => {
+    setAccountMenuAnchor(null);
+  };
+
+  const handleLogout = () => {
+    closeAccountMenu();
+    logout();
+  };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", bgcolor: "#f5f6fa" }}>
@@ -33,9 +60,34 @@ export function MobileShell({ title, navItems, children }: Props) {
             {title}
           </Typography>
           <Box flexGrow={1} />
-          <Button color="inherit" size="small" onClick={logout}>
-            Salir
-          </Button>
+          <IconButton
+            color="inherit"
+            onClick={openAccountMenu}
+            aria-label="Abrir menú de cuenta"
+            aria-controls={accountMenuOpen ? "mobile-account-menu" : undefined}
+            aria-haspopup="true"
+            aria-expanded={accountMenuOpen ? "true" : undefined}
+          >
+            <Avatar sx={{ width: 32, height: 32, bgcolor: "#2e7d32", fontSize: 13, fontWeight: 700 }}>{userInitials}</Avatar>
+          </IconButton>
+          <Menu
+            id="mobile-account-menu"
+            anchorEl={accountMenuAnchor}
+            open={accountMenuOpen}
+            onClose={closeAccountMenu}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+          >
+            <MenuItem disabled sx={{ opacity: "1 !important" }}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  {user?.full_name ?? "Usuario"}
+                </Typography>
+              </Box>
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={handleLogout}>Salir</MenuItem>
+          </Menu>
         </Toolbar>
       </AppBar>
 
