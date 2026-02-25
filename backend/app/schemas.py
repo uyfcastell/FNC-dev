@@ -525,6 +525,7 @@ class UserCreate(SQLModel):
     email: str
     full_name: str
     password: str
+    pin: str | None = None
     role_id: int | None = None
     is_active: bool = True
 

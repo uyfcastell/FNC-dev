@@ -1560,7 +1560,7 @@ export async function fetchUsers(): Promise<User[]> {
   return apiRequest("/users", {}, "No se pudieron obtener los usuarios");
 }
 
-export async function createUser(payload: { email: string; full_name: string; password: string; role_id?: number | null; is_active?: boolean }): Promise<User> {
+export async function createUser(payload: { email: string; full_name: string; password: string; pin?: string | null; role_id?: number | null; is_active?: boolean }): Promise<User> {
   return apiRequest("/users", { method: "POST", body: JSON.stringify(payload) }, "No se pudo crear el usuario");
 }
 

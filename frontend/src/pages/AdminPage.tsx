@@ -734,6 +734,25 @@ export function AdminPage() {
     setError(null);
   };
 
+  const getUserSaveErrorMessage = (error: unknown) => {
+    if (error instanceof ApiError) {
+      const detail = error.message?.trim();
+      if (detail === "PIN ya asignado a otro usuario") {
+        return "No pudimos guardar el usuario: el PIN ya está asignado a otro usuario.";
+      }
+      if (detail === "El email ya está registrado") {
+        return "No pudimos guardar el usuario: el email ya está registrado.";
+      }
+      if (detail === "Rol inexistente") {
+        return "No pudimos guardar el usuario: el rol seleccionado no existe.";
+      }
+      if (detail) {
+        return `No pudimos guardar el usuario: ${detail}`;
+      }
+    }
+    return "No pudimos guardar el usuario. Revisá los datos e intentá nuevamente.";
+  };
+
   const handleSkuExport = async () => {
     try {
       setExportingSkus(true);
@@ -937,17 +956,14 @@ export function AdminPage() {
         }
         setSuccess("Usuario actualizado");
       } else {
-        const createdUser = await createUser(payload);
-        if (normalizedPin) {
-          await updateUserPin(createdUser.id, { pin: normalizedPin });
-        }
+        await createUser({ ...payload, pin: normalizedPin || undefined });
         setSuccess("Usuario creado");
       }
       setUserForm({ id: undefined, email: "", full_name: "", password: "", role_id: "", is_active: true, pin: "", clear_pin: false });
       await loadData();
     } catch (err) {
       console.error(err);
-      setError("No pudimos guardar el usuario. Revisa duplicados o datos requeridos.");
+      setError(getUserSaveErrorMessage(err));
     }
   };
 
