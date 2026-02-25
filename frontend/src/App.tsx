@@ -64,7 +64,7 @@ function MobileRoutes() {
 
   return (
     <MobileShell
-      title="FNC | Producción"
+      title="FNC"
       navItems={navItems}
     >
       <Routes>

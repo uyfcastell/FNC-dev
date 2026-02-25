@@ -438,7 +438,7 @@ export function MobileOrdersPage() {
   return (
     <Stack spacing={2}>
       <Typography variant="h5" sx={{ fontWeight: 800 }}>
-        Pedidos (modo móvil)
+        Pedidos
       </Typography>
       {error && <Alert severity="warning">{error}</Alert>}
       {success && (
